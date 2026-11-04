@@ -1,0 +1,23 @@
+{
+  "name": "mia-ai-app",
+  "version": "0.1.0",
+  "description": "Mia AI — chat AI personale (Capacitor, Android)",
+  "private": true,
+  "scripts": {
+    "stage": "node scripts/stage-www.js",
+    "serve": "npm run stage && npx http-server www -p 8080 -c-1",
+    "cap:sync": "npm run stage && npx cap sync android",
+    "cap:open": "npx cap open android",
+    "build:apk": "npm run stage && npx cap sync android && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.2",
+    "@capacitor/app": "^7.0.1",
+    "@capacitor/core": "^7.4.2",
+    "@capacitor/keyboard": "^7.0.1",
+    "@capacitor/status-bar": "^7.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.2"
+  }
+}
