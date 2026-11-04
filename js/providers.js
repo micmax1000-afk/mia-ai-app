@@ -318,7 +318,8 @@
     const signal = controller.signal;
     try {
       const fn = preset.type === 'gemini' ? streamGemini : streamOpenAI;
-      const text = await fn(cfg, messages, onText || function () {}, signal);
+      const cb = onText || function () {};
+      const text = cleanText(await fn(cfg, messages, (full) => cb(cleanText(full)), signal));
       if (!text.trim()) throw new Error('Risposta vuota dal modello.');
       return text;
     } finally {
@@ -342,11 +343,28 @@
     }
   }
 
+  /**
+   * Pulisce la risposta: toglie il «ragionamento» (<think>…</think>) che alcuni modelli
+   * gratuiti mettono nel testo e i token tecnici di fine turno (<|im_end|>, <end_of_turn>…).
+   */
+  function cleanText(t) {
+    let s = String(t || '');
+    s = s.replace(/<(think|thinking|reasoning)>[\s\S]*?<\/\1>/gi, '');
+    s = s.replace(/^\s*<(think|thinking|reasoning)>[\s\S]*$/i, ''); // ragionamento non ancora chiuso
+    s = s.replace(/<\|[a-z_]+\|>|<\/?(start_of_turn|end_of_turn|eos|bos|s)>/gi, '');
+    return s.replace(/^\s+/, '');
+  }
+
+  /** Modelli specializzati (codice, matematica…) da non usare come ripiego automatico. */
+  function isSpecialized(model) {
+    return /cod(e|er|ing)|math|embed|rerank|guard|safety|ocr|vision-only/i.test(String(model || ''));
+  }
+
   /** Errori per cui ha senso riprovare subito con un altro modello. */
   function isBusyError(e) {
     const m = String((e && e.message) || e || '');
     return !(e && e.attachmentError) && /429|quota|rate.?limit|overload|capacity|unavailable|50[234]|no endpoints/i.test(m);
   }
 
-  global.MiaProviders = { PRESETS, chat, listModels, abort, friendlyError, isBusyError };
+  global.MiaProviders = { PRESETS, chat, listModels, abort, friendlyError, isBusyError, cleanText, isSpecialized };
 })(window);

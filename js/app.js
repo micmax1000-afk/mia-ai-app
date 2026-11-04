@@ -447,7 +447,12 @@
     const attempts = [cfg];
     if (settings.autoFallback !== false) {
       settings.favorites
-        .filter((f) => !(f.provider === cfg.provider && f.model === cfg.model) && isConfigured(f))
+        .filter(
+          (f) =>
+            !(f.provider === cfg.provider && f.model === cfg.model) &&
+            isConfigured(f) &&
+            (P.isSpecialized(cfg.model) || !P.isSpecialized(f.model)) // niente modelli per il codice come ripiego
+        )
         .slice(0, 3)
         .forEach((f) => attempts.push(chatConfig(f)));
     }
@@ -466,7 +471,7 @@
             if (!frame) {
               frame = requestAnimationFrame(() => {
                 frame = 0;
-                bubble.innerHTML = MD.render(partial);
+                bubble.innerHTML = partial ? MD.render(partial) : '<span class="typing"><i></i><i></i><i></i></span>';
                 scrollToBottom(false);
               });
             }
@@ -478,7 +483,9 @@
           toast(a.model + ' è occupato: provo ' + next.model);
         }
       }
-      c.messages.push({ role: 'assistant', content: text, model: tag });
+      const usedFallback = tag !== modelLabel(cfg.provider, cfg.model);
+      c.messages.push({ role: 'assistant', content: text, model: (usedFallback ? '↪ ' : '') + tag });
+      if (usedFallback) toast('Ha risposto ' + tag + ' perché ' + cfg.model + ' era occupato');
       save(LS_SETTINGS, settings);
     } catch (e) {
       if (e && e.name === 'AbortError') {
