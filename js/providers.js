@@ -37,27 +37,6 @@
       needsKey: true,
       keyUrl: 'https://console.groq.com/keys'
     },
-    duckai: {
-      label: 'Duck.ai (tramite proxy)',
-      short: 'Duck.ai',
-      type: 'openai',
-      baseUrl: 'http://192.168.1.10:3000/v1',
-      model: 'gpt-4o-mini',
-      needsKey: false,
-      hint:
-        "Duck.ai non ha un'API ufficiale: serve il proxy «duckai» acceso su un PC o server " +
-        '(docker run -p 3000:3000 amirkabiri/duckai). Metti qui l\'IP di quel PC. ' +
-        'Non ufficiale: può smettere di funzionare se DuckDuckGo cambia qualcosa.'
-    },
-    ollama: {
-      label: 'Ollama (PC in rete locale)',
-      short: 'Ollama',
-      type: 'openai',
-      baseUrl: 'http://192.168.1.10:11434/v1',
-      model: 'llama3.2',
-      needsKey: false,
-      hint: "Avvia Ollama sul PC con OLLAMA_HOST=0.0.0.0 e OLLAMA_ORIGINS=*, poi usa l'IP del PC."
-    },
     custom: {
       label: 'Personalizzato (compatibile OpenAI)',
       short: 'Custom',
