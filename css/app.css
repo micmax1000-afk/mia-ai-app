@@ -256,7 +256,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .danger { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
 
 .toast {
-  position: fixed; left: 50%; bottom: calc(90px + var(--safe-bottom));
+  position: fixed; left: 50%; top: calc(70px + var(--safe-top));
   transform: translateX(-50%);
   background: var(--surface-2); border: 1px solid var(--border);
   padding: 8px 16px; border-radius: 999px; z-index: 30; font-size: 14px;
@@ -272,3 +272,29 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .pick-list .pick small { color: var(--muted); font-size: 12px; }
 .pick-list .pick .check { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: var(--accent-2); }
 .btn.full { width: 100%; }
+
+/* Allegati */
+.attach-btn {
+  width: 42px; height: 46px; flex: none;
+  border: 0; background: none; font-size: 20px; cursor: pointer; border-radius: 12px;
+}
+.attach-btn:active { background: var(--surface-2); }
+.pending-att { padding: 8px 10px 0; border-top: 1px solid var(--border); background: var(--bg); }
+.attachments { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; margin-bottom: 4px; }
+.msg.user .attachments { justify-content: flex-end; max-width: min(88%, 680px); }
+.att {
+  position: relative; display: flex; align-items: center; gap: 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 6px 10px; max-width: 220px; font-size: 13px;
+}
+.att.image { padding: 0; overflow: hidden; }
+.att.image img { display: block; width: 96px; height: 96px; object-fit: cover; }
+.att.dropped { opacity: .6; }
+.att-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.att-remove {
+  position: absolute; top: -6px; right: -6px;
+  width: 22px; height: 22px; border-radius: 50%; border: 0;
+  background: var(--danger); color: #fff; font-size: 11px; cursor: pointer; line-height: 22px; padding: 0;
+}
+.pending-att .att { overflow: visible; }
+.pending-att .att.image img { width: 64px; height: 64px; border-radius: 12px; }

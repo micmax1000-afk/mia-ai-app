@@ -21,9 +21,12 @@
       short: 'OpenRouter',
       type: 'openai',
       baseUrl: 'https://openrouter.ai/api/v1',
-      model: 'openrouter/auto',
+      model: '',
       needsKey: true,
-      keyUrl: 'https://openrouter.ai/keys'
+      keyUrl: 'https://openrouter.ai/keys',
+      hint:
+        'Chiave gratuita su openrouter.ai/keys. I modelli gratuiti finiscono con «:free»: ' +
+        'premi «Carica modelli» e li trovi in cima all\'elenco.'
     },
     groq: {
       label: 'Groq',
@@ -75,6 +78,9 @@
   function friendlyError(e, providerLabel) {
     const m = String((e && e.message) || e || '');
     const who = providerLabel || 'Provider';
+    if (e && e.attachmentError) return m;
+    if (/image|vision|multimodal|image_url|inline_?data|mime|pdf|file/i.test(m) && /support|invalid|not|unsupported|allowed/i.test(m))
+      return who + ': questo modello non accetta questo tipo di allegato. Usa «Prova con…» e scegli un modello che legge immagini/PDF (es. Gemini).';
     if (/401|403|api key|unauthori[sz]ed|permission/i.test(m)) return who + ': chiave API non valida o non autorizzata.';
     if (/429|quota|rate/i.test(m)) return who + ': limite di richieste raggiunto, riprova tra poco.';
     if (/Failed to fetch|NetworkError|Load failed|network/i.test(m))
@@ -120,11 +126,37 @@
     }
   }
 
+  // ─── Allegati ─────────────────────────────────────────────
+  // attachment: { kind: 'image'|'pdf'|'text', name, mime, data (base64) | text, dropped? }
+  function attachmentError(msg) {
+    const e = new Error(msg);
+    e.attachmentError = true;
+    return e;
+  }
+
+  /** Testo del messaggio + contenuto dei file di testo allegati. */
+  function textWithFiles(m) {
+    let t = m.content || '';
+    (m.attachments || []).forEach((a) => {
+      if (a.kind === 'text') t += '\n\n--- File allegato: ' + a.name + ' ---\n' + a.text + '\n--- Fine file ---';
+      else if (a.dropped) t += '\n\n[Allegato «' + a.name + '» non più disponibile]';
+    });
+    return t.trim() || '(allegato)';
+  }
+
+  function binaries(m) {
+    return (m.attachments || []).filter((a) => (a.kind === 'image' || a.kind === 'pdf') && a.data && !a.dropped);
+  }
+
   // ─── Gemini ───────────────────────────────────────────────
   async function streamGemini(cfg, messages, onText, signal) {
     const contents = messages
       .filter((m) => m.role !== 'system')
-      .map((m) => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.content }] }));
+      .map((m) => {
+        const parts = [{ text: textWithFiles(m) }];
+        binaries(m).forEach((a) => parts.push({ inlineData: { mimeType: a.mime, data: a.data } }));
+        return { role: m.role === 'user' ? 'user' : 'model', parts };
+      });
     const body = {
       contents,
       generationConfig: { temperature: cfg.temperature, maxOutputTokens: 8192 }
@@ -169,7 +201,7 @@
     const d = await res.json();
     return (d.models || [])
       .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
-      .map((m) => String(m.name).replace(/^models\//, ''));
+      .map((m) => ({ id: String(m.name).replace(/^models\//, ''), free: null }));
   }
 
   // ─── Compatibile OpenAI ───────────────────────────────────
@@ -183,7 +215,19 @@
   async function streamOpenAI(cfg, messages, onText, signal) {
     const msgs = [];
     if (cfg.systemPrompt) msgs.push({ role: 'system', content: cfg.systemPrompt });
-    messages.forEach((m) => msgs.push({ role: m.role, content: m.content }));
+    const isOpenRouter = /openrouter\.ai/.test(cfg.baseUrl);
+    messages.forEach((m) => {
+      const bins = binaries(m);
+      if (!bins.length) return msgs.push({ role: m.role, content: textWithFiles(m) });
+      const content = [{ type: 'text', text: textWithFiles(m) }];
+      bins.forEach((a) => {
+        const url = 'data:' + a.mime + ';base64,' + a.data;
+        if (a.kind === 'image') content.push({ type: 'image_url', image_url: { url } });
+        else if (isOpenRouter) content.push({ type: 'file', file: { filename: a.name, file_data: url } });
+        else throw attachmentError('I PDF funzionano solo con Gemini e OpenRouter. Usa «Prova con…» per cambiare modello.');
+      });
+      msgs.push({ role: m.role, content });
+    });
 
     const res = await fetch(trimSlash(cfg.baseUrl) + '/chat/completions', {
       method: 'POST',
@@ -224,7 +268,14 @@
     const res = await fetch(trimSlash(cfg.baseUrl) + '/models', { headers: openaiHeaders(cfg) });
     if (!res.ok) throw await readError(res, 'API');
     const d = await res.json();
-    return (d.data || d.models || []).map((m) => m.id || m.name).filter(Boolean);
+    return (d.data || d.models || [])
+      .map((m) => {
+        const id = m.id || m.name;
+        const pr = m.pricing;
+        const free = /:free$/.test(id) || (pr ? Number(pr.prompt) === 0 && Number(pr.completion) === 0 : null);
+        return { id, free: pr || /:free$/.test(id) ? free : null };
+      })
+      .filter((m) => m.id);
   }
 
   // ─── API pubblica ─────────────────────────────────────────
@@ -253,7 +304,8 @@
   async function listModels(cfg) {
     const preset = PRESETS[cfg.provider] || PRESETS.custom;
     const list = preset.type === 'gemini' ? await listGeminiModels(cfg) : await listOpenAIModels(cfg);
-    return list.sort();
+    // gratuiti in cima, poi in ordine alfabetico
+    return list.sort((a, b) => (b.free === true) - (a.free === true) || a.id.localeCompare(b.id));
   }
 
   function abort() {

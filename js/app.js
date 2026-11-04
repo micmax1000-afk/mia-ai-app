@@ -10,6 +10,10 @@
   const LS_CONVS = 'miaai_v1_conversations';
   const LS_CURRENT = 'miaai_v1_current';
   const MAX_HISTORY = 40; // messaggi inviati al modello come contesto
+  const MAX_TEXT_FILE = 200 * 1024; // caratteri massimi di un file di testo
+  const MAX_BINARY = 8 * 1024 * 1024; // byte massimi di un PDF
+  const IMAGE_MAX_SIDE = 1280; // le foto vengono ridimensionate
+  const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|xml|html?|css|js|mjs|ts|jsx|tsx|py|java|kt|c|h|cpp|cs|go|rs|rb|php|sh|sql|yaml|yml|ini|toml|log|srt)$/i;
 
   // ─── Stato ────────────────────────────────────────────────
   const DEFAULT_SETTINGS = {
@@ -99,8 +103,28 @@
   }
 
   function persistConvs() {
-    save(LS_CONVS, conversations);
     save(LS_CURRENT, currentId);
+    try {
+      localStorage.setItem(LS_CONVS, JSON.stringify(conversations));
+      return;
+    } catch (_) {}
+    // Memoria piena: elimina i dati degli allegati più vecchi (resta solo il nome)
+    const all = [];
+    conversations.forEach((c) =>
+      c.messages.forEach((m) => (m.attachments || []).forEach((a) => a.data && all.push({ a, t: c.updated })))
+    );
+    all.sort((x, y) => x.t - y.t);
+    for (const { a } of all) {
+      delete a.data;
+      delete a.thumb;
+      a.dropped = true;
+      try {
+        localStorage.setItem(LS_CONVS, JSON.stringify(conversations));
+        toast('Memoria quasi piena: rimossi gli allegati più vecchi');
+        return;
+      } catch (_) {}
+    }
+    toast('Memoria piena: elimina qualche chat.');
   }
 
   function uid() {
@@ -170,9 +194,10 @@
     wrap.dataset.index = index;
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
+    if (msg.attachments && msg.attachments.length) wrap.appendChild(attachmentsEl(msg.attachments, false));
     if (msg.role === 'user' || msg.error) bubble.textContent = msg.content;
     else bubble.innerHTML = MD.render(msg.content);
-    wrap.appendChild(bubble);
+    if (msg.content || msg.role !== 'user') wrap.appendChild(bubble);
 
     const actions = document.createElement('div');
     actions.className = 'msg-actions';
@@ -191,6 +216,123 @@
     }
     wrap.appendChild(actions);
     return wrap;
+  }
+
+  /** Anteprime degli allegati: nel messaggio (removable=false) o nel composer (true). */
+  function attachmentsEl(list, removable) {
+    const box = document.createElement('div');
+    box.className = 'attachments';
+    list.forEach((a, i) => {
+      const el = document.createElement('div');
+      el.className = 'att ' + a.kind + (a.dropped ? ' dropped' : '');
+      if (a.kind === 'image' && (a.thumb || a.data)) {
+        const img = document.createElement('img');
+        img.src = 'data:image/jpeg;base64,' + (a.thumb || a.data);
+        img.alt = a.name;
+        el.appendChild(img);
+      } else {
+        const icon = document.createElement('span');
+        icon.className = 'att-icon';
+        icon.textContent = a.kind === 'pdf' ? '📕' : a.kind === 'image' ? '🖼' : '📄';
+        const name = document.createElement('span');
+        name.className = 'att-name';
+        name.textContent = a.name;
+        el.append(icon, name);
+      }
+      if (removable) {
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'att-remove';
+        x.dataset.removeAtt = i;
+        x.setAttribute('aria-label', 'Rimuovi allegato');
+        x.textContent = '✕';
+        el.appendChild(x);
+      }
+      box.appendChild(el);
+    });
+    return box;
+  }
+
+  // ─── Allegati nel composer ────────────────────────────────
+  let pending = []; // allegati pronti per il prossimo messaggio
+
+  function renderPending() {
+    const box = $('#pendingAtt');
+    box.innerHTML = '';
+    box.hidden = !pending.length;
+    if (pending.length) box.appendChild(attachmentsEl(pending, true));
+  }
+
+  function readAs(file, how) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => reject(r.error || new Error('Lettura file non riuscita'));
+      if (how === 'text') r.readAsText(file);
+      else r.readAsDataURL(file);
+    });
+  }
+
+  function loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Immagine non leggibile'));
+      img.src = src;
+    });
+  }
+
+  function scaleToJpeg(img, maxSide, quality) {
+    const k = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * k));
+    const h = Math.max(1, Math.round(img.naturalHeight * k));
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#fff'; // sfondo bianco per PNG trasparenti
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    return cv.toDataURL('image/jpeg', quality).split(',')[1];
+  }
+
+  async function fileToAttachment(file) {
+    const name = file.name || 'file';
+    if (/^image\//.test(file.type)) {
+      const img = await loadImage(await readAs(file, 'dataurl'));
+      return {
+        kind: 'image',
+        name,
+        mime: 'image/jpeg',
+        data: scaleToJpeg(img, IMAGE_MAX_SIDE, 0.85),
+        thumb: scaleToJpeg(img, 240, 0.7)
+      };
+    }
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(name)) {
+      if (file.size > MAX_BINARY) throw new Error('PDF troppo grande (max 8 MB): ' + name);
+      return { kind: 'pdf', name, mime: 'application/pdf', data: (await readAs(file, 'dataurl')).split(',')[1] };
+    }
+    if (/^text\//.test(file.type) || /json|xml|javascript/.test(file.type) || TEXT_EXT.test(name)) {
+      let text = await readAs(file, 'text');
+      if (text.length > MAX_TEXT_FILE) text = text.slice(0, MAX_TEXT_FILE) + '\n[…file troncato…]';
+      return { kind: 'text', name, mime: file.type || 'text/plain', text };
+    }
+    throw new Error('Tipo di file non supportato: ' + name + ' (usa immagini, PDF o file di testo)');
+  }
+
+  async function addFiles(files) {
+    for (const f of Array.from(files || [])) {
+      if (pending.length >= 6) {
+        toast('Massimo 6 allegati per messaggio');
+        break;
+      }
+      try {
+        pending.push(await fileToAttachment(f));
+      } catch (e) {
+        toast(e.message || 'File non leggibile');
+      }
+    }
+    renderPending();
   }
 
   function renderMessages() {
@@ -285,7 +427,7 @@
     const history = c.messages
       .filter((m) => !m.error)
       .slice(-MAX_HISTORY)
-      .map((m) => ({ role: m.role, content: m.content }));
+      .map((m) => ({ role: m.role, content: m.content, attachments: m.attachments }));
 
     setBusy(true);
     renderMessages();
@@ -337,14 +479,18 @@
 
   async function send(text) {
     text = (text || '').trim();
-    if (!text || busy) return;
+    if ((!text && !pending.length) || busy) return;
     if (!isConfigured()) {
       toast('Configura prima il provider');
       openSettings();
       return;
     }
-    const c = ensureConversation(text);
-    c.messages.push({ role: 'user', content: text });
+    const c = ensureConversation(text || pending.map((a) => a.name).join(', '));
+    const msg = { role: 'user', content: text };
+    if (pending.length) msg.attachments = pending;
+    c.messages.push(msg);
+    pending = [];
+    renderPending();
     c.updated = Date.now();
     persistConvs();
     $('#input').value = '';
@@ -419,6 +565,8 @@
     const msg = c.messages[index];
     if (!msg || msg.role !== 'user') return;
     $('#input').value = msg.content;
+    pending = (msg.attachments || []).filter((a) => !a.dropped);
+    renderPending();
     c.messages = c.messages.slice(0, index);
     c.updated = Date.now();
     persistConvs();
@@ -510,13 +658,18 @@
       dl.innerHTML = '';
       list.forEach((m) => {
         const o = document.createElement('option');
-        o.value = m;
+        o.value = m.id;
+        if (m.free === true) o.label = 'gratis';
         dl.appendChild(o);
       });
+      const nFree = list.filter((m) => m.free === true).length;
       status.textContent = list.length
-        ? list.length + ' modelli trovati: tocca il campo Modello per sceglierne uno.'
+        ? list.length +
+          ' modelli trovati' +
+          (nFree ? ', di cui ' + nFree + ' gratuiti (in cima all\'elenco)' : '') +
+          ': tocca il campo Modello per sceglierne uno.'
         : 'Nessun modello restituito dal server.';
-      if (list.length && !$('#model').value.trim()) $('#model').value = list[0];
+      if (list.length && !$('#model').value.trim()) $('#model').value = list[0].id;
     } catch (e) {
       status.textContent = P.friendlyError(e, (P.PRESETS[settings.provider] || {}).label);
     }
@@ -548,6 +701,24 @@
       else send($('#input').value);
     });
     $('#input').addEventListener('input', autoGrow);
+    $('#attachBtn').addEventListener('click', () => !busy && $('#fileInput').click());
+    $('#fileInput').addEventListener('change', async (e) => {
+      await addFiles(e.target.files);
+      e.target.value = '';
+    });
+    $('#pendingAtt').addEventListener('click', (e) => {
+      const x = e.target.closest('[data-remove-att]');
+      if (!x) return;
+      pending.splice(Number(x.dataset.removeAtt), 1);
+      renderPending();
+    });
+    $('#input').addEventListener('paste', (e) => {
+      const files = Array.from((e.clipboardData && e.clipboardData.files) || []);
+      if (files.length) {
+        e.preventDefault();
+        addFiles(files);
+      }
+    });
     $('#input').addEventListener('keydown', (e) => {
       // Invio = invia su desktop; su telefono Invio va a capo
       const touch = window.matchMedia('(pointer: coarse)').matches;
