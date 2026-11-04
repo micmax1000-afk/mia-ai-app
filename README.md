@@ -61,6 +61,11 @@ La firma usa la chiave fissa `resources/signing/miaai-debug.keystore` (password 
 così ogni nuovo APK si installa sopra il precedente senza perdere le chat.
 Tieni il repo **privato**.
 
+## Icona
+
+Sorgenti in `resources/icon-background.svg` e `resources/icon-foreground.svg` (icona adattiva Android).
+Le PNG già generate sono in `resources/android-res/` e la Action le copia nel progetto Android.
+
 ## Sviluppo in locale
 
 ```bash
