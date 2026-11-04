@@ -178,6 +178,7 @@
     $('#chatTitle').textContent = (c && c.title) || 'Mia AI';
     const preset = P.PRESETS[settings.provider] || P.PRESETS.custom;
     const p = profile();
+    $('#micBtn').hidden = !isConfigured() || (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window));
     $('#modelHint').textContent = isConfigured() ? modelLabel(settings.provider, p.model) + ' ▾' : 'Da configurare in Impostazioni';
     $('#setupHint').hidden = isConfigured();
   }
@@ -214,6 +215,9 @@
         tag.textContent = msg.model;
         actions.appendChild(tag);
       }
+    }
+    if (msg.content && !msg.error) {
+      actions.innerHTML += '<button type="button" data-act="read" aria-label="Leggi ad alta voce">🎤</button>';
     }
     wrap.appendChild(actions);
     return wrap;
@@ -767,6 +771,7 @@
       else send($('#input').value);
     });
     $('#input').addEventListener('input', autoGrow);
+    $('#micBtn').addEventListener('click', toggleMicrophone);
     $('#attachBtn').addEventListener('click', () => !busy && $('#fileInput').click());
     $('#fileInput').addEventListener('change', async (e) => {
       await addFiles(e.target.files);
@@ -833,6 +838,7 @@
       if (act.dataset.act === 'copy' && c) copyText(c.messages[index].content);
       else if (act.dataset.act === 'retry') retryLast();
       else if (act.dataset.act === 'retry-with') openPicker('retry');
+      else if (act.dataset.act === 'read' && c) readAloud(c.messages[index].content);
       else if (act.dataset.act === 'edit') editMessage(index);
     });
 
@@ -941,6 +947,99 @@
     bind();
     renderMessages();
     if (!isConfigured()) setTimeout(openSettings, 300);
+    initSpeechRecognition();
+  }
+
+
+  // ============================================
+  // VOICE FEATURES: Microfono e Sintesi Vocale
+  // ============================================
+
+  // Speech Recognition (Microfono)
+  let recognition = null;
+  let isListening = false;
+
+  function initSpeechRecognition() {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      return false;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'it-IT';
+    
+    recognition.onstart = function() {
+      isListening = true;
+      $('#micBtn').classList.add('listening');
+      toast('Ascoltando...');
+    };
+    
+    recognition.onend = function() {
+      isListening = false;
+      $('#micBtn').classList.remove('listening');
+    };
+    
+    recognition.onresult = function(event) {
+      const transcript = event.results[0][0].transcript;
+      const input = $('#input');
+      input.value = (input.value || '') + ' ' + transcript;
+      input.focus();
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    
+    recognition.onerror = function(event) {
+      isListening = false;
+      $('#micBtn').classList.remove('listening');
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        toast('Errore microfono: ' + event.error);
+      }
+    };
+    
+    return true;
+  }
+
+  function toggleMicrophone() {
+    if (!recognition) {
+      if (!initSpeechRecognition()) {
+        toast('Microfono non supportato in questo browser');
+        return;
+      }
+      $('#micBtn').hidden = false;
+    }
+    
+    if (isListening) {
+      recognition.stop();
+    } else {
+      try {
+        recognition.start();
+      } catch (e) {
+        toast('Impossibile avviare il microfono');
+      }
+    }
+  }
+
+  // Speech Synthesis (Lettura vocale)
+  function readAloud(text) {
+    if (!text) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'it-IT';
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    const voices = window.speechSynthesis.getVoices();
+    const italianVoice = voices.find(v => v.lang.startsWith('it')) || 
+                         voices.find(v => v.lang.startsWith('en'));
+    if (italianVoice) utterance.voice = italianVoice;
+    utterance.onerror = function(event) {
+      console.error('Errore sintesi vocale:', event);
+    };
+    window.speechSynthesis.speak(utterance);
+  }
+
+  // Carica le voci quando disponibili
+  if (window.speechSynthesis) {
+    window.speechSynthesis.onvoiceschanged = function() { };
   }
 
   init();
