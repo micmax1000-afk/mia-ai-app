@@ -14,10 +14,10 @@
 <div id="app">
   <header class="topbar">
     <button type="button" class="icon-btn" id="menuBtn" aria-label="Conversazioni">☰</button>
-    <div class="title">
+    <button type="button" class="title" id="modelBtn" aria-label="Cambia modello">
       <strong id="chatTitle">Mia AI</strong>
       <small id="modelHint">—</small>
-    </div>
+    </button>
     <button type="button" class="icon-btn" id="newChatBtn" aria-label="Nuova chat">＋</button>
   </header>
 
@@ -115,6 +115,21 @@
         <button type="button" class="btn danger-btn" id="clearAll">Elimina tutte le chat</button>
       </div>
       <p class="hint">Chiavi e conversazioni restano solo su questo dispositivo.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Cambio rapido modello -->
+<div class="sheet" id="picker" hidden role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
+  <div class="sheet-card">
+    <div class="sheet-head">
+      <strong id="pickerTitle">Scegli il modello</strong>
+      <button type="button" class="icon-btn" id="closePicker" aria-label="Chiudi">✕</button>
+    </div>
+    <div class="sheet-body">
+      <ul class="conv-list pick-list" id="pickerList"></ul>
+      <button type="button" class="btn ghost full" data-open-settings>＋ Aggiungi un modello o un provider</button>
+      <p class="hint">Ogni modello che usi viene aggiunto qui. Le chiavi si inseriscono una volta per provider in Impostazioni.</p>
     </div>
   </div>
 </div>

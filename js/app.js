@@ -17,7 +17,8 @@
     profiles: {}, // { [provider]: { baseUrl, apiKey, model } }
     systemPrompt: 'Sei Mia, un assistente utile e cordiale. Rispondi in italiano, in modo chiaro e conciso, salvo richiesta diversa.',
     temperature: 0.7,
-    theme: 'auto'
+    theme: 'auto',
+    favorites: [] // [{ provider, model }] — modelli per il cambio rapido
   };
 
   function load(key, fallback) {
@@ -37,6 +38,7 @@
   }
 
   let settings = Object.assign({}, DEFAULT_SETTINGS, load(LS_SETTINGS, {}));
+  if (!Array.isArray(settings.favorites)) settings.favorites = [];
   let conversations = load(LS_CONVS, []);
   let currentId = load(LS_CURRENT, null);
   let busy = false;
@@ -52,17 +54,44 @@
     };
   }
 
-  function chatConfig() {
-    return Object.assign({ provider: settings.provider }, profile(), {
+  /** Config per la chiamata: provider/modello attivi, oppure quelli di `pick` ({provider, model}). */
+  function chatConfig(pick) {
+    const provider = (pick && pick.provider) || settings.provider;
+    const cfg = Object.assign({ provider }, profile(provider), {
       systemPrompt: settings.systemPrompt,
       temperature: Number(settings.temperature)
     });
+    if (pick && pick.model) cfg.model = pick.model;
+    return cfg;
   }
 
-  function isConfigured() {
-    const preset = P.PRESETS[settings.provider] || P.PRESETS.custom;
-    const p = profile();
-    return !!p.model && (!preset.needsKey || !!p.apiKey);
+  function isConfigured(pick) {
+    const provider = (pick && pick.provider) || settings.provider;
+    const preset = P.PRESETS[provider] || P.PRESETS.custom;
+    const p = profile(provider);
+    const model = (pick && pick.model) || p.model;
+    return !!model && (!preset.needsKey || !!p.apiKey);
+  }
+
+  function modelLabel(provider, model) {
+    const preset = P.PRESETS[provider] || P.PRESETS.custom;
+    return (preset.short || preset.label) + ' · ' + model;
+  }
+
+  function addFavorite(provider, model) {
+    if (!provider || !model) return;
+    if (settings.favorites.some((f) => f.provider === provider && f.model === model)) return;
+    settings.favorites.push({ provider, model });
+    if (settings.favorites.length > 20) settings.favorites.shift();
+  }
+
+  function selectModel(provider, model) {
+    settings.provider = provider;
+    const prof = Object.assign({}, settings.profiles[provider] || profile(provider));
+    prof.model = model;
+    settings.profiles[provider] = prof;
+    save(LS_SETTINGS, settings);
+    updateHeader();
   }
 
   function current() {
@@ -124,7 +153,7 @@
     $('#chatTitle').textContent = (c && c.title) || 'Mia AI';
     const preset = P.PRESETS[settings.provider] || P.PRESETS.custom;
     const p = profile();
-    $('#modelHint').textContent = isConfigured() ? preset.label + ' · ' + p.model : 'Da configurare in Impostazioni';
+    $('#modelHint').textContent = isConfigured() ? modelLabel(settings.provider, p.model) + ' ▾' : 'Da configurare in Impostazioni';
     $('#setupHint').hidden = isConfigured();
   }
 
@@ -149,7 +178,17 @@
     actions.className = 'msg-actions';
     if (!msg.error) actions.innerHTML = '<button type="button" data-act="copy">Copia</button>';
     if (msg.role === 'user') actions.innerHTML += '<button type="button" data-act="edit">Modifica</button>';
-    else actions.innerHTML += '<button type="button" data-act="retry">Rigenera</button>';
+    else {
+      actions.innerHTML +=
+        '<button type="button" data-act="retry">Rigenera</button>' +
+        '<button type="button" data-act="retry-with">Prova con…</button>';
+      if (msg.model) {
+        const tag = document.createElement('span');
+        tag.className = 'model-tag';
+        tag.textContent = msg.model;
+        actions.appendChild(tag);
+      }
+    }
     wrap.appendChild(actions);
     return wrap;
   }
@@ -162,8 +201,10 @@
     $('#emptyState').hidden = msgs.length > 0;
     msgs.forEach((m, i) => box.appendChild(messageEl(m, i)));
     // mostra «Rigenera» solo sull'ultima risposta
-    box.querySelectorAll('.msg.assistant [data-act="retry"]').forEach((b, i, all) => {
-      b.hidden = i !== all.length - 1 || busy;
+    ['retry', 'retry-with'].forEach((act) => {
+      box.querySelectorAll('.msg.assistant [data-act="' + act + '"]').forEach((b, i, all) => {
+        b.hidden = i !== all.length - 1 || busy;
+      });
     });
     box.querySelectorAll('[data-act="edit"]').forEach((b) => (b.hidden = busy));
     updateHeader();
@@ -237,7 +278,8 @@
     btn.setAttribute('aria-label', v ? 'Ferma' : 'Invia');
   }
 
-  async function runAssistant(c) {
+  async function runAssistant(c, pick) {
+    const cfg = chatConfig(pick);
     // rimuovi eventuali errori precedenti in coda
     while (c.messages.length && c.messages[c.messages.length - 1].error) c.messages.pop();
     const history = c.messages
@@ -258,10 +300,11 @@
     box.appendChild(wrap);
     scrollToBottom(true);
 
+    const tag = modelLabel(cfg.provider, cfg.model);
     let partial = '';
     let frame = 0;
     try {
-      const text = await P.chat(chatConfig(), history, (full) => {
+      const text = await P.chat(cfg, history, (full) => {
         partial = full;
         if (!frame) {
           frame = requestAnimationFrame(() => {
@@ -271,13 +314,15 @@
           });
         }
       });
-      c.messages.push({ role: 'assistant', content: text });
+      c.messages.push({ role: 'assistant', content: text, model: tag });
+      addFavorite(cfg.provider, cfg.model);
+      save(LS_SETTINGS, settings);
     } catch (e) {
       if (e && e.name === 'AbortError') {
-        if (partial.trim()) c.messages.push({ role: 'assistant', content: partial + '\n\n_(interrotto)_' });
+        if (partial.trim()) c.messages.push({ role: 'assistant', content: partial + '\n\n_(interrotto)_', model: tag });
       } else {
-        if (partial.trim()) c.messages.push({ role: 'assistant', content: partial });
-        const label = (P.PRESETS[settings.provider] || {}).label;
+        if (partial.trim()) c.messages.push({ role: 'assistant', content: partial, model: tag });
+        const label = (P.PRESETS[cfg.provider] || {}).label + ' (' + cfg.model + ')';
         c.messages.push({ role: 'assistant', content: '⚠️ ' + P.friendlyError(e, label), error: true });
       }
     } finally {
@@ -307,12 +352,65 @@
     await runAssistant(c);
   }
 
-  function retryLast() {
+  function retryLast(pick) {
     const c = current();
     if (!c || busy) return;
+    if (pick && !isConfigured(pick)) {
+      toast('Manca la chiave per ' + (P.PRESETS[pick.provider] || {}).label);
+      return;
+    }
     while (c.messages.length && c.messages[c.messages.length - 1].role === 'assistant') c.messages.pop();
     if (!c.messages.length) return;
-    runAssistant(c);
+    runAssistant(c, pick);
+  }
+
+  // ─── Cambio rapido modello ────────────────────────────────
+  let pickerMode = 'switch'; // 'switch' = cambia modello attivo, 'retry' = rigenera l'ultima risposta
+
+  function openPicker(mode) {
+    pickerMode = mode || 'switch';
+    $('#pickerTitle').textContent = pickerMode === 'retry' ? 'Rigenera la risposta con…' : 'Scegli il modello';
+    const ul = $('#pickerList');
+    ul.innerHTML = '';
+    const p = profile();
+    if (isConfigured()) addFavorite(settings.provider, p.model);
+    if (!settings.favorites.length) {
+      ul.innerHTML = '<li class="hint" style="padding:10px">Nessun modello: aggiungine uno da Impostazioni.</li>';
+    }
+    settings.favorites.forEach((f, i) => {
+      const li = document.createElement('li');
+      const active = f.provider === settings.provider && f.model === p.model;
+      if (active) li.className = 'active';
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pick';
+      b.dataset.pick = i;
+      const name = document.createElement('span');
+      name.textContent = f.model;
+      const prov = document.createElement('small');
+      const preset = P.PRESETS[f.provider] || P.PRESETS.custom;
+      prov.textContent = preset.label + (isConfigured(f) ? '' : ' · manca la chiave');
+      b.append(name, prov);
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'del-conv';
+      del.dataset.unfav = i;
+      del.setAttribute('aria-label', 'Rimuovi');
+      del.textContent = '✕';
+      li.append(b, del);
+      if (active) {
+        const ok = document.createElement('span');
+        ok.className = 'check';
+        ok.textContent = '✓';
+        b.appendChild(ok);
+      }
+      ul.appendChild(li);
+    });
+    $('#picker').hidden = false;
+  }
+
+  function closePicker() {
+    $('#picker').hidden = true;
   }
 
   function editMessage(index) {
@@ -354,7 +452,9 @@
     $('#modelsStatus').textContent = '';
     const hint = $('#providerHint');
     hint.textContent = '';
-    if (preset.keyUrl) {
+    if (preset.hint) {
+      hint.textContent = preset.hint;
+    } else if (preset.keyUrl) {
       hint.append('Chiave: ');
       const a = document.createElement('a');
       a.href = preset.keyUrl;
@@ -362,15 +462,12 @@
       a.rel = 'noopener';
       a.textContent = preset.keyUrl.replace(/^https:\/\//, '');
       hint.appendChild(a);
-    } else if ($('#provider').value === 'ollama') {
-      hint.textContent = "Avvia Ollama sul PC con OLLAMA_HOST=0.0.0.0 e OLLAMA_ORIGINS=*, poi usa l'IP del PC.";
-    } else {
-      hint.textContent = 'Qualsiasi server con API /v1/chat/completions (es. un tuo proxy, LM Studio, vLLM).';
     }
   }
 
   function openSettings() {
     closeDrawer();
+    closePicker();
     $('#provider').value = settings.provider;
     fillProviderFields();
     $('#systemPrompt').value = settings.systemPrompt;
@@ -395,6 +492,7 @@
     settings.systemPrompt = $('#systemPrompt').value;
     settings.temperature = Number($('#temperature').value);
     settings.theme = $('#theme').value;
+    if (isConfigured()) addFavorite(settings.provider, profile().model);
     save(LS_SETTINGS, settings);
     applyTheme();
     updateHeader();
@@ -497,6 +595,7 @@
       const c = current();
       if (act.dataset.act === 'copy' && c) copyText(c.messages[index].content);
       else if (act.dataset.act === 'retry') retryLast();
+      else if (act.dataset.act === 'retry-with') openPicker('retry');
       else if (act.dataset.act === 'edit') editMessage(index);
     });
 
@@ -504,6 +603,34 @@
       if (e.target.closest('[data-open-settings]')) openSettings();
     });
     $('#closeSettings').addEventListener('click', closeSettings);
+
+    $('#modelBtn').addEventListener('click', () => (isConfigured() ? openPicker('switch') : openSettings()));
+    $('#closePicker').addEventListener('click', closePicker);
+    $('#picker').addEventListener('click', (e) => {
+      if (e.target.id === 'picker') return closePicker();
+      const un = e.target.closest('[data-unfav]');
+      const pk = e.target.closest('[data-pick]');
+      if (un) {
+        settings.favorites.splice(Number(un.dataset.unfav), 1);
+        save(LS_SETTINGS, settings);
+        openPicker(pickerMode);
+      } else if (pk) {
+        const f = settings.favorites[Number(pk.dataset.pick)];
+        if (!f) return;
+        closePicker();
+        if (pickerMode === 'retry') retryLast(f);
+        else {
+          if (!isConfigured(f)) {
+            selectModel(f.provider, f.model);
+            toast('Inserisci la chiave per questo provider');
+            openSettings();
+            return;
+          }
+          selectModel(f.provider, f.model);
+          toast('Modello: ' + modelLabel(f.provider, f.model));
+        }
+      }
+    });
     $('#settings').addEventListener('click', (e) => {
       if (e.target.id === 'settings') closeSettings();
     });
@@ -543,7 +670,8 @@
     const App = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
     if (App && window.Capacitor.isNativePlatform()) {
       App.addListener('backButton', () => {
-        if (!$('#settings').hidden) closeSettings();
+        if (!$('#picker').hidden) closePicker();
+        else if (!$('#settings').hidden) closeSettings();
         else if ($('#drawer').classList.contains('open')) closeDrawer();
         else if (busy) P.abort();
         else App.exitApp();

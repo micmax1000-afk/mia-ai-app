@@ -16,10 +16,21 @@ App di chat AI personale per Android (Capacitor), senza bundler: HTML + CSS + Ja
 | Google Gemini | chiave da [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | OpenRouter | chiave da [openrouter.ai/keys](https://openrouter.ai/keys) (ha modelli gratuiti) |
 | Groq | chiave da [console.groq.com/keys](https://console.groq.com/keys) |
+| Duck.ai (tramite proxy) | il proxy non ufficiale [duckai](https://github.com/amirkabiri/duckai) acceso su un PC/server: `docker run -p 3000:3000 amirkabiri/duckai` |
 | Ollama | Ollama sul PC in rete locale (`OLLAMA_HOST=0.0.0.0 OLLAMA_ORIGINS=*`) |
 | Personalizzato | qualsiasi server con API `/v1/chat/completions` (es. un proxy tuo) |
 
 Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.
+
+### Più modelli nella stessa app
+
+- Tocca il nome del modello in alto (▾) per passare al volo da un modello all'altro,
+  anche tra provider diversi. Ogni modello usato viene aggiunto all'elenco.
+- Sotto ogni risposta c'è il modello che l'ha scritta.
+- **Prova con…** rigenera l'ultima risposta con un altro modello, senza cambiare quello attivo.
+
+> Duck.ai non ha un'API ufficiale: il proxy si basa su chiamate non documentate, può smettere
+> di funzionare quando DuckDuckGo cambia qualcosa e va contro i termini d'uso di Duck.ai.
 Chiavi e conversazioni restano solo nel `localStorage` del dispositivo.
 
 ## APK con GitHub Actions
