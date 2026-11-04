@@ -22,6 +22,23 @@ App di chat AI personale per Android (Capacitor), senza bundler: HTML + CSS + Ja
 
 Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.
 
+### Modelli gratuiti
+
+- **Gemini**: la chiave di Google AI Studio è gratuita, con un limite di richieste al giorno.
+- **OpenRouter**: chiave gratuita; i modelli che finiscono con `:free` non costano nulla
+  (limite giornaliero di richieste). «Carica modelli» li mette in cima all'elenco con l'etichetta «gratis».
+- **Groq**: chiave gratuita con limiti di richieste al minuto/giorno.
+- **Ollama**: gratis, gira sul tuo PC.
+
+### Allegati (📎)
+
+- **Immagini** (ridimensionate a 1280 px): Gemini e i modelli «vision» di OpenRouter/Groq/Ollama.
+- **PDF** (max 8 MB): solo Gemini e OpenRouter.
+- **File di testo/codice** (txt, md, csv, json, py, js…): funzionano con tutti i modelli,
+  perché il contenuto viene inserito nel messaggio.
+- Se il modello non accetta l'allegato, compare un avviso: usa **Prova con…** per passare a un altro modello.
+- Se la memoria del telefono si riempie, gli allegati più vecchi vengono rimossi (resta il nome).
+
 ### Più modelli nella stessa app
 
 - Tocca il nome del modello in alto (▾) per passare al volo da un modello all'altro,
@@ -43,6 +60,11 @@ Chiavi e conversazioni restano solo nel `localStorage` del dispositivo.
 La firma usa la chiave fissa `resources/signing/miaai-debug.keystore` (password `android`),
 così ogni nuovo APK si installa sopra il precedente senza perdere le chat.
 Tieni il repo **privato**.
+
+## Icona
+
+Sorgenti in `resources/icon-background.svg` e `resources/icon-foreground.svg` (icona adattiva Android).
+Le PNG già generate sono in `resources/android-res/` e la Action le copia nel progetto Android.
 
 ## Sviluppo in locale
 

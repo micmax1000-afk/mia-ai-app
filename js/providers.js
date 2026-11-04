@@ -21,9 +21,12 @@
       short: 'OpenRouter',
       type: 'openai',
       baseUrl: 'https://openrouter.ai/api/v1',
-      model: 'openrouter/auto',
+      model: '',
       needsKey: true,
-      keyUrl: 'https://openrouter.ai/keys'
+      keyUrl: 'https://openrouter.ai/keys',
+      hint:
+        'Chiave gratuita su openrouter.ai/keys. I modelli gratuiti finiscono con «:free»: ' +
+        'premi «Carica modelli» e li trovi in cima all\'elenco.'
     },
     groq: {
       label: 'Groq',
@@ -75,8 +78,20 @@
   function friendlyError(e, providerLabel) {
     const m = String((e && e.message) || e || '');
     const who = providerLabel || 'Provider';
+    if (e && e.attachmentError) return m;
+    if (/image|vision|multimodal|image_url|inline_?data|mime|pdf|file/i.test(m) && /support|invalid|not|unsupported|allowed/i.test(m))
+      return who + ': questo modello non accetta questo tipo di allegato. Usa «Prova con…» e scegli un modello che legge immagini/PDF (es. Gemini).';
+    if (/402|insufficient|credit|payment required/i.test(m))
+      return (
+        who +
+        ': crediti esauriti. Il modello scelto è a pagamento oppure la chiave ha un limite di spesa. ' +
+        'Su OpenRouter scegli un modello che finisce con «:free» (Impostazioni → Carica modelli → Solo gratis).'
+      );
     if (/401|403|api key|unauthori[sz]ed|permission/i.test(m)) return who + ': chiave API non valida o non autorizzata.';
-    if (/429|quota|rate/i.test(m)) return who + ': limite di richieste raggiunto, riprova tra poco.';
+    if (/per-day|per day|daily/i.test(m) && /429|limit|quota/i.test(m))
+      return who + ': limite giornaliero gratuito raggiunto. Usa un altro provider (es. Gemini) o riprova domani.';
+    if (/429|quota|rate|overload|capacity|503|502/i.test(m))
+      return who + ': modello occupato o limite di richieste raggiunto. Riprova tra poco o usa «Prova con…».';
     if (/Failed to fetch|NetworkError|Load failed|network/i.test(m))
       return who + ': server non raggiungibile (rete, indirizzo errato o CORS non abilitato).';
     if (/404|not found/i.test(m)) return who + ': modello o indirizzo non trovato. Controlla le Impostazioni.';
@@ -120,11 +135,37 @@
     }
   }
 
+  // ─── Allegati ─────────────────────────────────────────────
+  // attachment: { kind: 'image'|'pdf'|'text', name, mime, data (base64) | text, dropped? }
+  function attachmentError(msg) {
+    const e = new Error(msg);
+    e.attachmentError = true;
+    return e;
+  }
+
+  /** Testo del messaggio + contenuto dei file di testo allegati. */
+  function textWithFiles(m) {
+    let t = m.content || '';
+    (m.attachments || []).forEach((a) => {
+      if (a.kind === 'text') t += '\n\n--- File allegato: ' + a.name + ' ---\n' + a.text + '\n--- Fine file ---';
+      else if (a.dropped) t += '\n\n[Allegato «' + a.name + '» non più disponibile]';
+    });
+    return t.trim() || '(allegato)';
+  }
+
+  function binaries(m) {
+    return (m.attachments || []).filter((a) => (a.kind === 'image' || a.kind === 'pdf') && a.data && !a.dropped);
+  }
+
   // ─── Gemini ───────────────────────────────────────────────
   async function streamGemini(cfg, messages, onText, signal) {
     const contents = messages
       .filter((m) => m.role !== 'system')
-      .map((m) => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.content }] }));
+      .map((m) => {
+        const parts = [{ text: textWithFiles(m) }];
+        binaries(m).forEach((a) => parts.push({ inlineData: { mimeType: a.mime, data: a.data } }));
+        return { role: m.role === 'user' ? 'user' : 'model', parts };
+      });
     const body = {
       contents,
       generationConfig: { temperature: cfg.temperature, maxOutputTokens: 8192 }
@@ -169,7 +210,13 @@
     const d = await res.json();
     return (d.models || [])
       .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
-      .map((m) => String(m.name).replace(/^models\//, ''));
+      .filter((m) => !/embed|aqa|imagen|veo|tts|native-audio/i.test(m.name))
+      .map((m) => ({
+        id: String(m.name).replace(/^models\//, ''),
+        name: m.displayName || '',
+        free: null,
+        vision: true
+      }));
   }
 
   // ─── Compatibile OpenAI ───────────────────────────────────
@@ -183,7 +230,19 @@
   async function streamOpenAI(cfg, messages, onText, signal) {
     const msgs = [];
     if (cfg.systemPrompt) msgs.push({ role: 'system', content: cfg.systemPrompt });
-    messages.forEach((m) => msgs.push({ role: m.role, content: m.content }));
+    const isOpenRouter = /openrouter\.ai/.test(cfg.baseUrl);
+    messages.forEach((m) => {
+      const bins = binaries(m);
+      if (!bins.length) return msgs.push({ role: m.role, content: textWithFiles(m) });
+      const content = [{ type: 'text', text: textWithFiles(m) }];
+      bins.forEach((a) => {
+        const url = 'data:' + a.mime + ';base64,' + a.data;
+        if (a.kind === 'image') content.push({ type: 'image_url', image_url: { url } });
+        else if (isOpenRouter) content.push({ type: 'file', file: { filename: a.name, file_data: url } });
+        else throw attachmentError('I PDF funzionano solo con Gemini e OpenRouter. Usa «Prova con…» per cambiare modello.');
+      });
+      msgs.push({ role: m.role, content });
+    });
 
     const res = await fetch(trimSlash(cfg.baseUrl) + '/chat/completions', {
       method: 'POST',
@@ -224,7 +283,24 @@
     const res = await fetch(trimSlash(cfg.baseUrl) + '/models', { headers: openaiHeaders(cfg) });
     if (!res.ok) throw await readError(res, 'API');
     const d = await res.json();
-    return (d.data || d.models || []).map((m) => m.id || m.name).filter(Boolean);
+    return (d.data || d.models || [])
+      .map((m) => {
+        const id = m.id || m.name;
+        const pr = m.pricing;
+        const free = /:free$/.test(id) || (pr ? Number(pr.prompt) === 0 && Number(pr.completion) === 0 : null);
+        const arch = m.architecture || {};
+        const out = arch.output_modalities;
+        const inp = arch.input_modalities || [];
+        return {
+          id,
+          name: m.name && m.name !== id ? m.name : '',
+          free: pr || /:free$/.test(id) ? free : null,
+          vision: inp.includes('image') || /vision|-vl\b|vl-|omni/i.test(id) || null,
+          // solo modelli che rispondono con testo (no embedding, rerank, moderazione, audio, immagini)
+          chat: !(Array.isArray(out) && !out.includes('text')) && !/embed|rerank|guard|content-safety|moderation|whisper|tts/i.test(id)
+        };
+      })
+      .filter((m) => m.id && m.chat);
   }
 
   // ─── API pubblica ─────────────────────────────────────────
@@ -242,7 +318,8 @@
     const signal = controller.signal;
     try {
       const fn = preset.type === 'gemini' ? streamGemini : streamOpenAI;
-      const text = await fn(cfg, messages, onText || function () {}, signal);
+      const cb = onText || function () {};
+      const text = cleanText(await fn(cfg, messages, (full) => cb(cleanText(full)), signal));
       if (!text.trim()) throw new Error('Risposta vuota dal modello.');
       return text;
     } finally {
@@ -253,7 +330,8 @@
   async function listModels(cfg) {
     const preset = PRESETS[cfg.provider] || PRESETS.custom;
     const list = preset.type === 'gemini' ? await listGeminiModels(cfg) : await listOpenAIModels(cfg);
-    return list.sort();
+    // gratuiti in cima, poi in ordine alfabetico
+    return list.sort((a, b) => (b.free === true) - (a.free === true) || a.id.localeCompare(b.id));
   }
 
   function abort() {
@@ -265,5 +343,28 @@
     }
   }
 
-  global.MiaProviders = { PRESETS, chat, listModels, abort, friendlyError };
+  /**
+   * Pulisce la risposta: toglie il «ragionamento» (<think>…</think>) che alcuni modelli
+   * gratuiti mettono nel testo e i token tecnici di fine turno (<|im_end|>, <end_of_turn>…).
+   */
+  function cleanText(t) {
+    let s = String(t || '');
+    s = s.replace(/<(think|thinking|reasoning)>[\s\S]*?<\/\1>/gi, '');
+    s = s.replace(/^\s*<(think|thinking|reasoning)>[\s\S]*$/i, ''); // ragionamento non ancora chiuso
+    s = s.replace(/<\|[a-z_]+\|>|<\/?(start_of_turn|end_of_turn|eos|bos|s)>/gi, '');
+    return s.replace(/^\s+/, '');
+  }
+
+  /** Modelli specializzati (codice, matematica…) da non usare come ripiego automatico. */
+  function isSpecialized(model) {
+    return /cod(e|er|ing)|math|embed|rerank|guard|safety|ocr|vision-only/i.test(String(model || ''));
+  }
+
+  /** Errori per cui ha senso riprovare subito con un altro modello. */
+  function isBusyError(e) {
+    const m = String((e && e.message) || e || '');
+    return !(e && e.attachmentError) && /429|quota|rate.?limit|overload|capacity|unavailable|50[234]|no endpoints/i.test(m);
+  }
+
+  global.MiaProviders = { PRESETS, chat, listModels, abort, friendlyError, isBusyError, cleanText, isSpecialized };
 })(window);

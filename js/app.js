@@ -10,6 +10,10 @@
   const LS_CONVS = 'miaai_v1_conversations';
   const LS_CURRENT = 'miaai_v1_current';
   const MAX_HISTORY = 40; // messaggi inviati al modello come contesto
+  const MAX_TEXT_FILE = 200 * 1024; // caratteri massimi di un file di testo
+  const MAX_BINARY = 8 * 1024 * 1024; // byte massimi di un PDF
+  const IMAGE_MAX_SIDE = 1280; // le foto vengono ridimensionate
+  const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|xml|html?|css|js|mjs|ts|jsx|tsx|py|java|kt|c|h|cpp|cs|go|rs|rb|php|sh|sql|yaml|yml|ini|toml|log|srt)$/i;
 
   // ─── Stato ────────────────────────────────────────────────
   const DEFAULT_SETTINGS = {
@@ -18,7 +22,8 @@
     systemPrompt: 'Sei Mia, un assistente utile e cordiale. Rispondi in italiano, in modo chiaro e conciso, salvo richiesta diversa.',
     temperature: 0.7,
     theme: 'auto',
-    favorites: [] // [{ provider, model }] — modelli per il cambio rapido
+    favorites: [], // [{ provider, model }] — modelli per il cambio rapido
+    autoFallback: true // se il modello è occupato, prova da solo gli altri dell'elenco
   };
 
   function load(key, fallback) {
@@ -99,8 +104,28 @@
   }
 
   function persistConvs() {
-    save(LS_CONVS, conversations);
     save(LS_CURRENT, currentId);
+    try {
+      localStorage.setItem(LS_CONVS, JSON.stringify(conversations));
+      return;
+    } catch (_) {}
+    // Memoria piena: elimina i dati degli allegati più vecchi (resta solo il nome)
+    const all = [];
+    conversations.forEach((c) =>
+      c.messages.forEach((m) => (m.attachments || []).forEach((a) => a.data && all.push({ a, t: c.updated })))
+    );
+    all.sort((x, y) => x.t - y.t);
+    for (const { a } of all) {
+      delete a.data;
+      delete a.thumb;
+      a.dropped = true;
+      try {
+        localStorage.setItem(LS_CONVS, JSON.stringify(conversations));
+        toast('Memoria quasi piena: rimossi gli allegati più vecchi');
+        return;
+      } catch (_) {}
+    }
+    toast('Memoria piena: elimina qualche chat.');
   }
 
   function uid() {
@@ -170,9 +195,10 @@
     wrap.dataset.index = index;
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
+    if (msg.attachments && msg.attachments.length) wrap.appendChild(attachmentsEl(msg.attachments, false));
     if (msg.role === 'user' || msg.error) bubble.textContent = msg.content;
     else bubble.innerHTML = MD.render(msg.content);
-    wrap.appendChild(bubble);
+    if (msg.content || msg.role !== 'user') wrap.appendChild(bubble);
 
     const actions = document.createElement('div');
     actions.className = 'msg-actions';
@@ -191,6 +217,123 @@
     }
     wrap.appendChild(actions);
     return wrap;
+  }
+
+  /** Anteprime degli allegati: nel messaggio (removable=false) o nel composer (true). */
+  function attachmentsEl(list, removable) {
+    const box = document.createElement('div');
+    box.className = 'attachments';
+    list.forEach((a, i) => {
+      const el = document.createElement('div');
+      el.className = 'att ' + a.kind + (a.dropped ? ' dropped' : '');
+      if (a.kind === 'image' && (a.thumb || a.data)) {
+        const img = document.createElement('img');
+        img.src = 'data:image/jpeg;base64,' + (a.thumb || a.data);
+        img.alt = a.name;
+        el.appendChild(img);
+      } else {
+        const icon = document.createElement('span');
+        icon.className = 'att-icon';
+        icon.textContent = a.kind === 'pdf' ? '📕' : a.kind === 'image' ? '🖼' : '📄';
+        const name = document.createElement('span');
+        name.className = 'att-name';
+        name.textContent = a.name;
+        el.append(icon, name);
+      }
+      if (removable) {
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'att-remove';
+        x.dataset.removeAtt = i;
+        x.setAttribute('aria-label', 'Rimuovi allegato');
+        x.textContent = '✕';
+        el.appendChild(x);
+      }
+      box.appendChild(el);
+    });
+    return box;
+  }
+
+  // ─── Allegati nel composer ────────────────────────────────
+  let pending = []; // allegati pronti per il prossimo messaggio
+
+  function renderPending() {
+    const box = $('#pendingAtt');
+    box.innerHTML = '';
+    box.hidden = !pending.length;
+    if (pending.length) box.appendChild(attachmentsEl(pending, true));
+  }
+
+  function readAs(file, how) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => reject(r.error || new Error('Lettura file non riuscita'));
+      if (how === 'text') r.readAsText(file);
+      else r.readAsDataURL(file);
+    });
+  }
+
+  function loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Immagine non leggibile'));
+      img.src = src;
+    });
+  }
+
+  function scaleToJpeg(img, maxSide, quality) {
+    const k = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * k));
+    const h = Math.max(1, Math.round(img.naturalHeight * k));
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#fff'; // sfondo bianco per PNG trasparenti
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    return cv.toDataURL('image/jpeg', quality).split(',')[1];
+  }
+
+  async function fileToAttachment(file) {
+    const name = file.name || 'file';
+    if (/^image\//.test(file.type)) {
+      const img = await loadImage(await readAs(file, 'dataurl'));
+      return {
+        kind: 'image',
+        name,
+        mime: 'image/jpeg',
+        data: scaleToJpeg(img, IMAGE_MAX_SIDE, 0.85),
+        thumb: scaleToJpeg(img, 240, 0.7)
+      };
+    }
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(name)) {
+      if (file.size > MAX_BINARY) throw new Error('PDF troppo grande (max 8 MB): ' + name);
+      return { kind: 'pdf', name, mime: 'application/pdf', data: (await readAs(file, 'dataurl')).split(',')[1] };
+    }
+    if (/^text\//.test(file.type) || /json|xml|javascript/.test(file.type) || TEXT_EXT.test(name)) {
+      let text = await readAs(file, 'text');
+      if (text.length > MAX_TEXT_FILE) text = text.slice(0, MAX_TEXT_FILE) + '\n[…file troncato…]';
+      return { kind: 'text', name, mime: file.type || 'text/plain', text };
+    }
+    throw new Error('Tipo di file non supportato: ' + name + ' (usa immagini, PDF o file di testo)');
+  }
+
+  async function addFiles(files) {
+    for (const f of Array.from(files || [])) {
+      if (pending.length >= 6) {
+        toast('Massimo 6 allegati per messaggio');
+        break;
+      }
+      try {
+        pending.push(await fileToAttachment(f));
+      } catch (e) {
+        toast(e.message || 'File non leggibile');
+      }
+    }
+    renderPending();
   }
 
   function renderMessages() {
@@ -285,7 +428,7 @@
     const history = c.messages
       .filter((m) => !m.error)
       .slice(-MAX_HISTORY)
-      .map((m) => ({ role: m.role, content: m.content }));
+      .map((m) => ({ role: m.role, content: m.content, attachments: m.attachments }));
 
     setBusy(true);
     renderMessages();
@@ -300,22 +443,49 @@
     box.appendChild(wrap);
     scrollToBottom(true);
 
-    const tag = modelLabel(cfg.provider, cfg.model);
+    // Modelli da provare: quello scelto, poi (se attivo) gli altri dell'elenco ▾ già configurati
+    const attempts = [cfg];
+    if (settings.autoFallback !== false) {
+      settings.favorites
+        .filter(
+          (f) =>
+            !(f.provider === cfg.provider && f.model === cfg.model) &&
+            isConfigured(f) &&
+            (P.isSpecialized(cfg.model) || !P.isSpecialized(f.model)) // niente modelli per il codice come ripiego
+        )
+        .slice(0, 3)
+        .forEach((f) => attempts.push(chatConfig(f)));
+    }
+
+    let tag = modelLabel(cfg.provider, cfg.model);
     let partial = '';
     let frame = 0;
     try {
-      const text = await P.chat(cfg, history, (full) => {
-        partial = full;
-        if (!frame) {
-          frame = requestAnimationFrame(() => {
-            frame = 0;
-            bubble.innerHTML = MD.render(partial);
-            scrollToBottom(false);
+      let text = null;
+      for (let i = 0; i < attempts.length && text === null; i++) {
+        const a = attempts[i];
+        tag = modelLabel(a.provider, a.model);
+        try {
+          text = await P.chat(a, history, (full) => {
+            partial = full;
+            if (!frame) {
+              frame = requestAnimationFrame(() => {
+                frame = 0;
+                bubble.innerHTML = partial ? MD.render(partial) : '<span class="typing"><i></i><i></i><i></i></span>';
+                scrollToBottom(false);
+              });
+            }
           });
+          addFavorite(a.provider, a.model);
+        } catch (err) {
+          const next = attempts[i + 1];
+          if (!next || partial || !P.isBusyError(err)) throw err;
+          toast(a.model + ' è occupato: provo ' + next.model);
         }
-      });
-      c.messages.push({ role: 'assistant', content: text, model: tag });
-      addFavorite(cfg.provider, cfg.model);
+      }
+      const usedFallback = tag !== modelLabel(cfg.provider, cfg.model);
+      c.messages.push({ role: 'assistant', content: text, model: (usedFallback ? '↪ ' : '') + tag });
+      if (usedFallback) toast('Ha risposto ' + tag + ' perché ' + cfg.model + ' era occupato');
       save(LS_SETTINGS, settings);
     } catch (e) {
       if (e && e.name === 'AbortError') {
@@ -323,7 +493,11 @@
       } else {
         if (partial.trim()) c.messages.push({ role: 'assistant', content: partial, model: tag });
         const label = (P.PRESETS[cfg.provider] || {}).label + ' (' + cfg.model + ')';
-        c.messages.push({ role: 'assistant', content: '⚠️ ' + P.friendlyError(e, label), error: true });
+        let msg = '⚠️ ' + P.friendlyError(e, label);
+        if (attempts.length > 1 && P.isBusyError(e)) msg += ' Ho provato anche: ' + attempts.slice(1).map((a) => a.model).join(', ') + '.';
+        else if (attempts.length === 1 && P.isBusyError(e))
+          msg += ' Suggerimento: aggiungi un secondo modello (es. Gemini) e l\'app passerà da sola a quello quando questo è occupato.';
+        c.messages.push({ role: 'assistant', content: msg, error: true });
       }
     } finally {
       if (frame) cancelAnimationFrame(frame);
@@ -337,14 +511,18 @@
 
   async function send(text) {
     text = (text || '').trim();
-    if (!text || busy) return;
+    if ((!text && !pending.length) || busy) return;
     if (!isConfigured()) {
       toast('Configura prima il provider');
       openSettings();
       return;
     }
-    const c = ensureConversation(text);
-    c.messages.push({ role: 'user', content: text });
+    const c = ensureConversation(text || pending.map((a) => a.name).join(', '));
+    const msg = { role: 'user', content: text };
+    if (pending.length) msg.attachments = pending;
+    c.messages.push(msg);
+    pending = [];
+    renderPending();
     c.updated = Date.now();
     persistConvs();
     $('#input').value = '';
@@ -419,6 +597,8 @@
     const msg = c.messages[index];
     if (!msg || msg.role !== 'user') return;
     $('#input').value = msg.content;
+    pending = (msg.attachments || []).filter((a) => !a.dropped);
+    renderPending();
     c.messages = c.messages.slice(0, index);
     c.updated = Date.now();
     persistConvs();
@@ -448,7 +628,8 @@
     $('#apiKey').value = p.apiKey;
     $('#model').value = p.model;
     $('#keyOptional').hidden = !!preset.needsKey;
-    $('#modelList').innerHTML = '';
+    loadedModels = [];
+    $('#modelBrowser').hidden = true;
     $('#modelsStatus').textContent = '';
     const hint = $('#providerHint');
     hint.textContent = '';
@@ -474,6 +655,7 @@
     $('#temperature').value = settings.temperature;
     $('#tempValue').textContent = Number(settings.temperature).toFixed(1);
     $('#theme').value = settings.theme;
+    $('#autoFallback').checked = settings.autoFallback !== false;
     $('#settings').hidden = false;
   }
 
@@ -492,11 +674,47 @@
     settings.systemPrompt = $('#systemPrompt').value;
     settings.temperature = Number($('#temperature').value);
     settings.theme = $('#theme').value;
+    settings.autoFallback = $('#autoFallback').checked;
     if (isConfigured()) addFavorite(settings.provider, profile().model);
     save(LS_SETTINGS, settings);
     applyTheme();
     updateHeader();
     $('#settings').hidden = true;
+  }
+
+  let loadedModels = [];
+
+  function renderModelResults() {
+    const ul = $('#modelResults');
+    const q = $('#modelSearch').value.trim().toLowerCase();
+    const onlyFree = $('#onlyFree').checked;
+    const current = $('#model').value.trim();
+    const list = loadedModels.filter(
+      (m) => (!onlyFree || m.free === true) && (!q || (m.id + ' ' + m.name).toLowerCase().includes(q))
+    );
+    ul.innerHTML = '';
+    if (!list.length) {
+      ul.innerHTML = '<li class="hint" style="padding:10px">Nessun modello corrisponde.</li>';
+      return;
+    }
+    list.slice(0, 300).forEach((m) => {
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.model = m.id;
+      if (m.id === current) b.className = 'selected';
+      const title = document.createElement('span');
+      title.textContent = m.name || m.id;
+      const id = document.createElement('small');
+      id.textContent = m.name ? m.id : '';
+      const tags = document.createElement('span');
+      tags.className = 'tags';
+      if (m.free === true) tags.innerHTML += '<i class="tag free">gratis</i>';
+      if (m.vision === true) tags.innerHTML += '<i class="tag">🖼 immagini</i>';
+      b.append(title, id, tags);
+      li.appendChild(b);
+      ul.appendChild(li);
+    });
   }
 
   async function loadModels() {
@@ -505,18 +723,19 @@
     status.textContent = 'Caricamento…';
     try {
       const cfg = Object.assign({ provider: settings.provider }, profile());
-      const list = await P.listModels(cfg);
-      const dl = $('#modelList');
-      dl.innerHTML = '';
-      list.forEach((m) => {
-        const o = document.createElement('option');
-        o.value = m;
-        dl.appendChild(o);
-      });
-      status.textContent = list.length
-        ? list.length + ' modelli trovati: tocca il campo Modello per sceglierne uno.'
+      loadedModels = await P.listModels(cfg);
+      const nFree = loadedModels.filter((m) => m.free === true).length;
+      status.textContent = loadedModels.length
+        ? loadedModels.length +
+          ' modelli per chattare' +
+          (nFree ? ', di cui ' + nFree + ' gratuiti' : '') +
+          '. Tocca un modello per sceglierlo.'
         : 'Nessun modello restituito dal server.';
-      if (list.length && !$('#model').value.trim()) $('#model').value = list[0];
+      $('#onlyFree').checked = nFree > 0;
+      $('#onlyFree').parentElement.hidden = nFree === 0;
+      $('#modelSearch').value = '';
+      $('#modelBrowser').hidden = !loadedModels.length;
+      renderModelResults();
     } catch (e) {
       status.textContent = P.friendlyError(e, (P.PRESETS[settings.provider] || {}).label);
     }
@@ -548,6 +767,24 @@
       else send($('#input').value);
     });
     $('#input').addEventListener('input', autoGrow);
+    $('#attachBtn').addEventListener('click', () => !busy && $('#fileInput').click());
+    $('#fileInput').addEventListener('change', async (e) => {
+      await addFiles(e.target.files);
+      e.target.value = '';
+    });
+    $('#pendingAtt').addEventListener('click', (e) => {
+      const x = e.target.closest('[data-remove-att]');
+      if (!x) return;
+      pending.splice(Number(x.dataset.removeAtt), 1);
+      renderPending();
+    });
+    $('#input').addEventListener('paste', (e) => {
+      const files = Array.from((e.clipboardData && e.clipboardData.files) || []);
+      if (files.length) {
+        e.preventDefault();
+        addFiles(files);
+      }
+    });
     $('#input').addEventListener('keydown', (e) => {
       // Invio = invia su desktop; su telefono Invio va a capo
       const touch = window.matchMedia('(pointer: coarse)').matches;
@@ -650,6 +887,16 @@
       k.type = k.type === 'password' ? 'text' : 'password';
     });
     $('#loadModels').addEventListener('click', loadModels);
+    $('#modelSearch').addEventListener('input', renderModelResults);
+    $('#onlyFree').addEventListener('change', renderModelResults);
+    $('#modelResults').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-model]');
+      if (!b) return;
+      $('#model').value = b.dataset.model;
+      saveProviderFields();
+      renderModelResults();
+      toast('Modello scelto: ' + b.dataset.model);
+    });
     $('#temperature').addEventListener('input', (e) => {
       $('#tempValue').textContent = Number(e.target.value).toFixed(1);
     });

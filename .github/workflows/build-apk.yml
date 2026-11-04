@@ -42,6 +42,11 @@ jobs:
           npx cap add android
           npx cap sync android
 
+      - name: Applica icone e schermata di avvio
+        run: |
+          cp -r resources/android-res/. android/app/src/main/res/
+          ls android/app/src/main/res/mipmap-xxxhdpi/
+
       - name: Ensure INTERNET permission
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"

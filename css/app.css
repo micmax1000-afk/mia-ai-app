@@ -256,7 +256,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .danger { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
 
 .toast {
-  position: fixed; left: 50%; bottom: calc(90px + var(--safe-bottom));
+  position: fixed; left: 50%; top: calc(70px + var(--safe-top));
   transform: translateX(-50%);
   background: var(--surface-2); border: 1px solid var(--border);
   padding: 8px 16px; border-radius: 999px; z-index: 30; font-size: 14px;
@@ -272,3 +272,53 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .pick-list .pick small { color: var(--muted); font-size: 12px; }
 .pick-list .pick .check { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: var(--accent-2); }
 .btn.full { width: 100%; }
+
+/* Allegati */
+.attach-btn {
+  width: 42px; height: 46px; flex: none;
+  border: 0; background: none; font-size: 20px; cursor: pointer; border-radius: 12px;
+}
+.attach-btn:active { background: var(--surface-2); }
+.pending-att { padding: 8px 10px 0; border-top: 1px solid var(--border); background: var(--bg); }
+.attachments { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; margin-bottom: 4px; }
+.msg.user .attachments { justify-content: flex-end; max-width: min(88%, 680px); }
+.att {
+  position: relative; display: flex; align-items: center; gap: 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 6px 10px; max-width: 220px; font-size: 13px;
+}
+.att.image { padding: 0; overflow: hidden; }
+.att.image img { display: block; width: 96px; height: 96px; object-fit: cover; }
+.att.dropped { opacity: .6; }
+.att-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.att-remove {
+  position: absolute; top: -6px; right: -6px;
+  width: 22px; height: 22px; border-radius: 50%; border: 0;
+  background: var(--danger); color: #fff; font-size: 11px; cursor: pointer; line-height: 22px; padding: 0;
+}
+.pending-att .att { overflow: visible; }
+.pending-att .att.image img { width: 64px; height: 64px; border-radius: 12px; }
+
+/* Scelta modello */
+.model-browser { margin-top: 10px; border: 1px solid var(--border); border-radius: 14px; padding: 8px; background: var(--bg); }
+.model-browser .row input[type=search] {
+  flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); outline: none;
+}
+.toggle { display: flex; align-items: center; gap: 6px; font-size: 14px; white-space: nowrap; color: var(--text); }
+.toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+.model-results { list-style: none; margin: 8px 0 0; padding: 0; max-height: 46vh; overflow-y: auto; }
+.model-results li + li { border-top: 1px solid var(--border); }
+.model-results button {
+  display: block; width: 100%; text-align: left; border: 0; background: none;
+  padding: 10px 8px; cursor: pointer; border-radius: 10px;
+}
+.model-results button.selected { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
+.model-results button span:first-child { display: block; font-weight: 600; }
+.model-results small { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.model-results .tags { display: flex; gap: 6px; margin-top: 4px; }
+.tag { font-style: normal; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+.tag.free { background: rgba(34,193,195,.18); color: var(--accent-2); }
+.check-field { display: flex; align-items: flex-start; gap: 10px; }
+.check-field > span { margin: 0; color: var(--text); font-size: 15px; }
+.check-field input { width: 20px; height: 20px; margin-top: 2px; flex: none; accent-color: var(--accent); }

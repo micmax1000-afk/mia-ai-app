@@ -35,7 +35,11 @@
     </div>
   </main>
 
+  <div class="pending-att" id="pendingAtt" hidden></div>
   <form class="composer" id="composer" autocomplete="off">
+    <button type="button" class="attach-btn" id="attachBtn" aria-label="Allega file">📎</button>
+    <input type="file" id="fileInput" multiple hidden
+      accept="image/*,application/pdf,.pdf,text/*,.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.py,.java,.kt,.c,.cpp,.go,.rs,.php,.sh,.sql,.yaml,.yml,.log,.srt">
     <textarea id="input" rows="1" placeholder="Scrivi un messaggio…" enterkeyhint="send"></textarea>
     <button type="submit" class="send-btn" id="sendBtn" aria-label="Invia">➤</button>
   </form>
@@ -84,12 +88,18 @@
       <label class="field">
         <span>Modello</span>
         <div class="row">
-          <input id="model" list="modelList" spellcheck="false" autocapitalize="off">
+          <input id="model" spellcheck="false" autocapitalize="off" placeholder="Premi «Carica modelli»">
           <button type="button" class="btn small" id="loadModels">Carica modelli</button>
         </div>
-        <datalist id="modelList"></datalist>
       </label>
       <p class="hint" id="modelsStatus"></p>
+      <div class="model-browser" id="modelBrowser" hidden>
+        <div class="row">
+          <input id="modelSearch" type="search" placeholder="Cerca modello…" spellcheck="false" autocapitalize="off">
+          <label class="toggle"><input type="checkbox" id="onlyFree"> Solo gratis</label>
+        </div>
+        <ul class="model-results" id="modelResults"></ul>
+      </div>
 
       <label class="field">
         <span>Istruzioni di sistema (personalità)</span>
@@ -99,6 +109,11 @@
       <label class="field">
         <span>Creatività: <b id="tempValue">0.7</b></span>
         <input id="temperature" type="range" min="0" max="1.5" step="0.1">
+      </label>
+
+      <label class="field check-field">
+        <input type="checkbox" id="autoFallback">
+        <span>Se il modello è occupato, prova da solo gli altri modelli dell'elenco ▾</span>
       </label>
 
       <label class="field">
