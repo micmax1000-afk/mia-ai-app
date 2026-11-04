@@ -88,7 +88,10 @@
         'Su OpenRouter scegli un modello che finisce con «:free» (Impostazioni → Carica modelli → Solo gratis).'
       );
     if (/401|403|api key|unauthori[sz]ed|permission/i.test(m)) return who + ': chiave API non valida o non autorizzata.';
-    if (/429|quota|rate/i.test(m)) return who + ': limite di richieste raggiunto, riprova tra poco.';
+    if (/per-day|per day|daily/i.test(m) && /429|limit|quota/i.test(m))
+      return who + ': limite giornaliero gratuito raggiunto. Usa un altro provider (es. Gemini) o riprova domani.';
+    if (/429|quota|rate|overload|capacity|503|502/i.test(m))
+      return who + ': modello occupato o limite di richieste raggiunto. Riprova tra poco o usa «Prova con…».';
     if (/Failed to fetch|NetworkError|Load failed|network/i.test(m))
       return who + ': server non raggiungibile (rete, indirizzo errato o CORS non abilitato).';
     if (/404|not found/i.test(m)) return who + ': modello o indirizzo non trovato. Controlla le Impostazioni.';
@@ -339,5 +342,11 @@
     }
   }
 
-  global.MiaProviders = { PRESETS, chat, listModels, abort, friendlyError };
+  /** Errori per cui ha senso riprovare subito con un altro modello. */
+  function isBusyError(e) {
+    const m = String((e && e.message) || e || '');
+    return !(e && e.attachmentError) && /429|quota|rate.?limit|overload|capacity|unavailable|50[234]|no endpoints/i.test(m);
+  }
+
+  global.MiaProviders = { PRESETS, chat, listModels, abort, friendlyError, isBusyError };
 })(window);

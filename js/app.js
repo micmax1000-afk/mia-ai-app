@@ -22,7 +22,8 @@
     systemPrompt: 'Sei Mia, un assistente utile e cordiale. Rispondi in italiano, in modo chiaro e conciso, salvo richiesta diversa.',
     temperature: 0.7,
     theme: 'auto',
-    favorites: [] // [{ provider, model }] — modelli per il cambio rapido
+    favorites: [], // [{ provider, model }] — modelli per il cambio rapido
+    autoFallback: true // se il modello è occupato, prova da solo gli altri dell'elenco
   };
 
   function load(key, fallback) {
@@ -442,22 +443,42 @@
     box.appendChild(wrap);
     scrollToBottom(true);
 
-    const tag = modelLabel(cfg.provider, cfg.model);
+    // Modelli da provare: quello scelto, poi (se attivo) gli altri dell'elenco ▾ già configurati
+    const attempts = [cfg];
+    if (settings.autoFallback !== false) {
+      settings.favorites
+        .filter((f) => !(f.provider === cfg.provider && f.model === cfg.model) && isConfigured(f))
+        .slice(0, 3)
+        .forEach((f) => attempts.push(chatConfig(f)));
+    }
+
+    let tag = modelLabel(cfg.provider, cfg.model);
     let partial = '';
     let frame = 0;
     try {
-      const text = await P.chat(cfg, history, (full) => {
-        partial = full;
-        if (!frame) {
-          frame = requestAnimationFrame(() => {
-            frame = 0;
-            bubble.innerHTML = MD.render(partial);
-            scrollToBottom(false);
+      let text = null;
+      for (let i = 0; i < attempts.length && text === null; i++) {
+        const a = attempts[i];
+        tag = modelLabel(a.provider, a.model);
+        try {
+          text = await P.chat(a, history, (full) => {
+            partial = full;
+            if (!frame) {
+              frame = requestAnimationFrame(() => {
+                frame = 0;
+                bubble.innerHTML = MD.render(partial);
+                scrollToBottom(false);
+              });
+            }
           });
+          addFavorite(a.provider, a.model);
+        } catch (err) {
+          const next = attempts[i + 1];
+          if (!next || partial || !P.isBusyError(err)) throw err;
+          toast(a.model + ' è occupato: provo ' + next.model);
         }
-      });
+      }
       c.messages.push({ role: 'assistant', content: text, model: tag });
-      addFavorite(cfg.provider, cfg.model);
       save(LS_SETTINGS, settings);
     } catch (e) {
       if (e && e.name === 'AbortError') {
@@ -465,7 +486,11 @@
       } else {
         if (partial.trim()) c.messages.push({ role: 'assistant', content: partial, model: tag });
         const label = (P.PRESETS[cfg.provider] || {}).label + ' (' + cfg.model + ')';
-        c.messages.push({ role: 'assistant', content: '⚠️ ' + P.friendlyError(e, label), error: true });
+        let msg = '⚠️ ' + P.friendlyError(e, label);
+        if (attempts.length > 1 && P.isBusyError(e)) msg += ' Ho provato anche: ' + attempts.slice(1).map((a) => a.model).join(', ') + '.';
+        else if (attempts.length === 1 && P.isBusyError(e))
+          msg += ' Suggerimento: aggiungi un secondo modello (es. Gemini) e l\'app passerà da sola a quello quando questo è occupato.';
+        c.messages.push({ role: 'assistant', content: msg, error: true });
       }
     } finally {
       if (frame) cancelAnimationFrame(frame);
@@ -623,6 +648,7 @@
     $('#temperature').value = settings.temperature;
     $('#tempValue').textContent = Number(settings.temperature).toFixed(1);
     $('#theme').value = settings.theme;
+    $('#autoFallback').checked = settings.autoFallback !== false;
     $('#settings').hidden = false;
   }
 
@@ -641,6 +667,7 @@
     settings.systemPrompt = $('#systemPrompt').value;
     settings.temperature = Number($('#temperature').value);
     settings.theme = $('#theme').value;
+    settings.autoFallback = $('#autoFallback').checked;
     if (isConfigured()) addFavorite(settings.provider, profile().model);
     save(LS_SETTINGS, settings);
     applyTheme();

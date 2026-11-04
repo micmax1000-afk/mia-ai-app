@@ -319,3 +319,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .model-results .tags { display: flex; gap: 6px; margin-top: 4px; }
 .tag { font-style: normal; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
 .tag.free { background: rgba(34,193,195,.18); color: var(--accent-2); }
+.check-field { display: flex; align-items: flex-start; gap: 10px; }
+.check-field > span { margin: 0; color: var(--text); font-size: 15px; }
+.check-field input { width: 20px; height: 20px; margin-top: 2px; flex: none; accent-color: var(--accent); }
