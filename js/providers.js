@@ -81,6 +81,12 @@
     if (e && e.attachmentError) return m;
     if (/image|vision|multimodal|image_url|inline_?data|mime|pdf|file/i.test(m) && /support|invalid|not|unsupported|allowed/i.test(m))
       return who + ': questo modello non accetta questo tipo di allegato. Usa «Prova con…» e scegli un modello che legge immagini/PDF (es. Gemini).';
+    if (/402|insufficient|credit|payment required/i.test(m))
+      return (
+        who +
+        ': crediti esauriti. Il modello scelto è a pagamento oppure la chiave ha un limite di spesa. ' +
+        'Su OpenRouter scegli un modello che finisce con «:free» (Impostazioni → Carica modelli → Solo gratis).'
+      );
     if (/401|403|api key|unauthori[sz]ed|permission/i.test(m)) return who + ': chiave API non valida o non autorizzata.';
     if (/429|quota|rate/i.test(m)) return who + ': limite di richieste raggiunto, riprova tra poco.';
     if (/Failed to fetch|NetworkError|Load failed|network/i.test(m))
