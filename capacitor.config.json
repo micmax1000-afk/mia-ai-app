@@ -1,0 +1,23 @@
+{
+  "appId": "it.privato.miaai",
+  "appName": "Mia AI",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true,
+    "backgroundColor": "#0b1020",
+    "webContentsDebuggingEnabled": true
+  },
+  "plugins": {
+    "Keyboard": {
+      "resize": "body"
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#0b1020"
+    }
+  }
+}
