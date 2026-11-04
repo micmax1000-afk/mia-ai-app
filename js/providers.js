@@ -201,7 +201,13 @@
     const d = await res.json();
     return (d.models || [])
       .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
-      .map((m) => ({ id: String(m.name).replace(/^models\//, ''), free: null }));
+      .filter((m) => !/embed|aqa|imagen|veo|tts|native-audio/i.test(m.name))
+      .map((m) => ({
+        id: String(m.name).replace(/^models\//, ''),
+        name: m.displayName || '',
+        free: null,
+        vision: true
+      }));
   }
 
   // ─── Compatibile OpenAI ───────────────────────────────────
@@ -273,9 +279,19 @@
         const id = m.id || m.name;
         const pr = m.pricing;
         const free = /:free$/.test(id) || (pr ? Number(pr.prompt) === 0 && Number(pr.completion) === 0 : null);
-        return { id, free: pr || /:free$/.test(id) ? free : null };
+        const arch = m.architecture || {};
+        const out = arch.output_modalities;
+        const inp = arch.input_modalities || [];
+        return {
+          id,
+          name: m.name && m.name !== id ? m.name : '',
+          free: pr || /:free$/.test(id) ? free : null,
+          vision: inp.includes('image') || /vision|-vl\b|vl-|omni/i.test(id) || null,
+          // solo modelli che rispondono con testo (no embedding, rerank, moderazione, audio, immagini)
+          chat: !(Array.isArray(out) && !out.includes('text')) && !/embed|rerank|guard|content-safety|moderation|whisper|tts/i.test(id)
+        };
       })
-      .filter((m) => m.id);
+      .filter((m) => m.id && m.chat);
   }
 
   // ─── API pubblica ─────────────────────────────────────────

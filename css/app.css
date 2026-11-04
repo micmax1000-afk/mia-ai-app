@@ -298,3 +298,24 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .pending-att .att { overflow: visible; }
 .pending-att .att.image img { width: 64px; height: 64px; border-radius: 12px; }
+
+/* Scelta modello */
+.model-browser { margin-top: 10px; border: 1px solid var(--border); border-radius: 14px; padding: 8px; background: var(--bg); }
+.model-browser .row input[type=search] {
+  flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); outline: none;
+}
+.toggle { display: flex; align-items: center; gap: 6px; font-size: 14px; white-space: nowrap; color: var(--text); }
+.toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+.model-results { list-style: none; margin: 8px 0 0; padding: 0; max-height: 46vh; overflow-y: auto; }
+.model-results li + li { border-top: 1px solid var(--border); }
+.model-results button {
+  display: block; width: 100%; text-align: left; border: 0; background: none;
+  padding: 10px 8px; cursor: pointer; border-radius: 10px;
+}
+.model-results button.selected { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
+.model-results button span:first-child { display: block; font-weight: 600; }
+.model-results small { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.model-results .tags { display: flex; gap: 6px; margin-top: 4px; }
+.tag { font-style: normal; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+.tag.free { background: rgba(34,193,195,.18); color: var(--accent-2); }

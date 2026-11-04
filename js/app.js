@@ -596,7 +596,8 @@
     $('#apiKey').value = p.apiKey;
     $('#model').value = p.model;
     $('#keyOptional').hidden = !!preset.needsKey;
-    $('#modelList').innerHTML = '';
+    loadedModels = [];
+    $('#modelBrowser').hidden = true;
     $('#modelsStatus').textContent = '';
     const hint = $('#providerHint');
     hint.textContent = '';
@@ -647,29 +648,60 @@
     $('#settings').hidden = true;
   }
 
+  let loadedModels = [];
+
+  function renderModelResults() {
+    const ul = $('#modelResults');
+    const q = $('#modelSearch').value.trim().toLowerCase();
+    const onlyFree = $('#onlyFree').checked;
+    const current = $('#model').value.trim();
+    const list = loadedModels.filter(
+      (m) => (!onlyFree || m.free === true) && (!q || (m.id + ' ' + m.name).toLowerCase().includes(q))
+    );
+    ul.innerHTML = '';
+    if (!list.length) {
+      ul.innerHTML = '<li class="hint" style="padding:10px">Nessun modello corrisponde.</li>';
+      return;
+    }
+    list.slice(0, 300).forEach((m) => {
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.model = m.id;
+      if (m.id === current) b.className = 'selected';
+      const title = document.createElement('span');
+      title.textContent = m.name || m.id;
+      const id = document.createElement('small');
+      id.textContent = m.name ? m.id : '';
+      const tags = document.createElement('span');
+      tags.className = 'tags';
+      if (m.free === true) tags.innerHTML += '<i class="tag free">gratis</i>';
+      if (m.vision === true) tags.innerHTML += '<i class="tag">🖼 immagini</i>';
+      b.append(title, id, tags);
+      li.appendChild(b);
+      ul.appendChild(li);
+    });
+  }
+
   async function loadModels() {
     saveProviderFields();
     const status = $('#modelsStatus');
     status.textContent = 'Caricamento…';
     try {
       const cfg = Object.assign({ provider: settings.provider }, profile());
-      const list = await P.listModels(cfg);
-      const dl = $('#modelList');
-      dl.innerHTML = '';
-      list.forEach((m) => {
-        const o = document.createElement('option');
-        o.value = m.id;
-        if (m.free === true) o.label = 'gratis';
-        dl.appendChild(o);
-      });
-      const nFree = list.filter((m) => m.free === true).length;
-      status.textContent = list.length
-        ? list.length +
-          ' modelli trovati' +
-          (nFree ? ', di cui ' + nFree + ' gratuiti (in cima all\'elenco)' : '') +
-          ': tocca il campo Modello per sceglierne uno.'
+      loadedModels = await P.listModels(cfg);
+      const nFree = loadedModels.filter((m) => m.free === true).length;
+      status.textContent = loadedModels.length
+        ? loadedModels.length +
+          ' modelli per chattare' +
+          (nFree ? ', di cui ' + nFree + ' gratuiti' : '') +
+          '. Tocca un modello per sceglierlo.'
         : 'Nessun modello restituito dal server.';
-      if (list.length && !$('#model').value.trim()) $('#model').value = list[0].id;
+      $('#onlyFree').checked = nFree > 0;
+      $('#onlyFree').parentElement.hidden = nFree === 0;
+      $('#modelSearch').value = '';
+      $('#modelBrowser').hidden = !loadedModels.length;
+      renderModelResults();
     } catch (e) {
       status.textContent = P.friendlyError(e, (P.PRESETS[settings.provider] || {}).label);
     }
@@ -821,6 +853,16 @@
       k.type = k.type === 'password' ? 'text' : 'password';
     });
     $('#loadModels').addEventListener('click', loadModels);
+    $('#modelSearch').addEventListener('input', renderModelResults);
+    $('#onlyFree').addEventListener('change', renderModelResults);
+    $('#modelResults').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-model]');
+      if (!b) return;
+      $('#model').value = b.dataset.model;
+      saveProviderFields();
+      renderModelResults();
+      toast('Modello scelto: ' + b.dataset.model);
+    });
     $('#temperature').addEventListener('input', (e) => {
       $('#tempValue').textContent = Number(e.target.value).toFixed(1);
     });

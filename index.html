@@ -88,12 +88,18 @@
       <label class="field">
         <span>Modello</span>
         <div class="row">
-          <input id="model" list="modelList" spellcheck="false" autocapitalize="off">
+          <input id="model" spellcheck="false" autocapitalize="off" placeholder="Premi «Carica modelli»">
           <button type="button" class="btn small" id="loadModels">Carica modelli</button>
         </div>
-        <datalist id="modelList"></datalist>
       </label>
       <p class="hint" id="modelsStatus"></p>
+      <div class="model-browser" id="modelBrowser" hidden>
+        <div class="row">
+          <input id="modelSearch" type="search" placeholder="Cerca modello…" spellcheck="false" autocapitalize="off">
+          <label class="toggle"><input type="checkbox" id="onlyFree"> Solo gratis</label>
+        </div>
+        <ul class="model-results" id="modelResults"></ul>
+      </div>
 
       <label class="field">
         <span>Istruzioni di sistema (personalità)</span>
