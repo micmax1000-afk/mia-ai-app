@@ -31,6 +31,7 @@ Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.
 
 > Duck.ai non ha un'API ufficiale: il proxy si basa su chiamate non documentate, può smettere
 > di funzionare quando DuckDuckGo cambia qualcosa e va contro i termini d'uso di Duck.ai.
+
 Chiavi e conversazioni restano solo nel `localStorage` del dispositivo.
 
 ## APK con GitHub Actions
