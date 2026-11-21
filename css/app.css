@@ -79,14 +79,13 @@ button { cursor: pointer; }
   padding: calc(6px + var(--safe-top)) 8px 6px;
   background: var(--bg);
 }
-.title {
+.title,
+.top-title {
   flex: 1; min-width: 0; text-align: center;
-  border: 0; background: none; padding: 6px 8px; border-radius: 12px; cursor: pointer;
+  border: 0; background: none; padding: 6px 8px;
+  font-size: 15px; font-weight: 600; letter-spacing: -0.02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.title:hover, .title:active { background: var(--hover); }
-.title strong, .title small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.title strong { font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }
-.title small { color: var(--muted); font-size: 12px; margin-top: 1px; }
 .icon-btn,
 .attach-btn,
 .mic-btn,
@@ -142,27 +141,27 @@ html[data-offline='1'] .net-dot {
 }
 .empty h1 {
   color: var(--text);
-  margin: 0 0 6px;
-  font-size: 40px;
-  font-weight: 600;
-  letter-spacing: -0.045em;
+  margin: 0 0 8px;
+  font-size: 52px;
+  font-weight: 560;
+  letter-spacing: -0.05em;
 }
-.empty p { margin: 0; }
+.empty p { margin: 0; font-size: 16px; }
 .suggestions {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 28px;
+  gap: 2px;
+  margin-top: 36px;
   text-align: left;
 }
 .chip {
-  border: 1px solid var(--border);
+  border: 0;
   background: transparent;
   border-radius: 12px;
-  padding: 10px 14px;
+  padding: 11px 12px;
   text-align: left;
-  color: var(--text);
-  font-size: 14px;
+  color: var(--muted);
+  font-size: 15px;
   line-height: 1.3;
 }
 .chip:hover, .chip:active { background: var(--hover); }
@@ -187,6 +186,8 @@ html[data-offline='1'] .net-dot {
   border-radius: 0;
   max-width: 100%;
   padding: 2px 2px;
+  font-size: 16.5px;
+  line-height: 1.65;
 }
 .msg.error .bubble { color: var(--danger); }
 .bubble p { margin: 0 0 10px; }
@@ -222,33 +223,57 @@ html[data-offline='1'] .net-dot {
 
 .pending-att { padding: 0 16px; background: var(--bg); }
 .composer {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
+  display: block;
   margin: 8px 12px calc(12px + var(--safe-bottom));
-  padding: 6px 6px 6px 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.composer-box {
   border: 1px solid var(--border);
-  border-radius: 28px;
+  border-radius: 26px;
   background: var(--composer);
+  padding: 8px 8px 4px;
 }
 .composer textarea {
-  flex: 1;
+  display: block;
+  width: 100%;
   resize: none;
   max-height: 40vh;
-  padding: 10px 8px;
+  padding: 8px 10px 4px;
   border: 0;
-  border-radius: 0;
   background: transparent;
   outline: none;
 }
+.composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.model-chip {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-gap { flex: 1; }
+.model-chip:hover, .model-chip:active { background: var(--hover); color: var(--text); }
 .send-btn {
-  width: 36px; height: 36px; flex: none;
+  width: 34px; height: 34px; flex: none;
   border: 0; border-radius: 50%;
   background: var(--accent);
   color: var(--bg);
   font-size: 16px;
-  margin-bottom: 2px;
+  opacity: 0.28;
 }
+.composer.has-text .send-btn,
+.send-btn.stop { opacity: 1; }
 .send-btn.stop { background: var(--danger); color: #fff; }
 .send-btn:disabled { opacity: .4; }
 
@@ -267,9 +292,17 @@ html[data-offline='1'] .net-dot {
 }
 .drawer.open { transform: none; }
 .drawer-head, .drawer-foot { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 8px; }
-.brand { font-size: 20px; letter-spacing: -0.04em; font-weight: 650; }
+.drawer .btn.ghost { background: transparent; border: 1px solid var(--border); }
 .drawer-foot { border-top: 1px solid var(--border); }
 .conv-list { list-style: none; margin: 0; padding: 4px 8px 8px; overflow-y: auto; flex: 1; }
+.conv-list li.conv-label {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 14px 10px 4px;
+  pointer-events: none;
+}
+.conv-list li.conv-label:hover { background: none; }
 .conv-list li { display: flex; align-items: center; border-radius: 12px; }
 .conv-list li.active, .conv-list li:hover { background: var(--hover); }
 .conv-list .open-conv {

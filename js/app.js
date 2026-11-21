@@ -179,13 +179,12 @@
 
   function updateHeader() {
     const c = current();
-    $('#chatTitle').textContent = (c && c.title) || 'Mia';
-    const preset = P.PRESETS[settings.provider] || P.PRESETS.custom;
+    const titled = c && c.messages && c.messages.length && c.title;
+    $('#chatTitle').textContent = titled ? c.title : '';
     const p = profile();
     $('#micBtn').hidden = !canUseMic();
     const ready = isConfigured();
-    $('#modelHint').hidden = !ready;
-    $('#modelHint').textContent = ready ? modelLabel(settings.provider, p.model) + ' ▾' : '';
+    $('#modelHint').textContent = ready ? modelLabel(settings.provider, p.model) : 'Scegli il modello';
     $('#setupHint').hidden = isConfigured();
   }
 
@@ -371,9 +370,22 @@
       ul.innerHTML = '<li class="hint" style="padding:10px">Nessuna conversazione.</li>';
       return;
     }
+    const order = ['Oggi', 'Ieri', 'Ultimi 7 giorni', 'Precedenti'];
+    const groups = {};
     [...conversations]
       .sort((a, b) => b.updated - a.updated)
       .forEach((c) => {
+        const label = dayGroup(c.updated);
+        (groups[label] || (groups[label] = [])).push(c);
+      });
+    order.forEach((label) => {
+      const list = groups[label];
+      if (!list) return;
+      const head = document.createElement('li');
+      head.className = 'conv-label';
+      head.textContent = label;
+      ul.appendChild(head);
+      list.forEach((c) => {
         const li = document.createElement('li');
         if (c.id === currentId) li.className = 'active';
         const open = document.createElement('button');
@@ -382,18 +394,29 @@
         open.dataset.id = c.id;
         const title = document.createElement('span');
         title.textContent = c.title || 'Nuova chat';
-        const when = document.createElement('small');
-        when.textContent = new Date(c.updated).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
-        open.append(title, when);
+        open.appendChild(title);
         const del = document.createElement('button');
         del.type = 'button';
         del.className = 'del-conv';
         del.dataset.del = c.id;
         del.setAttribute('aria-label', 'Elimina');
-        del.textContent = '🗑';
+        del.textContent = '×';
         li.append(open, del);
         ul.appendChild(li);
       });
+    });
+  }
+
+  function dayGroup(ts) {
+    const d = new Date(ts);
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const then = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const days = Math.round((start - then) / 86400000);
+    if (days <= 0) return 'Oggi';
+    if (days === 1) return 'Ieri';
+    if (days < 7) return 'Ultimi 7 giorni';
+    return 'Precedenti';
   }
 
   // ─── Chat ─────────────────────────────────────────────────
@@ -824,6 +847,7 @@
     const ta = $('#input');
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, window.innerHeight * 0.4) + 'px';
+    $('#composer').classList.toggle('has-text', !!ta.value.trim());
   }
 
   // ─── Eventi ───────────────────────────────────────────────
