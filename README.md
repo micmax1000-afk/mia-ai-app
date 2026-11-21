@@ -17,10 +17,9 @@ App di chat AI personale per Android (Capacitor), senza bundler: HTML + CSS + Ja
 | Google Gemini | chiave da [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | OpenRouter | chiave da [openrouter.ai/keys](https://openrouter.ai/keys) (ha modelli gratuiti) |
 | Groq | chiave da [console.groq.com/keys](https://console.groq.com/keys) |
-| Together AI | chiave da [api.together.ai](https://api.together.ai/settings/api-keys) |
-| Fireworks AI | chiave da [fireworks.ai](https://fireworks.ai/account/api-keys) |
-| DeepInfra | chiave da [deepinfra.com](https://deepinfra.com/dash/api_keys) |
-| Ollama (rete locale) | Ollama sul PC in rete (`OLLAMA_HOST=0.0.0.0`). Cambia l'IP nelle Impostazioni. **Non gira sul telefono**. |
+| Together AI | chiave da [api.together.ai](https://api.together.ai/settings/api-keys) — richiede acquisto crediti |
+| Fireworks AI | chiave da [fireworks.ai](https://fireworks.ai/account/api-keys) — crediti iniziali limitati |
+| DeepInfra | chiave da [deepinfra.com](https://deepinfra.com/dash/api_keys) — richiede metodo di pagamento |
 | Personalizzato | qualsiasi server con API `/v1/chat/completions` (es. LM Studio, vLLM, un tuo proxy) |
 
 Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.

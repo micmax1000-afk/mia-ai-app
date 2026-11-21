@@ -45,7 +45,7 @@
       model: '',
       needsKey: true,
       keyUrl: 'https://api.together.ai/settings/api-keys',
-      hint: 'Chiave da api.together.ai. Molti modelli open-source a buon prezzo.'
+      hint: 'Chiave da api.together.ai. Molti modelli open-source a buon prezzo. Richiede acquisto crediti (minimo ~$15).'
     },
     fireworks: {
       label: 'Fireworks AI',
@@ -55,7 +55,7 @@
       model: '',
       needsKey: true,
       keyUrl: 'https://fireworks.ai/account/api-keys',
-      hint: 'Chiave da fireworks.ai. Modelli nel formato accounts/fireworks/models/...'
+      hint: 'Chiave da fireworks.ai. Crediti iniziali limitati, poi a pagamento. Modelli nel formato accounts/fireworks/models/...'
     },
     deepinfra: {
       label: 'DeepInfra',
@@ -65,16 +65,7 @@
       model: '',
       needsKey: true,
       keyUrl: 'https://deepinfra.com/dash/api_keys',
-      hint: 'Chiave da deepinfra.com. Buon prezzo per modelli open-source.'
-    },
-    ollama: {
-      label: 'Ollama (rete locale)',
-      short: 'Ollama',
-      type: 'openai',
-      baseUrl: 'http://192.168.1.100:11434/v1',
-      model: '',
-      needsKey: false,
-      hint: 'Ollama sul PC in rete locale (OLLAMA_HOST=0.0.0.0). Non gira sul telefono. Cambia l\'indirizzo IP.'
+      hint: 'Chiave da deepinfra.com. Prezzi bassi per open-source, ma richiede metodo di pagamento.'
     },
     custom: {
       label: 'Personalizzato (compatibile OpenAI)',
@@ -153,7 +144,7 @@
     }
   }
 
-  // ─── Allegati ──────────────────────────────────────────────────────────
+  // ─── Allegati ─────────────────────────────────────────────────────────────────────
   // attachment: { kind: 'image'|'pdf'|'text', name, mime, data (base64) | text, dropped? }
   function attachmentError(msg) {
     const e = new Error(msg);
@@ -175,7 +166,7 @@
     return (m.attachments || []).filter((a) => (a.kind === 'image' || a.kind === 'pdf') && a.data && !a.dropped);
   }
 
-  // ─── Gemini ──────────────────────────────────────────────────────────
+  // ─── Gemini ──────────────────────────────────────────────────────────────────────
   async function streamGemini(cfg, messages, onText, signal) {
     const contents = messages
       .filter((m) => m.role !== 'system')
@@ -237,7 +228,7 @@
       }));
   }
 
-  // ─── Compatibile OpenAI ────────────────────────────────────────────────
+  // ─── Compatibile OpenAI ──────────────────────────────────────────────────────────
   function openaiHeaders(cfg) {
     const h = { 'Content-Type': 'application/json' };
     if (cfg.apiKey) h.Authorization = 'Bearer ' + cfg.apiKey;
@@ -321,7 +312,7 @@
       .filter((m) => m.id && m.chat);
   }
 
-  // ─── API pubblica ────────────────────────────────────────────────────────
+  // ─── API pubblica ──────────────────────────────────────────────────────────────────
   /**
    * cfg: { provider, baseUrl, apiKey, model, systemPrompt, temperature }
    * messages: [{ role: 'user'|'assistant', content }]
