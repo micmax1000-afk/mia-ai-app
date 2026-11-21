@@ -21,6 +21,18 @@ App di chat AI personale per Android (Capacitor), senza bundler: HTML + CSS + Ja
 
 Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.
 
+### Integrazione GitHub
+
+In Impostazioni puoi inserire un **Personal Access Token** (con permesso `repo`).
+Il modulo `js/github.js` espone:
+
+- `MiaGitHub.me(token)` — verifica il token
+- `MiaGitHub.listRepos(token)` — elenco repository
+- `MiaGitHub.getFile(token, owner, repo, path)` — leggi un file
+- `MiaGitHub.putFile(token, owner, repo, path, content, message, sha?, branch?)` — crea o aggiorna un file (commit)
+
+Il token resta solo nel `localStorage` del dispositivo.
+
 ### Modelli gratuiti
 
 - **Gemini**: la chiave di Google AI Studio è gratuita, con un limite di richieste al giorno.
@@ -73,6 +85,7 @@ npm run build:apk      # serve JDK 21 + Android SDK
 
 - `index.html`, `css/app.css`, `css/app-fix.css` — interfaccia (app-fix.css corregge le sheet su mobile)
 - `js/providers.js` — chiamate a Gemini e alle API compatibili OpenAI (streaming SSE)
+- `js/github.js` — integrazione GitHub (token + commit file)
 - `js/markdown.js` — renderer Markdown sicuro (tutto l'HTML viene escapato)
 - `js/app.js` — conversazioni, impostazioni, UI
 - `js/app-fix.js` — gestione classe `sheet-open` per bloccare lo scroll dello sfondo
