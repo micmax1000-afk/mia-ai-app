@@ -217,7 +217,7 @@
       if (msg.content && !msg.error) {
         actions.innerHTML +=
           '<button type="button" data-act="share">Condividi</button>' +
-          '<button type="button" data-act="push">Su GitHub</button>' +
+          '<button type="button" data-act="push">Push</button>' +
           '<button type="button" data-act="read">Ascolta</button>';
       }
       if (msg.model) {
