@@ -120,7 +120,7 @@
       <div class="agent-box">
         <label class="field check-field">
           <input type="checkbox" id="agentEnabled">
-          <span><b>Modalità agente</b> — Mia può usare strumenti: GitHub (repository, file, branch, issue), leggere pagine web e salvare note</span>
+          <span><b>Modalità agente</b> — Mia può usare strumenti: GitHub (repository, file, branch, issue), pagine web, note e creare file (testo, zip, PDF, Excel, immagini)</span>
         </label>
         <div id="agentFields">
           <label class="field">
@@ -137,6 +137,11 @@
             <b>Contents</b>, <b>Issues</b> e <b>Metadata</b> in lettura/scrittura. Per creare nuovi repository serve un token «classic» con il permesso <b>repo</b>.
             Il token resta solo su questo dispositivo.
           </p>
+          <label class="field">
+            <span>Modello immagini (Gemini)</span>
+            <input id="imageModel" spellcheck="false" autocapitalize="off" placeholder="gemini-2.5-flash-image">
+          </label>
+          <p class="hint">Per «genera immagine» usa la chiave del provider Google Gemini. Il piano gratuito può non includere le immagini: se dà errore, controlla il nome del modello o i limiti del tuo account.</p>
           <p class="hint">Le azioni che modificano qualcosa (creare, scrivere, eliminare, commentare) chiedono sempre il tuo permesso. Le note sono salvate sul telefono.</p>
           <p class="hint">«Leggi pagina web» prova l'indirizzo direttamente; se il sito lo blocca passa dal servizio r.jina.ai, che vede l'indirizzo richiesto.</p>
         </div>
@@ -197,6 +202,7 @@
 
 <script src="js/markdown.js"></script>
 <script src="js/providers.js"></script>
+<script src="js/files.js"></script>
 <script src="js/tools.js"></script>
 <script src="js/app.js"></script>
 </body>

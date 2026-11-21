@@ -5,6 +5,7 @@
   const P = window.MiaProviders;
   const MD = window.MiaMarkdown;
   const Tools = window.MiaTools;
+  const Files = window.MiaFiles;
   const $ = (s) => document.querySelector(s);
 
   const LS_SETTINGS = 'miaai_v1_settings';
@@ -27,7 +28,8 @@
     favorites: [], // [{ provider, model }] — modelli per il cambio rapido
     autoFallback: true, // se il modello è occupato, prova da solo gli altri dell'elenco
     agentEnabled: false, // modalità agente: il modello può usare gli strumenti (GitHub, web, note)
-    githubToken: ''
+    githubToken: '',
+    imageModel: 'gemini-2.5-flash-image' // modello Gemini per generate_image
   };
 
   function load(key, fallback) {
@@ -132,6 +134,13 @@
     toast('Memoria piena: elimina qualche chat.');
   }
 
+  /** Elimina dall'archivio i file creati dagli strumenti nelle conversazioni indicate. */
+  function dropFiles(convs) {
+    (convs || []).forEach((c) =>
+      c.messages.forEach((m) => (m.files || []).forEach((f) => Files.del(f.id).catch(() => {})))
+    );
+  }
+
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
@@ -194,6 +203,41 @@
   }
 
   // ─── Rendering messaggi ───────────────────────────────────
+  function fmtSize(b) {
+    return b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
+  }
+
+  /** Scheda di un file creato da uno strumento: anteprima (se immagine) + pulsante Condividi/Salva. */
+  function fileCardEl(f, k) {
+    const card = document.createElement('div');
+    card.className = 'file-card';
+    if (/^image\/(png|jpe?g|webp|svg\+xml)$/.test(f.mime)) {
+      const img = document.createElement('img');
+      img.alt = f.name;
+      card.appendChild(img);
+      Files.get(f.id)
+        .then((blob) => {
+          if (!blob) return img.remove();
+          img.onload = () => URL.revokeObjectURL(img.src);
+          img.src = URL.createObjectURL(blob);
+        })
+        .catch(() => img.remove());
+    }
+    const row = document.createElement('div');
+    row.className = 'file-row';
+    const info = document.createElement('span');
+    info.className = 'file-info';
+    info.textContent = '📎 ' + f.name + ' · ' + fmtSize(f.size);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn small';
+    btn.dataset.file = k;
+    btn.textContent = 'Condividi / Salva';
+    row.append(info, btn);
+    card.appendChild(row);
+    return card;
+  }
+
   function toolEl(msg, index) {
     const wrap = document.createElement('div');
     wrap.className = 'msg tool';
@@ -209,6 +253,7 @@
     pre.textContent = (msg.preview ? 'Richiesta:\n' + msg.preview + '\n\n' : '') + 'Risultato:\n' + String(msg.content || '').slice(0, 4000);
     det.append(sum, pre);
     wrap.appendChild(det);
+    (msg.files || []).forEach((f, k) => wrap.appendChild(fileCardEl(f, k)));
     return wrap;
   }
 
@@ -488,7 +533,9 @@
       'MODALITÀ AGENTE: hai a disposizione degli strumenti (GitHub, pagine web, note). Usali quando servono per rispondere o per eseguire ciò che l\'utente chiede. ' +
       'Non inventare mai nomi di repository, file o risultati: se non sei sicuro, leggi prima (github_list_repos, github_read_file). ' +
       'Prima di modificare un file esistente leggilo. Le azioni che modificano qualcosa chiedono già conferma all\'utente tramite l\'app: non chiedere conferma a parole, chiama direttamente lo strumento. ' +
-      'Se l\'utente rifiuta un\'azione, non ripeterla. Dopo aver usato gli strumenti, riassumi in italiano cosa hai fatto.';
+      'Se l\'utente rifiuta un\'azione, non ripeterla. Per creare file (create_file, create_zip, create_pdf, create_xlsx, create_svg, generate_image) usa gli strumenti: ' +
+      'i file compaiono in chat con i pulsanti Condividi/Salva, quindi non incollare il loro contenuto nella risposta. ' +
+      'Dopo aver usato gli strumenti, riassumi in italiano cosa hai fatto.';
     if (login) t += ' L\'utente GitHub è «' + login + '»: usalo come proprietario (owner) quando non è specificato.';
     else if (settings.githubToken) t += ' Il token GitHub non sembra valido: se serve GitHub, avvisa l\'utente.';
     else t += ' Non c\'è un token GitHub: gli strumenti GitHub non funzioneranno, avvisa l\'utente se li chiede.';
@@ -512,8 +559,15 @@
       if (!yes) return { ok: false, denied: true, content: 'L\'utente ha rifiutato questa azione. Non riprovare: chiedi cosa preferisce.' };
     }
     try {
-      const out = await Tools.run(tc.name, tc.args, { token: settings.githubToken, signal: ctl.signal });
-      return { ok: true, content: out };
+      const gem = profile('gemini');
+      const out = await Tools.run(tc.name, tc.args, {
+        token: settings.githubToken,
+        signal: ctl.signal,
+        geminiKey: gem.apiKey,
+        geminiBase: gem.baseUrl,
+        imageModel: settings.imageModel
+      });
+      return { ok: true, content: out.text, files: out.files };
     } catch (e) {
       if (e && e.name === 'AbortError') return { ok: false, content: 'Interrotto dall\'utente.' };
       return { ok: false, content: 'Errore: ' + ((e && e.message) || e) };
@@ -529,16 +583,29 @@
       try {
         preview = JSON.stringify(tc.args, null, 2).slice(0, 600);
       } catch (_) {}
-      c.messages.push({
+      const saved = [];
+      let content = res.content;
+      for (const f of res.files || []) {
+        const id = uid();
+        try {
+          await Files.put(id, f.blob);
+          saved.push({ id, name: f.name, mime: f.mime, size: f.blob.size });
+        } catch (_) {
+          content += '\n[Attenzione: «' + f.name + '» non è stato salvato (archivio file non disponibile).]';
+        }
+      }
+      const tm = {
         role: 'tool',
         toolCallId: tc.id,
         name: tc.name,
         title: d.title,
         preview,
-        content: res.content,
+        content,
         ok: res.ok,
         denied: !!res.denied
-      });
+      };
+      if (saved.length) tm.files = saved;
+      c.messages.push(tm);
       c.updated = Date.now();
       onProgress();
     }
@@ -840,6 +907,7 @@
     $('#autoFallback').checked = settings.autoFallback !== false;
     $('#agentEnabled').checked = !!settings.agentEnabled;
     $('#githubToken').value = settings.githubToken || '';
+    $('#imageModel').value = settings.imageModel || '';
     $('#agentFields').hidden = !settings.agentEnabled;
     $('#settings').hidden = false;
   }
@@ -862,6 +930,7 @@
     settings.autoFallback = $('#autoFallback').checked;
     settings.agentEnabled = $('#agentEnabled').checked;
     settings.githubToken = $('#githubToken').value.trim();
+    settings.imageModel = $('#imageModel').value.trim() || DEFAULT_SETTINGS.imageModel;
     if (isConfigured()) addFavorite(settings.provider, profile().model);
     save(LS_SETTINGS, settings);
     applyTheme();
@@ -996,6 +1065,7 @@
           if (busy) stopAll();
           currentId = null;
         }
+        dropFiles(conversations.filter((c) => c.id === del.dataset.del));
         conversations = conversations.filter((c) => c.id !== del.dataset.del);
         persistConvs();
         renderConvList();
@@ -1014,6 +1084,17 @@
       if (chip) return send(chip.dataset.prompt);
       const cc = e.target.closest('.copy-code');
       if (cc) return copyText(cc.closest('.code').querySelector('code').textContent);
+      const fileBtn = e.target.closest('[data-file]');
+      if (fileBtn) {
+        const c0 = current();
+        const m0 = c0 && c0.messages[Number(fileBtn.closest('.msg').dataset.index)];
+        const f0 = m0 && m0.files && m0.files[Number(fileBtn.dataset.file)];
+        if (!f0) return;
+        Files.share(f0)
+          .then((how) => how === 'downloaded' && toast('File scaricato'))
+          .catch((err) => toast((err && err.message) || 'Impossibile condividere il file'));
+        return;
+      }
       const act = e.target.closest('[data-act]');
       if (!act) return;
       const index = Number(act.closest('.msg').dataset.index);
@@ -1102,6 +1183,7 @@
     $('#clearAll').addEventListener('click', () => {
       if (!confirm('Eliminare TUTTE le conversazioni? Non si può annullare.')) return;
       if (busy) stopAll();
+      dropFiles(conversations);
       conversations = [];
       currentId = null;
       persistConvs();

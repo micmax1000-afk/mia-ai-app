@@ -41,7 +41,7 @@ Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.
 
 ### Modalità agente (strumenti)
 
-In **Impostazioni → Modalità agente** Mia può usare 10 strumenti, non solo rispondere a parole:
+In **Impostazioni → Modalità agente** Mia può usare 16 strumenti, non solo rispondere a parole:
 
 | Strumento | Cosa fa | Conferma |
 |--|--|--|
@@ -55,7 +55,17 @@ In **Impostazioni → Modalità agente** Mia può usare 10 strumenti, non solo r
 | `github_issues` | elenca/legge issue; crea issue o commenta | solo crea/commenta |
 | `read_webpage` | legge il testo di una pagina web | no |
 | `notes` | note salvate sul telefono | solo elimina |
+| `create_file` | file di testo: txt, md, csv, json, html, codice… | no |
+| `create_zip` | archivio .zip con più file | no |
+| `create_svg` | immagine disegnata in SVG, salvata anche come PNG | no |
+| `generate_image` | immagine generata dall'AI (modello immagini di Gemini) | no |
+| `create_pdf` | PDF A4 con titoli, elenchi, tabelle (caratteri latini, niente emoji) | no |
+| `create_xlsx` | foglio Excel con più fogli, numeri e formule | no |
 
+- **File creati:** compaiono nella chat con il pulsante **Condividi / Salva** (pannello di Android: Drive, File, WhatsApp…);
+  nel browser vengono scaricati. Sono tenuti sul dispositivo (IndexedDB) finché non elimini la chat.
+- `generate_image` usa la chiave del provider Gemini e il «Modello immagini» in Impostazioni (predefinito `gemini-2.5-flash-image`);
+  il piano gratuito potrebbe non includere le immagini.
 - Serve un **token GitHub** (resta solo sul dispositivo). Consigliato un token *fine-grained* limitato ai repository che vuoi
   far gestire, con permessi **Contents**, **Issues**, **Metadata** in lettura/scrittura. Per creare nuovi repository serve un
   token *classic* con permesso `repo`.
@@ -103,6 +113,8 @@ npm run build:apk      # serve JDK 21 + Android SDK
 
 - `index.html`, `css/app.css` — interfaccia
 - `js/providers.js` — chiamate a Gemini e alle API compatibili OpenAI (streaming SSE)
-- `js/tools.js` — strumenti della modalità agente (GitHub, web, note)
+- `js/tools.js` — strumenti della modalità agente (GitHub, web, note, file)
+- `js/files.js` — archivio dei file creati e condivisione
+- `js/vendor/` — librerie incluse: JSZip (zip/xlsx) e jsPDF (pdf), caricate solo quando servono
 - `js/markdown.js` — renderer Markdown sicuro (tutto l'HTML viene escapato)
 - `js/app.js` — conversazioni, impostazioni, UI

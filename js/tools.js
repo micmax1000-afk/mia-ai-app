@@ -496,6 +496,583 @@
     }
   });
 
+  // ─── File creati (testo, zip, immagini, pdf, xlsx) ────────
+  const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|xml|html?|css|js|mjs|ts|py|java|kt|c|h|cpp|cs|go|rs|rb|php|sql|yaml|yml|ini|toml|log|srt|tex|swift|svg)$/i;
+  const MIMES = {
+    txt: 'text/plain', md: 'text/markdown', markdown: 'text/markdown', csv: 'text/csv', tsv: 'text/tab-separated-values',
+    json: 'application/json', xml: 'application/xml', html: 'text/html', htm: 'text/html', css: 'text/css',
+    js: 'text/javascript', svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
+    pdf: 'application/pdf', zip: 'application/zip',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  };
+
+  function mimeFor(name) {
+    const m = /\.([A-Za-z0-9]+)$/.exec(name);
+    return (m && MIMES[m[1].toLowerCase()]) || 'text/plain';
+  }
+
+  function safeName(name, ext) {
+    let n = str(name)
+      .trim()
+      .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_')
+      .replace(/^\.+/, '');
+    if (!n) n = 'file';
+    if (ext && !/\.[A-Za-z0-9]{1,8}$/.test(n)) n += '.' + ext;
+    else if (ext && !new RegExp('\\.' + ext + '$', 'i').test(n)) n += '.' + ext;
+    return n.slice(0, 100);
+  }
+
+  function fmtSize(b) {
+    return b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
+  }
+
+  function fileResult(verb, files, extra) {
+    return {
+      text:
+        verb + ': ' + files.map((f) => '«' + f.name + '» (' + fmtSize(f.blob.size) + ')').join(', ') +
+        '. L\'utente li vede in chat con i pulsanti Condividi/Salva: non incollare il contenuto nella risposta.' +
+        (extra ? '\n' + extra : ''),
+      files
+    };
+  }
+
+  const scriptCache = {};
+  function loadScript(src) {
+    if (!scriptCache[src]) {
+      scriptCache[src] = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = resolve;
+        s.onerror = () => {
+          delete scriptCache[src];
+          reject(new Error('Impossibile caricare la libreria ' + src));
+        };
+        document.head.appendChild(s);
+      });
+    }
+    return scriptCache[src];
+  }
+  async function needZip() {
+    if (!global.JSZip) await loadScript('js/vendor/jszip.min.js');
+    return global.JSZip;
+  }
+  async function needPdf() {
+    if (!global.jspdf) await loadScript('js/vendor/jspdf.umd.min.js');
+    return global.jspdf.jsPDF;
+  }
+
+  function base64ToBlob(b64, mime) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  }
+
+  // 11 — file di testo
+  def('create_file', {
+    description:
+      'Crea un file di testo (txt, md, csv, json, html, xml, codice…) che l\'utente potrà salvare o condividere. ' +
+      'Per pdf, xlsx, zip e immagini usa gli strumenti dedicati.',
+    parameters: {
+      type: 'object',
+      properties: {
+        filename: { type: 'string', description: 'Nome del file con estensione, es. «relazione.md» o «dati.csv».' },
+        content: { type: 'string', description: 'Contenuto completo del file.' }
+      },
+      required: ['filename', 'content']
+    },
+    title: (a) => 'Crea il file ' + str(a.filename),
+    async run(args) {
+      const name = safeName(need(args, 'filename'));
+      if (!TEXT_EXT.test(name)) throw new Error('Estensione non consentita per create_file. Usa create_pdf, create_xlsx, create_zip o create_svg.');
+      if (typeof args.content !== 'string') throw new Error('Parametro mancante: «content».');
+      const bom = /\.csv$/i.test(name) ? '﻿' : ''; // Excel legge così le lettere accentate
+      const blob = new Blob([bom + args.content], { type: mimeFor(name) + ';charset=utf-8' });
+      return fileResult('File creato', [{ name, mime: mimeFor(name), blob }]);
+    }
+  });
+
+  // 12 — zip
+  def('create_zip', {
+    description: 'Crea un archivio .zip con più file di testo (anche in sottocartelle) che l\'utente potrà salvare o condividere.',
+    parameters: {
+      type: 'object',
+      properties: {
+        filename: { type: 'string', description: 'Nome dell\'archivio, es. «progetto.zip».' },
+        files: {
+          type: 'array',
+          description: 'File da inserire nell\'archivio.',
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'Percorso nel zip, es. «src/index.js».' },
+              content: { type: 'string', description: 'Contenuto di testo del file.' }
+            },
+            required: ['path', 'content']
+          }
+        }
+      },
+      required: ['filename', 'files']
+    },
+    title: (a) => 'Crea l\'archivio ' + str(a.filename) + ' (' + ((a.files && a.files.length) || 0) + ' file)',
+    async run(args) {
+      const list = Array.isArray(args.files) ? args.files : [];
+      if (!list.length) throw new Error('Nessun file da inserire nello zip.');
+      if (list.length > 200) throw new Error('Troppi file (massimo 200).');
+      const JSZip = await needZip();
+      const zip = new JSZip();
+      let total = 0;
+      const used = new Set();
+      list.forEach((f, i) => {
+        let p = str(f && f.path)
+          .replace(/\\/g, '/')
+          .split('/')
+          .filter((s) => s && s !== '.' && s !== '..')
+          .join('/');
+        if (!p) throw new Error('Percorso non valido nel file n. ' + (i + 1) + '.');
+        if (used.has(p)) throw new Error('Percorso duplicato: ' + p);
+        used.add(p);
+        const content = str(f.content);
+        total += content.length;
+        if (total > 20 * 1024 * 1024) throw new Error('Contenuto troppo grande (massimo 20 MB).');
+        zip.file(p, content);
+      });
+      const name = safeName(need(args, 'filename'), 'zip');
+      const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/zip', compression: 'DEFLATE' });
+      return fileResult('Archivio creato', [{ name, mime: 'application/zip', blob }], 'Contiene: ' + [...used].join(', '));
+    }
+  });
+
+  // 13 — SVG (+ PNG)
+  function prepareSvg(src) {
+    const doc = new DOMParser().parseFromString(src, 'image/svg+xml');
+    if (doc.querySelector('parsererror') || doc.documentElement.localName !== 'svg')
+      throw new Error('SVG non valido: deve iniziare con <svg …> ed essere XML ben formato (tag chiusi, & scritto come &amp;).');
+    const root = doc.documentElement;
+    root.querySelectorAll('script,foreignObject').forEach((n) => n.remove());
+    root.querySelectorAll('*').forEach((el) =>
+      Array.from(el.attributes).forEach((a) => {
+        if (/^on/i.test(a.name)) el.removeAttribute(a.name);
+        else if (/^(xlink:)?href$/i.test(a.name) && /^\s*(https?:|javascript:)/i.test(a.value)) el.removeAttribute(a.name);
+      })
+    );
+    if (!root.getAttribute('xmlns')) root.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    const dim = (k) => {
+      const v = str(root.getAttribute(k));
+      return v && !v.includes('%') ? parseFloat(v) : NaN;
+    };
+    let w = dim('width');
+    let h = dim('height');
+    const vb = str(root.getAttribute('viewBox')).trim().split(/[\s,]+/).map(Number);
+    const hasVb = vb.length === 4 && vb[2] > 0 && vb[3] > 0;
+    if (!(w > 0 && h > 0)) {
+      w = hasVb ? vb[2] : 800;
+      h = hasVb ? vb[3] : 600;
+      if (!hasVb) root.setAttribute('viewBox', '0 0 800 600');
+      root.setAttribute('width', w);
+      root.setAttribute('height', h);
+    }
+    return { svg: new XMLSerializer().serializeToString(root), w, h };
+  }
+
+  function svgToPng(svg, w, h) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const k = Math.min(4, Math.max(1, 1600 / Math.max(w, h)));
+          const cv = document.createElement('canvas');
+          cv.width = Math.round(w * k);
+          cv.height = Math.round(h * k);
+          const ctx = cv.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, cv.width, cv.height);
+          ctx.drawImage(img, 0, 0, cv.width, cv.height);
+          cv.toBlob((b) => (b ? resolve(b) : reject(new Error('Conversione in PNG non riuscita'))), 'image/png');
+        } catch (e) {
+          reject(e);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('SVG non disegnabile'));
+      };
+      img.src = url;
+    });
+  }
+
+  def('create_svg', {
+    description:
+      'Crea un\'immagine disegnata con codice SVG (loghi, icone, diagrammi, grafici, illustrazioni geometriche) e la salva anche come PNG. ' +
+      'Scrivi SVG ben formato con viewBox, senza script, senza immagini esterne e senza font esterni.',
+    parameters: {
+      type: 'object',
+      properties: {
+        filename: { type: 'string', description: 'Nome del file senza estensione, es. «logo».' },
+        svg: { type: 'string', description: 'Codice SVG completo, da <svg …> a </svg>.' }
+      },
+      required: ['filename', 'svg']
+    },
+    title: (a) => 'Disegna l\'immagine ' + str(a.filename),
+    async run(args) {
+      const base = safeName(need(args, 'filename')).replace(/\.(svg|png)$/i, '');
+      const p = prepareSvg(need(args, 'svg'));
+      const files = [{ name: base + '.png', mime: 'image/png', blob: null }];
+      let note = '';
+      try {
+        files[0].blob = await svgToPng(p.svg, p.w, p.h);
+      } catch (e) {
+        files.shift();
+        note = 'PNG non generato (' + ((e && e.message) || e) + '): disponibile solo l\'SVG.';
+      }
+      files.push({ name: base + '.svg', mime: 'image/svg+xml', blob: new Blob([p.svg], { type: 'image/svg+xml;charset=utf-8' }) });
+      return fileResult('Immagine creata', files, note);
+    }
+  });
+
+  // 14 — immagini generate dall'AI (Gemini)
+  def('generate_image', {
+    description:
+      'Genera con l\'intelligenza artificiale una foto o un\'illustrazione a partire da una descrizione (usa il modello immagini di Gemini). ' +
+      'Per loghi, schemi e grafici precisi è meglio create_svg.',
+    parameters: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'Descrizione dettagliata dell\'immagine da creare (stile, soggetto, colori, inquadratura).' },
+        filename: { type: 'string', description: 'Nome del file senza estensione (facoltativo).' }
+      },
+      required: ['prompt']
+    },
+    title: (a) => 'Genera un\'immagine: «' + oneLine(a.prompt, 80) + '»',
+    async run(args, ctx) {
+      const prompt = need(args, 'prompt');
+      if (!ctx.geminiKey) throw new Error('Serve la chiave Gemini: inseriscila in Impostazioni (provider Google Gemini).');
+      const model = ctx.imageModel || 'gemini-2.5-flash-image';
+      const base = String(ctx.geminiBase || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
+      const res = await fetch(base + '/models/' + encodeURIComponent(model) + ':generateContent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': ctx.geminiKey },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } }),
+        signal: ctx.signal
+      });
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (_) {}
+      if (!res.ok) {
+        const m = (data && data.error && data.error.message) || 'Errore Gemini';
+        let hint = '';
+        if (res.status === 429 || /quota|limit/i.test(m))
+          hint = ' Il piano gratuito potrebbe non includere la generazione di immagini o aver raggiunto il limite.';
+        else if (res.status === 404 || /not found|not supported/i.test(m))
+          hint = ' Controlla il nome del «Modello immagini» in Impostazioni.';
+        throw new Error(m + ' [HTTP ' + res.status + ']' + hint);
+      }
+      const cand = data && data.candidates && data.candidates[0];
+      const parts = (cand && cand.content && cand.content.parts) || [];
+      let img = null;
+      let text = '';
+      parts.forEach((p) => {
+        const inl = p.inlineData || p.inline_data;
+        if (inl && inl.data && !img) img = { data: inl.data, mime: inl.mimeType || inl.mime_type || 'image/png' };
+        else if (p.text) text += p.text;
+      });
+      if (!img) {
+        const why = (data && data.promptFeedback && data.promptFeedback.blockReason) || (cand && cand.finishReason) || '';
+        throw new Error('Il modello non ha restituito un\'immagine' + (why ? ' (' + why + ')' : '') + (text ? ': ' + oneLine(text, 200) : '') + '.');
+      }
+      const ext = /jpe?g/i.test(img.mime) ? 'jpg' : /webp/i.test(img.mime) ? 'webp' : 'png';
+      const name = safeName(str(args.filename).trim() || 'immagine-' + new Date().toISOString().slice(0, 16).replace(/[-:T]/g, ''), ext);
+      return fileResult('Immagine generata', [{ name, mime: img.mime, blob: base64ToBlob(img.data, img.mime) }], text ? 'Nota del modello: ' + oneLine(text, 300) : '');
+    }
+  });
+
+  // 15 — PDF
+  function pdfText(s) {
+    return str(s)
+      .replace(/[‘’‚]/g, '\'')
+      .replace(/[“”„]/g, '"')
+      .replace(/[–—−]/g, '-')
+      .replace(/…/g, '...')
+      .replace(/[•●▪]/g, '-')
+      .replace(/[   ]/g, ' ')
+      .replace(/[\u{10000}-\u{10FFFF}]/gu, '')
+      .replace(/[^\u0009\u000a -ÿ€]/g, '');
+  }
+
+  def('create_pdf', {
+    description:
+      'Crea un documento PDF impaginato (A4) con titoli, paragrafi, elenchi e tabelle. ' +
+      'Il PDF usa caratteri latini (accenti italiani ok): niente emoji né alfabeti non latini.',
+    parameters: {
+      type: 'object',
+      properties: {
+        filename: { type: 'string', description: 'Nome del file, es. «relazione.pdf».' },
+        blocks: {
+          type: 'array',
+          description: 'Contenuto, nell\'ordine in cui compare nel documento.',
+          items: {
+            type: 'object',
+            properties: {
+              type: {
+                type: 'string',
+                enum: ['title', 'heading', 'subheading', 'paragraph', 'bullets', 'numbered', 'table', 'pagebreak'],
+                description: 'Tipo di blocco.'
+              },
+              text: { type: 'string', description: 'Testo (per title, heading, subheading, paragraph).' },
+              items: { type: 'array', items: { type: 'string' }, description: 'Voci (per bullets e numbered).' },
+              rows: {
+                type: 'array',
+                description: 'Righe della tabella; la prima è l\'intestazione. Ogni cella è testo.',
+                items: { type: 'array', items: { type: 'string' } }
+              }
+            },
+            required: ['type']
+          }
+        }
+      },
+      required: ['filename', 'blocks']
+    },
+    title: (a) => 'Crea il PDF ' + str(a.filename),
+    async run(args) {
+      const blocks = Array.isArray(args.blocks) ? args.blocks : [];
+      if (!blocks.length) throw new Error('Nessun contenuto: «blocks» è vuoto.');
+      const jsPDF = await needPdf();
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      const M = 56;
+      const maxW = W - 2 * M;
+      let y = M;
+      const ensure = (h) => {
+        if (y + h > H - M) {
+          doc.addPage();
+          y = M;
+        }
+      };
+      const font = (size, bold) => {
+        doc.setFont('helvetica', bold ? 'bold' : 'normal');
+        doc.setFontSize(size);
+      };
+      const para = (text, size, bold, gap, x0, width) => {
+        font(size, bold);
+        const lh = size * 1.35;
+        doc.splitTextToSize(pdfText(text), width || maxW).forEach((line) => {
+          ensure(lh);
+          doc.text(line, x0 == null ? M : x0, y + size);
+          y += lh;
+        });
+        y += gap;
+      };
+      const firstTitle = blocks.find((b) => b && b.type === 'title');
+      blocks.forEach((b) => {
+        if (!b) return;
+        const text = str(b.text);
+        if (b.type === 'title') para(text, 22, true, 10);
+        else if (b.type === 'heading') {
+          y += 6;
+          ensure(40);
+          para(text, 16, true, 6);
+        } else if (b.type === 'subheading') {
+          y += 3;
+          ensure(30);
+          para(text, 13, true, 4);
+        } else if (b.type === 'bullets' || b.type === 'numbered') {
+          (Array.isArray(b.items) ? b.items : []).forEach((it, i) => {
+            font(11, false);
+            const lh = 11 * 1.35;
+            const lines = doc.splitTextToSize(pdfText(it), maxW - 22);
+            lines.forEach((line, k) => {
+              ensure(lh);
+              if (k === 0) doc.text(b.type === 'numbered' ? i + 1 + '.' : '-', M + 6, y + 11);
+              doc.text(line, M + 22, y + 11);
+              y += lh;
+            });
+            y += 2;
+          });
+          y += 6;
+        } else if (b.type === 'table') {
+          const rows = (Array.isArray(b.rows) ? b.rows : []).map((r) => (Array.isArray(r) ? r : [r]).map(pdfText));
+          if (!rows.length) return;
+          const cols = Math.max.apply(null, rows.map((r) => r.length));
+          const weights = [];
+          for (let c = 0; c < cols; c++) weights.push(Math.max(6, Math.min(40, Math.max.apply(null, rows.map((r) => (r[c] || '').length)))));
+          const sum = weights.reduce((a, v) => a + v, 0);
+          const widths = weights.map((w) => (w / sum) * maxW);
+          const size = 10;
+          const lh = size * 1.3;
+          rows.forEach((r, ri) => {
+            font(size, ri === 0);
+            const cells = widths.map((w, c) => doc.splitTextToSize(r[c] || '', w - 8));
+            const h = Math.max.apply(null, cells.map((l) => l.length)) * lh + 8;
+            ensure(h);
+            let x = M;
+            cells.forEach((lines, c) => {
+              if (ri === 0) {
+                doc.setFillColor(235, 237, 245);
+                doc.rect(x, y, widths[c], h, 'FD');
+              } else doc.rect(x, y, widths[c], h);
+              font(size, ri === 0);
+              lines.forEach((line, k) => doc.text(line, x + 4, y + 4 + size + k * lh));
+              x += widths[c];
+            });
+            y += h;
+          });
+          y += 10;
+        } else if (b.type === 'pagebreak') {
+          doc.addPage();
+          y = M;
+        } else if (text) para(text, 11, false, 8);
+      });
+      const n = doc.getNumberOfPages();
+      for (let i = 1; i <= n; i++) {
+        doc.setPage(i);
+        font(9, false);
+        doc.setTextColor(120);
+        doc.text(i + ' / ' + n, W / 2, H - 28, { align: 'center' });
+      }
+      if (firstTitle) doc.setProperties({ title: pdfText(firstTitle.text) });
+      const name = safeName(need(args, 'filename'), 'pdf');
+      return fileResult('PDF creato', [{ name, mime: 'application/pdf', blob: doc.output('blob') }], n + ' pagine.');
+    }
+  });
+
+  // 16 — Excel (.xlsx)
+  const xe = (s) =>
+    str(s)
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+  function colName(i) {
+    let s = '';
+    for (i += 1; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + ((i - 1) % 26)) + s;
+    return s;
+  }
+
+  function sheetXml(rows, header) {
+    const widths = [];
+    let body = '';
+    rows.forEach((row, r) => {
+      let cells = '';
+      (Array.isArray(row) ? row : [row]).forEach((raw, c) => {
+        const v = str(raw);
+        if (v === '') return;
+        const ref = colName(c) + (r + 1);
+        const st = header && r === 0 ? ' s="1"' : '';
+        widths[c] = Math.max(widths[c] || 0, Math.min(60, v.length));
+        if (v.length > 1 && v[0] === '=') cells += '<c r="' + ref + '"' + st + '><f>' + xe(v.slice(1)) + '</f></c>';
+        else if (/^-?(0|[1-9]\d{0,14})([.,]\d{1,2})?$/.test(v) || /^-?(0|[1-9]\d{0,14})\.\d+$/.test(v))
+          cells += '<c r="' + ref + '"' + st + '><v>' + v.replace(',', '.') + '</v></c>';
+        else cells += '<c r="' + ref + '"' + st + ' t="inlineStr"><is><t xml:space="preserve">' + xe(v) + '</t></is></c>';
+      });
+      body += '<row r="' + (r + 1) + '">' + cells + '</row>';
+    });
+    const cols = widths.length
+      ? '<cols>' + widths.map((w, i) => '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + Math.max(8, (w || 0) + 2) + '" customWidth="1"/>').join('') + '</cols>'
+      : '';
+    const view = header
+      ? '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+      : '';
+    return (
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' + view + cols + '<sheetData>' + body + '</sheetData></worksheet>'
+    );
+  }
+
+  def('create_xlsx', {
+    description:
+      'Crea un foglio di calcolo Excel (.xlsx) con uno o più fogli. Numeri e formule (celle che iniziano con =, es. «=SUM(B2:B10)») sono riconosciuti; ' +
+      'la prima riga è l\'intestazione in grassetto e bloccata.',
+    parameters: {
+      type: 'object',
+      properties: {
+        filename: { type: 'string', description: 'Nome del file, es. «spese.xlsx».' },
+        sheets: {
+          type: 'array',
+          description: 'Fogli del file.',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'Nome del foglio (max 31 caratteri).' },
+              rows: {
+                type: 'array',
+                description: 'Righe del foglio; ogni cella è scritta come testo (i numeri come «12.5»; le formule iniziano con «=»).',
+                items: { type: 'array', items: { type: 'string' } }
+              }
+            },
+            required: ['name', 'rows']
+          }
+        }
+      },
+      required: ['filename', 'sheets']
+    },
+    title: (a) => 'Crea il foglio Excel ' + str(a.filename),
+    async run(args) {
+      const sheets = Array.isArray(args.sheets) ? args.sheets : [];
+      if (!sheets.length) throw new Error('Nessun foglio: «sheets» è vuoto.');
+      if (sheets.length > 20) throw new Error('Troppi fogli (massimo 20).');
+      const JSZip = await needZip();
+      const names = [];
+      const prepared = sheets.map((s, i) => {
+        let n = str(s && s.name).replace(/[\[\]:*?\/\\]+/g, ' ').trim().slice(0, 31) || 'Foglio' + (i + 1);
+        while (names.some((x) => x.toLowerCase() === n.toLowerCase())) n = n.slice(0, 28) + '_' + (i + 1);
+        names.push(n);
+        const rows = Array.isArray(s && s.rows) ? s.rows : [];
+        if (rows.length > 20000) throw new Error('Troppe righe nel foglio «' + n + '» (massimo 20000).');
+        return { name: n, rows };
+      });
+      const NS = 'http://schemas.openxmlformats.org/';
+      const zip = new JSZip();
+      zip.file(
+        '[Content_Types].xml',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="' + NS + 'package/2006/content-types">' +
+          '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+          '<Default Extension="xml" ContentType="application/xml"/>' +
+          '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+          '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+          prepared.map((_, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('') +
+          '</Types>'
+      );
+      zip.file(
+        '_rels/.rels',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="' + NS + 'package/2006/relationships">' +
+          '<Relationship Id="rId1" Type="' + NS + 'officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'
+      );
+      zip.file(
+        'xl/workbook.xml',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="' + NS + 'spreadsheetml/2006/main" xmlns:r="' + NS + 'officeDocument/2006/relationships"><sheets>' +
+          prepared.map((s, i) => '<sheet name="' + xe(s.name) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>').join('') +
+          '</sheets></workbook>'
+      );
+      zip.file(
+        'xl/_rels/workbook.xml.rels',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="' + NS + 'package/2006/relationships">' +
+          prepared.map((_, i) => '<Relationship Id="rId' + (i + 1) + '" Type="' + NS + 'officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join('') +
+          '<Relationship Id="rId' + (prepared.length + 1) + '" Type="' + NS + 'officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'
+      );
+      zip.file(
+        'xl/styles.xml',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="' + NS + 'spreadsheetml/2006/main">' +
+          '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>' +
+          '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' +
+          '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+          '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+          '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>' +
+          '</styleSheet>'
+      );
+      prepared.forEach((s, i) => zip.file('xl/worksheets/sheet' + (i + 1) + '.xml', sheetXml(s.rows, true)));
+      const name = safeName(need(args, 'filename'), 'xlsx');
+      const blob = await zip.generateAsync({ type: 'blob', mimeType: MIMES.xlsx, compression: 'DEFLATE' });
+      return fileResult('Foglio Excel creato', [{ name, mime: MIMES.xlsx, blob }], 'Fogli: ' + names.join(', ') + '.');
+    }
+  });
+
   // ─── API pubblica ─────────────────────────────────────────
   function get(name) {
     return Object.prototype.hasOwnProperty.call(TOOLS, name) ? TOOLS[name] : null;
@@ -524,11 +1101,14 @@
     return { title, details, danger: !!(t && t.danger) };
   }
 
+  /** Esegue uno strumento. Restituisce { text, files: [{ name, mime, blob }] }. */
   async function run(name, args, ctx) {
     const t = get(name);
     if (!t) throw new Error('Strumento sconosciuto: ' + name);
     if (ctx && ctx.signal && ctx.signal.aborted) throw abortError();
-    return clip(await t.run(args || {}, ctx || {}));
+    const out = await t.run(args || {}, ctx || {});
+    if (out && typeof out === 'object' && typeof out.text === 'string') return { text: clip(out.text), files: out.files || [] };
+    return { text: clip(out), files: [] };
   }
 
   global.MiaTools = { definitions, get, needsConfirm, describe, run, whoami, count: () => Object.keys(TOOLS).length };
