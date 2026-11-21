@@ -182,7 +182,7 @@
     $('#chatTitle').textContent = (c && c.title) || 'Mia';
     const preset = P.PRESETS[settings.provider] || P.PRESETS.custom;
     const p = profile();
-    $('#micBtn').hidden = !isConfigured() || (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window));
+    $('#micBtn').hidden = !canUseMic();
     const ready = isConfigured();
     $('#modelHint').hidden = !ready;
     $('#modelHint').textContent = ready ? modelLabel(settings.provider, p.model) + ' ▾' : '';
@@ -1023,95 +1023,221 @@
   }
 
 
-  // ============================================
-  // VOICE FEATURES: Microfono e Sintesi Vocale
-  // ============================================
-
-  // Speech Recognition (Microfono)
+  // ─── Voce: microfono e lettura ────────────────────────────
   let recognition = null;
   let isListening = false;
+  let speaking = false;
+  let currentUtterance = null;
+  const nativePlugins = {};
+
+  function isNative() {
+    return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  }
+
+  function nativePlugin(name) {
+    if (!isNative() || !window.Capacitor.registerPlugin) return null;
+    if (!Object.prototype.hasOwnProperty.call(nativePlugins, name)) {
+      try {
+        nativePlugins[name] = window.Capacitor.registerPlugin(name);
+      } catch (_) {
+        nativePlugins[name] = null;
+      }
+    }
+    return nativePlugins[name];
+  }
+
+  function canUseMic() {
+    return !!nativePlugin('SpeechRecognition') || 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+  }
+
+  function plainSpeech(text) {
+    return String(text || '')
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/[#>*_`[\]]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 3500);
+  }
 
   function initSpeechRecognition() {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      return false;
-    }
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return false;
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     recognition = new SpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = false;
     recognition.lang = 'it-IT';
-    
-    recognition.onstart = function() {
+    recognition.onstart = function () {
       isListening = true;
       $('#micBtn').classList.add('listening');
-      toast('Ascoltando...');
+      toast('Ascoltando…');
     };
-    
-    recognition.onend = function() {
+    recognition.onend = function () {
       isListening = false;
       $('#micBtn').classList.remove('listening');
     };
-    
-    recognition.onresult = function(event) {
+    recognition.onresult = function (event) {
       const transcript = event.results[0][0].transcript;
       const input = $('#input');
-      input.value = (input.value || '') + ' ' + transcript;
+      input.value = ((input.value || '').trim() + ' ' + transcript).trim();
       input.focus();
       input.dispatchEvent(new Event('input', { bubbles: true }));
     };
-    
-    recognition.onerror = function(event) {
+    recognition.onerror = function (event) {
       isListening = false;
       $('#micBtn').classList.remove('listening');
-      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+      if (event.error === 'not-allowed') toast('Permesso microfono negato');
+      else if (event.error === 'service-not-allowed' || event.error === 'language-not-supported') {
+        toast('Manca il riconoscimento vocale di Google');
+      } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
         toast('Errore microfono: ' + event.error);
       }
     };
-    
     return true;
   }
 
-  function toggleMicrophone() {
-    if (!recognition) {
-      if (!initSpeechRecognition()) {
-        toast('Microfono non supportato in questo browser');
+  async function toggleMicrophone() {
+    const SR = nativePlugin('SpeechRecognition');
+    if (SR) {
+      if (isListening) {
+        isListening = false;
+        $('#micBtn').classList.remove('listening');
+        try {
+          await SR.stop();
+        } catch (_) {}
         return;
       }
-      $('#micBtn').hidden = false;
+      try {
+        const avail = await SR.available();
+        if (avail && avail.available === false) {
+          toast('Installa il riconoscimento vocale di Google');
+          return;
+        }
+        const perm = await SR.requestPermissions();
+        const state = perm && (perm.speechRecognition || perm.recordAudio);
+        if (state && state !== 'granted') {
+          toast('Permesso microfono negato. Attivalo nelle impostazioni dell’app.');
+          return;
+        }
+        isListening = true;
+        $('#micBtn').classList.add('listening');
+        toast('Parla…');
+        const result = await SR.start({
+          language: 'it-IT',
+          maxResults: 3,
+          prompt: 'Parla in italiano',
+          partialResults: false,
+          popup: true
+        });
+        const said = result && result.matches && result.matches[0];
+        if (said) {
+          const input = $('#input');
+          input.value = ((input.value || '').trim() + ' ' + said).trim();
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        } else toast('Non ho sentito nulla');
+      } catch (e) {
+        const msg = String((e && (e.message || e.errorMessage)) || '');
+        if (/permission/i.test(msg)) toast('Permesso microfono negato');
+        else if (/not available|unavailable|no match/i.test(msg)) toast('Riconoscimento vocale non disponibile');
+        else toast('Microfono non disponibile');
+      } finally {
+        isListening = false;
+        $('#micBtn').classList.remove('listening');
+      }
+      return;
     }
-    
-    if (isListening) {
-      recognition.stop();
-    } else {
+
+    if (!recognition && !initSpeechRecognition()) {
+      toast('Microfono non supportato su questo telefono');
+      return;
+    }
+    if (isListening) recognition.stop();
+    else {
       try {
         recognition.start();
-      } catch (e) {
+      } catch (_) {
         toast('Impossibile avviare il microfono');
       }
     }
   }
 
-  // Speech Synthesis (Lettura vocale)
-  function readAloud(text) {
-    if (!text) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'it-IT';
-    utterance.rate = 1;
-    utterance.pitch = 1;
-    const voices = window.speechSynthesis.getVoices();
-    const italianVoice = voices.find(v => v.lang.startsWith('it')) || 
-                         voices.find(v => v.lang.startsWith('en'));
-    if (italianVoice) utterance.voice = italianVoice;
-    utterance.onerror = function(event) {
-      console.error('Errore sintesi vocale:', event);
+  function speakWeb(plain) {
+    const synth = window.speechSynthesis;
+    if (!synth) {
+      toast('Lettura vocale non disponibile');
+      return;
+    }
+    if (synth.speaking || speaking) {
+      speaking = false;
+      synth.cancel();
+      toast('Lettura ferma');
+      return;
+    }
+    const run = () => {
+      const utterance = new SpeechSynthesisUtterance(plain);
+      currentUtterance = utterance;
+      utterance.lang = 'it-IT';
+      utterance.rate = 1;
+      const voices = synth.getVoices();
+      const voice =
+        voices.find((v) => /^it([-_]|$)/i.test(v.lang)) ||
+        voices.find((v) => /google/i.test(v.name));
+      if (voice) utterance.voice = voice;
+      utterance.onstart = () => {
+        speaking = true;
+      };
+      utterance.onend = () => {
+        speaking = false;
+      };
+      utterance.onerror = () => {
+        speaking = false;
+        toast('Lettura non riuscita. Controlla la sintesi vocale di Google.');
+      };
+      try {
+        synth.resume();
+      } catch (_) {}
+      synth.speak(utterance);
     };
-    window.speechSynthesis.speak(utterance);
+    synth.cancel();
+    setTimeout(run, 150);
   }
 
-  // Carica le voci quando disponibili
+  async function readAloud(text) {
+    const plain = plainSpeech(text);
+    if (!plain) return;
+    const TTS = nativePlugin('TextToSpeech');
+    if (TTS) {
+      try {
+        if (speaking) {
+          speaking = false;
+          await TTS.stop();
+          toast('Lettura ferma');
+          return;
+        }
+        speaking = true;
+        toast('Leggo…');
+        await TTS.speak({
+          text: plain,
+          lang: 'it-IT',
+          rate: 1.0,
+          pitch: 1.0,
+          volume: 1.0,
+          category: 'playback'
+        });
+      } catch (e) {
+        const msg = String((e && (e.message || e.errorMessage)) || '');
+        if (/not supported|unavailable|language/i.test(msg)) {
+          toast('Installa la voce italiana della sintesi vocale di Google');
+        } else toast('Lettura non disponibile');
+      } finally {
+        speaking = false;
+      }
+      return;
+    }
+    speakWeb(plain);
+  }
+
   if (window.speechSynthesis) {
-    window.speechSynthesis.onvoiceschanged = function() { };
+    window.speechSynthesis.onvoiceschanged = function () {};
   }
 
   init();
