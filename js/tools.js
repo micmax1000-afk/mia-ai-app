@@ -1337,21 +1337,30 @@
   function frameMain(workerSrc) {
     let worker = null;
     window.addEventListener('message', (e) => {
-      if (worker) return;
       try {
-        worker = new Worker(URL.createObjectURL(new Blob([workerSrc], { type: 'text/javascript' })));
-        worker.onmessage = (m) => parent.postMessage(m.data, '*');
-        worker.onerror = (ev) => parent.postMessage({ t: 'done', ok: false, error: String(ev.message || 'Errore'), files: [] }, '*');
-        worker.postMessage({ code: e.data.code });
+        if (!worker) {
+          worker = new Worker(URL.createObjectURL(new Blob([workerSrc], { type: 'text/javascript' })));
+          worker.onmessage = (m) => parent.postMessage(m.data, '*');
+          worker.onerror = (ev) => parent.postMessage({ t: 'done', id: e.data && e.data.id, ok: false, error: String(ev.message || 'Errore'), files: [] }, '*');
+        }
+        worker.postMessage(e.data);
       } catch (err) {
-        parent.postMessage({ t: 'done', ok: false, error: 'Ambiente isolato non disponibile: ' + err.message, files: [] }, '*');
+        parent.postMessage({ t: 'done', id: e.data && e.data.id, ok: false, error: 'Ambiente isolato non disponibile: ' + err.message, files: [] }, '*');
       }
     });
   }
 
-  const SANDBOX_HTML =
-    '<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\' \'unsafe-eval\' blob:; worker-src blob:">' +
-    '<script>(' + frameMain.toString() + ')(' + JSON.stringify('(' + workerMain.toString() + ')()') + ')<\/script>';
+  function sandboxHtml(csp, workerSrc) {
+    return (
+      '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + csp + '">' +
+      '<script>(' + frameMain.toString() + ')(' + JSON.stringify(workerSrc) + ')<\/script>'
+    );
+  }
+
+  const SANDBOX_HTML = sandboxHtml(
+    "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; worker-src blob:",
+    '(' + workerMain.toString() + ')()'
+  );
 
   function runSandbox(code, timeoutMs, signal) {
     return new Promise((resolve, reject) => {
@@ -1433,14 +1442,248 @@
     }
   });
 
+  // ─── Esecuzione di Python (Pyodide) in ambiente isolato ───
+  const PY_BASE = (global.MIA_PYODIDE_BASE) || 'https://cdn.jsdelivr.net/pyodide/v314.0.8/full/';
+
+  function pyWorkerMain(base) {
+    let py = null;
+    async function init() {
+      importScripts(base + 'pyodide.js');
+      py = await loadPyodide({ indexURL: base });
+      py.setStdout({ batched: (s) => postMessage({ t: 'log', line: s }) });
+      py.setStderr({ batched: (s) => postMessage({ t: 'log', line: '[stderr] ' + s }) });
+      py.runPython("import os\nos.environ['MPLBACKEND'] = 'AGG'\nos.makedirs('/out', exist_ok=True)");
+    }
+    self.onmessage = async (e) => {
+      const id = e.data.id;
+      try {
+        if (!py) await init();
+        await py.loadPackagesFromImports(e.data.code);
+        py.runPython("import os, shutil\nshutil.rmtree('/out', ignore_errors=True)\nos.makedirs('/out', exist_ok=True)");
+        const r = await py.runPythonAsync(e.data.code);
+        let result;
+        if (r !== undefined && r !== null) {
+          result = String(r);
+          if (r.destroy) r.destroy();
+        }
+        const files = [];
+        for (const n of py.FS.readdir('/out')) {
+          if (n === '.' || n === '..') continue;
+          try {
+            files.push({ name: n, data: py.FS.readFile('/out/' + n) });
+          } catch (_) {}
+        }
+        postMessage({ t: 'done', id, ok: true, result, files });
+      } catch (err) {
+        let msg = String((err && err.message) || err);
+        const at = msg.indexOf('File "<exec>"'); // mostra solo il codice dell'utente, non le righe interne di Pyodide
+        if (at >= 0) msg = 'Traceback (most recent call last):\n  ' + msg.slice(at);
+        postMessage({ t: 'done', id, ok: false, error: msg.slice(-2000), files: [] });
+      }
+    };
+  }
+
+  const PY_HTML = sandboxHtml(
+    "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net; worker-src blob:; connect-src https://cdn.jsdelivr.net",
+    '(' + pyWorkerMain.toString() + ')(' + JSON.stringify(PY_BASE) + ')'
+  );
+
+  let pySess = null; // sessione Python riutilizzata tra le esecuzioni (le variabili restano); si chiude dopo 5 min di inattività
+  let pyNext = 1;
+
+  function pyKill() {
+    if (!pySess) return;
+    clearTimeout(pySess.idle);
+    pySess.frame.remove();
+    pySess = null;
+  }
+
+  function pyRun(code, timeoutMs, signal) {
+    if (!pySess) {
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.style.display = 'none';
+      frame.srcdoc = PY_HTML;
+      pySess = { frame, idle: null, ready: new Promise((res) => (frame.onload = res)) };
+      document.body.appendChild(frame);
+    }
+    const s = pySess;
+    clearTimeout(s.idle);
+    return new Promise((resolve, reject) => {
+      const id = pyNext++;
+      const logs = [];
+      let chars = 0;
+      let done = false;
+      let timer = null;
+      const finish = (fn, v, kill) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        window.removeEventListener('message', onMsg);
+        if (signal) signal.removeEventListener('abort', onAbort);
+        if (kill) pyKill();
+        else s.idle = setTimeout(pyKill, 5 * 60 * 1000);
+        fn(v);
+      };
+      const onMsg = (e) => {
+        if (e.source !== s.frame.contentWindow || !e.data) return;
+        if (e.data.t === 'log') {
+          if (chars < 30000) {
+            logs.push(String(e.data.line));
+            chars += String(e.data.line).length;
+          }
+        } else if (e.data.t === 'done' && e.data.id === id) finish(resolve, Object.assign({ logs }, e.data));
+      };
+      const onAbort = () => finish(reject, abortError(), true);
+      timer = setTimeout(
+        () => finish(resolve, { logs, ok: false, files: [], error: 'Tempo scaduto dopo ' + timeoutMs / 1000 + ' secondi: Python interrotto (le variabili sono andate perse).' }, true),
+        timeoutMs
+      );
+      window.addEventListener('message', onMsg);
+      if (signal) {
+        if (signal.aborted) return onAbort();
+        signal.addEventListener('abort', onAbort);
+      }
+      s.ready.then(() => s.frame.contentWindow && s.frame.contentWindow.postMessage({ id, code }, '*'));
+    });
+  }
+
+  def('run_python', {
+    description:
+      'Esegue codice Python (Pyodide, Python 3 nel telefono) in un ambiente isolato, senza internet. Utile per analisi di dati, statistica, grafici, elaborazione di testi e file. ' +
+      'Librerie come numpy, pandas, matplotlib, scipy si caricano da sole con import (la prima volta serve qualche decina di secondi e di MB). ' +
+      'Stampa con print(); l\'ultima espressione viene restituita. Per creare file salvali nella cartella /out/ (es. plt.savefig("/out/grafico.png"), df.to_csv("/out/dati.csv")): ' +
+      'compariranno in chat con Condividi/Salva. Le variabili restano tra un\'esecuzione e l\'altra finché la sessione è attiva.',
+    parameters: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: 'Codice Python da eseguire.' },
+        timeout_seconds: { type: 'integer', description: 'Tempo massimo in secondi (5-180, predefinito 90; la prima esecuzione include il caricamento).' }
+      },
+      required: ['code']
+    },
+    title: (a) => 'Esegui codice Python (' + str(a.code).split('\n').length + ' righe)',
+    async run(args, ctx) {
+      const code = need(args, 'code');
+      const secs = Math.min(180, Math.max(5, Math.floor(Number(args.timeout_seconds)) || 90));
+      const t0 = Date.now();
+      const r = await pyRun(code, secs * 1000, ctx.signal);
+      const out = r.logs.length ? 'Output:\n' + r.logs.join('\n') : '';
+      if (!r.ok) throw new Error((r.error || 'Errore') + (out ? '\n' + out : ''));
+      const files = (r.files || [])
+        .map((f) => {
+          const name = safeName(f.name);
+          if (/\.(exe|apk|bat|cmd|msi|scr|com|dll|jar)$/i.test(name)) return null;
+          return { name, mime: mimeFor(name), blob: new Blob([f.data], { type: mimeFor(name) }) };
+        })
+        .filter(Boolean);
+      let text = 'Eseguito in ' + Math.round((Date.now() - t0) / 100) / 10 + ' s.' + (out ? '\n' + out : '') + (r.result !== undefined ? '\nValore restituito:\n' + r.result : '');
+      if (!out && r.result === undefined && !files.length) text += '\n(nessun output: usa print() oppure scrivi un\'espressione alla fine)';
+      return files.length ? fileResult('Python eseguito, file creati', files, text) : text;
+    }
+  });
+
+  // ─── Strumenti dei connettori MCP (registrati a runtime) ──
+  const DYN = {}; // nome → strumento
+  const DYN_BY_SERVER = {}; // id server → [nomi]
+
+  /** Rende lo schema accettabile da Gemini e dalle API OpenAI (toglie parole chiave non supportate). */
+  function cleanSchema(s, defs, depth) {
+    if (!s || typeof s !== 'object' || depth > 8) return { type: 'string' };
+    if (s.$ref) return cleanSchema((defs || {})[String(s.$ref).split('/').pop()] || {}, defs, depth + 1);
+    let t = s.type;
+    if (Array.isArray(t)) t = t.find((x) => x !== 'null') || 'string';
+    const alt = s.anyOf || s.oneOf || s.allOf;
+    if (!t && Array.isArray(alt)) {
+      const first = alt.find((x) => x && x.type !== 'null') || {};
+      const c = cleanSchema(first, defs, depth + 1);
+      if (s.description && !c.description) c.description = String(s.description).slice(0, 300);
+      return c;
+    }
+    if (!t) t = s.properties ? 'object' : s.items ? 'array' : 'string';
+    const out = { type: ['string', 'number', 'integer', 'boolean', 'object', 'array'].includes(t) ? t : 'string' };
+    if (s.description) out.description = String(s.description).slice(0, 300);
+    if (out.type === 'string' && Array.isArray(s.enum)) out.enum = s.enum.map(String);
+    if (out.type === 'object') {
+      const keys = Object.keys(s.properties || {});
+      if (depth > 0 && !keys.length) return { type: 'string', description: (out.description ? out.description + ' ' : '') + '(oggetto JSON scritto come testo)' };
+      out.properties = {};
+      keys.forEach((k) => (out.properties[k] = cleanSchema(s.properties[k], defs, depth + 1)));
+      if (Array.isArray(s.required)) {
+        const req = s.required.filter((k) => keys.includes(k));
+        if (req.length) out.required = req;
+      }
+    }
+    if (out.type === 'array') out.items = cleanSchema(s.items || { type: 'string' }, defs, depth + 1);
+    return out;
+  }
+
+  function mcpContent(result) {
+    const texts = [];
+    const files = [];
+    (result.content || []).forEach((c) => {
+      if (c.type === 'text') texts.push(c.text);
+      else if (c.type === 'image' && c.data) {
+        const mime = c.mimeType || 'image/png';
+        files.push({ name: 'immagine-mcp-' + (files.length + 1) + '.' + (/jpe?g/.test(mime) ? 'jpg' : /webp/.test(mime) ? 'webp' : 'png'), mime, blob: base64ToBlob(c.data, mime) });
+        texts.push('[immagine allegata]');
+      } else if (c.type === 'resource' && c.resource) texts.push(c.resource.text || '[risorsa ' + (c.resource.uri || '') + ']');
+      else if (c.type === 'resource_link') texts.push('[collegamento: ' + (c.name || '') + ' ' + (c.uri || '') + ']');
+      else if (c.type === 'audio') texts.push('[audio non mostrabile]');
+    });
+    if (!texts.length && result.structuredContent) texts.push(JSON.stringify(result.structuredContent, null, 2));
+    return { text: texts.join('\n') || '(nessun contenuto)', files };
+  }
+
+  /** Sostituisce gli strumenti di un connettore. `disabled` = nomi da non esporre. */
+  function setMcpTools(server, tools, disabled) {
+    clearMcp(server.id);
+    const label = server.name || str(server.url).replace(/^https?:\/\//, '').split('/')[0];
+    const slug = str(label).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 12) || 'srv';
+    const names = [];
+    (tools || []).forEach((t) => {
+      if ((disabled || []).includes(t.name)) return;
+      let name = ('mcp_' + slug + '_' + t.name.replace(/[^A-Za-z0-9_-]+/g, '_')).slice(0, 64);
+      while (TOOLS[name] || DYN[name]) name = name.slice(0, 60) + Math.random().toString(36).slice(2, 5);
+      const readOnly = !!(t.annotations && t.annotations.readOnlyHint === true);
+      const params = cleanSchema(t.inputSchema || { type: 'object', properties: {} }, (t.inputSchema && (t.inputSchema.$defs || t.inputSchema.definitions)) || {}, 0);
+      if (params.type !== 'object') params.type = 'object';
+      if (!params.properties) params.properties = {};
+      DYN[name] = {
+        name,
+        mcp: true,
+        description: ('[' + label + '] ' + str(t.description || t.title || t.name)).slice(0, 700),
+        parameters: params,
+        write: !readOnly, // senza l'indicazione «sola lettura» dal server, chiede sempre conferma
+        title: () => label + ' → ' + (t.title || t.name),
+        details: (a) => clip(JSON.stringify(a, null, 2), 1200),
+        async run(args, ctx) {
+          const r = await global.MiaMcp.call(server, t.name, args, ctx.signal);
+          const out = mcpContent(r);
+          if (r.isError) throw new Error(out.text);
+          return out;
+        }
+      };
+      names.push(name);
+    });
+    DYN_BY_SERVER[server.id] = names;
+    return names.length;
+  }
+
+  function clearMcp(serverId) {
+    (DYN_BY_SERVER[serverId] || []).forEach((n) => delete DYN[n]);
+    delete DYN_BY_SERVER[serverId];
+  }
+
   // ─── API pubblica ─────────────────────────────────────────
   function get(name) {
-    return Object.prototype.hasOwnProperty.call(TOOLS, name) ? TOOLS[name] : null;
+    if (Object.prototype.hasOwnProperty.call(TOOLS, name)) return TOOLS[name];
+    return Object.prototype.hasOwnProperty.call(DYN, name) ? DYN[name] : null;
   }
 
   /** Schemi da inviare al modello. */
   function definitions() {
-    return Object.values(TOOLS).map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
+    return Object.values(TOOLS).concat(Object.values(DYN)).map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
   }
 
   function needsConfirm(name, args) {
@@ -1472,5 +1715,5 @@
     return { text: clip(out), files: [] };
   }
 
-  global.MiaTools = { definitions, get, needsConfirm, describe, run, whoami, count: () => Object.keys(TOOLS).length };
+  global.MiaTools = { definitions, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
 })(window);

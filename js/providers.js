@@ -195,7 +195,17 @@
       generationConfig: { temperature: cfg.temperature, maxOutputTokens: 8192 }
     };
     if (cfg.systemPrompt) body.systemInstruction = { parts: [{ text: cfg.systemPrompt }] };
-    if (tools && tools.length) body.tools = [{ functionDeclarations: tools }];
+    if (tools && tools.length)
+      body.tools = [
+        {
+          functionDeclarations: tools.map((t) => {
+            const d = { name: t.name, description: t.description };
+            // Gemini rifiuta «parameters» con proprietà vuote: per gli strumenti senza argomenti si omette
+            if (t.parameters && t.parameters.properties && Object.keys(t.parameters.properties).length) d.parameters = t.parameters;
+            return d;
+          })
+        }
+      ];
 
     const url =
       trimSlash(cfg.baseUrl) + '/models/' + encodeURIComponent(cfg.model) + ':streamGenerateContent?alt=sse';

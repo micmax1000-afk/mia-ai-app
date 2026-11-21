@@ -41,7 +41,7 @@ Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.
 
 ### Modalità agente (strumenti)
 
-In **Impostazioni → Modalità agente** Mia può usare 20 strumenti, non solo rispondere a parole:
+In **Impostazioni → Modalità agente** Mia può usare 21 strumenti (più quelli dei connettori), non solo rispondere a parole:
 
 | Strumento | Cosa fa | Conferma |
 |--|--|--|
@@ -59,6 +59,7 @@ In **Impostazioni → Modalità agente** Mia può usare 20 strumenti, non solo r
 | `github_pull_requests` | elenca/legge PR (con diff); crea, commenta, unisce | solo crea/commenta/**unisce** |
 | `github_actions` | esecuzioni di test e build, log degli errori; avvia o rilancia workflow | solo avvia/rilancia |
 | `run_javascript` | esegue JavaScript in ambiente isolato (niente rete), può creare file | no |
+| `run_python` | esegue Python (Pyodide: numpy, pandas, matplotlib…) in ambiente isolato; i file vanno in `/out/` | no |
 | `create_file` | file di testo: txt, md, csv, json, html, codice… | no |
 | `create_zip` | archivio .zip con più file | no |
 | `create_svg` | immagine disegnata in SVG, salvata anche come PNG | no |
@@ -68,6 +69,9 @@ In **Impostazioni → Modalità agente** Mia può usare 20 strumenti, non solo r
 
 - **File creati:** compaiono nella chat con il pulsante **Condividi / Salva** (pannello di Android: Drive, File, WhatsApp…);
   nel browser vengono scaricati. Sono tenuti sul dispositivo (IndexedDB) finché non elimini la chat.
+- `run_python` usa Pyodide, scaricato da cdn.jsdelivr.net alla prima esecuzione (circa 10 MB, più i pacchetti usati): serve internet quella volta.
+  Stesso isolamento di `run_javascript` (nessuna rete oltre alla CDN, nessun accesso ai dati dell'app); la sessione resta viva 5 minuti
+  (le variabili persistono) e viene chiusa se il codice supera il tempo (90 s di default, max 180).
 - `run_javascript` gira in un iframe «sandbox» con CSP che blocca la rete, dentro un Worker che viene terminato allo scadere
   del tempo (10 s di default, max 30). Non ha accesso a chiavi, chat o file dell'app. Python non è disponibile.
 - `generate_image` usa la chiave del provider Gemini e il «Modello immagini» in Impostazioni (predefinito `gemini-2.5-flash-image`);
@@ -79,6 +83,22 @@ In **Impostazioni → Modalità agente** Mia può usare 20 strumenti, non solo r
 - Il modello deve supportare le chiamate a funzioni: Gemini sì; sui modelli gratuiti di OpenRouter/Groq dipende dal modello.
 - `read_webpage` prova l'indirizzo direttamente; se il sito blocca la richiesta usa il servizio r.jina.ai.
 - Ogni richiesta può fare al massimo 8 giri di strumenti; il pulsante ■ ferma tutto.
+
+### Connettori (MCP)
+
+In **Impostazioni → Modalità agente → Connettori (MCP)** puoi collegare servizi esterni che offrono un server
+[MCP](https://modelcontextprotocol.io) con trasporto «Streamable HTTP» (indirizzo `https://…`, token facoltativo).
+Premi **Prova**: Mia legge gli strumenti del server e puoi disattivare quelli che non servono (troppi strumenti confondono i modelli).
+
+- Gli strumenti compaiono al modello come `mcp_<connettore>_<strumento>`.
+- Quelli che il server non dichiara «di sola lettura» chiedono sempre conferma. I contenuti restituiti sono trattati come dati, non come istruzioni.
+- Nel browser il server deve accettare richieste CORS; nell'APK Android le richieste passano dal plugin HTTP nativo di Capacitor.
+- Non sono supportati i server MCP con solo il vecchio trasporto «SSE» né i login OAuth: serve un token che incolli tu.
+
+### Allegati Office e zip
+
+Oltre a immagini, PDF e testo, nel 📎 puoi allegare **.xlsx, .docx, .pptx e .zip**: l'app ne estrae il testo (fogli come CSV, titoli e tabelle di Word,
+diapositive e note di PowerPoint, elenco e contenuto dei file di testo di uno zip) e lo passa a qualsiasi modello. I formati vecchi (.xls, .doc, .ppt) non sono supportati.
 
 ### Più modelli nella stessa app
 
@@ -120,6 +140,7 @@ npm run build:apk      # serve JDK 21 + Android SDK
 - `index.html`, `css/app.css` — interfaccia
 - `js/providers.js` — chiamate a Gemini e alle API compatibili OpenAI (streaming SSE)
 - `js/tools.js` — strumenti della modalità agente (GitHub, web, note, file)
+- `js/mcp.js` — client MCP; `js/docs.js` — testo da xlsx/docx/pptx/zip
 - `js/files.js` — archivio dei file creati e condivisione
 - `js/vendor/` — librerie incluse: JSZip (zip/xlsx) e jsPDF (pdf), caricate solo quando servono
 - `js/markdown.js` — renderer Markdown sicuro (tutto l'HTML viene escapato)

@@ -40,7 +40,7 @@
     <button type="button" class="attach-btn" id="attachBtn" aria-label="Allega file">📎</button>
     <button type="button" class="mic-btn" id="micBtn" aria-label="Microfono" hidden>🎤</button>
     <input type="file" id="fileInput" multiple hidden
-      accept="image/*,application/pdf,.pdf,text/*,.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.py,.java,.kt,.c,.cpp,.go,.rs,.php,.sh,.sql,.yaml,.yml,.log,.srt">
+      accept="image/*,application/pdf,.pdf,.xlsx,.docx,.pptx,.zip,text/*,.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.py,.java,.kt,.c,.cpp,.go,.rs,.php,.sh,.sql,.yaml,.yml,.log,.srt">
     <textarea id="input" rows="1" placeholder="Scrivi un messaggio…" enterkeyhint="send"></textarea>
     <button type="submit" class="send-btn" id="sendBtn" aria-label="Invia">➤</button>
   </form>
@@ -120,7 +120,7 @@
       <div class="agent-box">
         <label class="field check-field">
           <input type="checkbox" id="agentEnabled">
-          <span><b>Modalità agente</b> — Mia può usare strumenti: GitHub (repository, file, branch, issue), pagine web, note, creare file (testo, zip, PDF, Excel, immagini) ed eseguire codice JavaScript</span>
+          <span><b>Modalità agente</b> — Mia può usare strumenti: GitHub (repository, file, branch, issue), pagine web, note, creare file (testo, zip, PDF, Excel, immagini) ed eseguire codice JavaScript e Python</span>
         </label>
         <div id="agentFields">
           <label class="field">
@@ -142,6 +142,12 @@
             <input id="imageModel" spellcheck="false" autocapitalize="off" placeholder="gemini-2.5-flash-image">
           </label>
           <p class="hint">Per «genera immagine» usa la chiave del provider Google Gemini. Il piano gratuito può non includere le immagini: se dà errore, controlla il nome del modello o i limiti del tuo account.</p>
+          <div class="mcp-box">
+            <strong>Connettori (MCP)</strong>
+            <p class="hint">Collega servizi esterni che offrono un server MCP «HTTP» (indirizzo https://…). Mia ne scopre gli strumenti e li usa; ogni azione che non è di sola lettura chiede conferma. Nel browser il server deve accettare richieste CORS; nell'APK Android di solito non serve.</p>
+            <div id="mcpList"></div>
+            <button type="button" class="btn small ghost" id="mcpAdd">＋ Aggiungi connettore</button>
+          </div>
           <p class="hint">Le azioni che modificano qualcosa (creare, scrivere, eliminare, commentare) chiedono sempre il tuo permesso. Le note sono salvate sul telefono.</p>
           <p class="hint">«Leggi pagina web» prova l'indirizzo direttamente; se il sito lo blocca passa dal servizio r.jina.ai, che vede l'indirizzo richiesto.</p>
         </div>
@@ -203,7 +209,9 @@
 <script src="js/markdown.js"></script>
 <script src="js/providers.js"></script>
 <script src="js/files.js"></script>
+<script src="js/mcp.js"></script>
 <script src="js/tools.js"></script>
+<script src="js/docs.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

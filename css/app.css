@@ -367,3 +367,16 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .file-card img { display: block; max-width: 100%; max-height: 320px; margin: 0 auto 8px; border-radius: 8px; background: #fff; }
 .file-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
 .file-info { min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+
+.mcp-box { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.mcp-server { margin: 10px 0; padding: 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.mcp-server input[type=text], .mcp-server input[type=url], .mcp-server input[type=password] {
+  width: 100%; margin-top: 6px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); outline: none;
+}
+.mcp-server .row { margin-top: 8px; flex-wrap: wrap; }
+.mcp-status { font-size: 13px; color: var(--muted); margin: 6px 0 0; overflow-wrap: anywhere; }
+.mcp-status.ok { color: var(--accent-2); }
+.mcp-status.err { color: var(--danger); }
+.mcp-server details { margin-top: 6px; font-size: 13px; }
+.mcp-server details label { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; }
+.mcp-server details input { margin-top: 2px; accent-color: var(--accent); }
