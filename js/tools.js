@@ -70,7 +70,7 @@
       headers: Object.assign(
         {
           Authorization: 'Bearer ' + ctx.token,
-          Accept: 'application/vnd.github+json',
+          Accept: opts.accept || 'application/vnd.github+json',
           'X-GitHub-Api-Version': '2022-11-28'
         },
         opts.body ? { 'Content-Type': 'application/json' } : {}
@@ -1073,6 +1073,366 @@
     }
   });
 
+  // ─── GitHub avanzato: ricerca nel codice, pull request, workflow ─
+  // 17 — cerca nel codice
+  def('github_search_code', {
+    description:
+      'Cerca testo o codice nei repository GitHub (solo branch principale). Senza owner/repo cerca in tutti i repository dell\'utente.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Testo da cercare, es. «function login» o «TODO».' },
+        owner: { type: 'string', description: 'Limita a un proprietario (facoltativo).' },
+        repo: { type: 'string', description: 'Limita a un repository (facoltativo, richiede owner).' }
+      },
+      required: ['query']
+    },
+    title: (a) => 'Cerca «' + oneLine(a.query, 60) + '» nel codice' + (a.repo ? ' di ' + str(a.owner) + '/' + str(a.repo) : ''),
+    async run(args, ctx) {
+      const q = need(args, 'query');
+      let scope = '';
+      if (args.owner && args.repo) {
+        repoArgs(args);
+        scope = ' repo:' + args.owner + '/' + args.repo;
+      } else if (args.owner) {
+        if (!NAME_RE.test(str(args.owner))) throw new Error('Proprietario non valido.');
+        scope = ' user:' + args.owner;
+      } else {
+        const me = await whoami(ctx.token, ctx.signal);
+        if (me) scope = ' user:' + me;
+      }
+      const d = await gh(ctx, '/search/code?per_page=15&q=' + encodeURIComponent(q + scope), {
+        accept: 'application/vnd.github.text-match+json'
+      });
+      if (!d.items || !d.items.length) return 'Nessun risultato.';
+      return (
+        d.total_count + ' risultati (primi ' + d.items.length + '):\n' +
+        d.items
+          .map((i) => {
+            const frag = (i.text_matches && i.text_matches[0] && oneLine(i.text_matches[0].fragment, 160)) || '';
+            return i.repository.full_name + ' · ' + i.path + (frag ? '\n   …' + frag + '…' : '');
+          })
+          .join('\n')
+      );
+    }
+  });
+
+  // 18 — pull request
+  def('github_pull_requests', {
+    description:
+      'Gestisce le pull request: «list» (elenco), «read» (dettaglio con file modificati e diff), «create» (nuova PR da un branch), «comment» (commento), «merge» (unisce la PR).',
+    parameters: {
+      type: 'object',
+      properties: Object.assign({}, REPO_PROPS, {
+        action: { type: 'string', enum: ['list', 'read', 'create', 'comment', 'merge'], description: 'Azione da eseguire.' },
+        number: { type: 'integer', description: 'Numero della PR (per read, comment, merge).' },
+        title: { type: 'string', description: 'Titolo (per create).' },
+        body: { type: 'string', description: 'Descrizione della PR o testo del commento.' },
+        head: { type: 'string', description: 'Branch con le modifiche (per create).' },
+        base: { type: 'string', description: 'Branch di destinazione (per create; predefinito: branch principale).' },
+        method: { type: 'string', enum: ['merge', 'squash', 'rebase'], description: 'Per merge: tipo di unione (predefinito squash).' },
+        state: { type: 'string', enum: ['open', 'closed', 'all'], description: 'Per list: stato (predefinito open).' }
+      }),
+      required: ['owner', 'repo', 'action']
+    },
+    write: (a) => ['create', 'comment', 'merge'].includes(a.action),
+    danger: (a) => a.action === 'merge',
+    title: (a) => {
+      const r = str(a.owner) + '/' + str(a.repo);
+      if (a.action === 'create') return 'Apri una pull request in ' + r + ': «' + str(a.title) + '» (' + str(a.head) + ' → ' + (str(a.base) || 'principale') + ')';
+      if (a.action === 'merge') return 'UNISCI la pull request #' + str(a.number) + ' in ' + r + ' (' + (a.method || 'squash') + ')';
+      if (a.action === 'comment') return 'Commenta la PR #' + str(a.number) + ' in ' + r;
+      if (a.action === 'read') return 'Leggi la PR #' + str(a.number) + ' in ' + r;
+      return 'Elenca le pull request di ' + r;
+    },
+    details: (a) => clip(str(a.body), 1200),
+    async run(args, ctx) {
+      const { base } = repoArgs(args);
+      const action = args.action;
+      if (action === 'list') {
+        const state = ['open', 'closed', 'all'].includes(args.state) ? args.state : 'open';
+        const list = await gh(ctx, base + '/pulls?per_page=20&state=' + state);
+        if (!list.length) return 'Nessuna pull request (' + state + ').';
+        return list
+          .map((p) => '#' + p.number + ' [' + (p.merged_at ? 'merged' : p.state) + (p.draft ? ', bozza' : '') + '] ' + oneLine(p.title, 90) + ' — ' + p.user.login + ' (' + p.head.ref + ' → ' + p.base.ref + ')')
+          .join('\n');
+      }
+      if (action === 'create') {
+        const head = need(args, 'head');
+        let baseBranch = str(args.base).trim();
+        if (!baseBranch) baseBranch = (await gh(ctx, base)).default_branch;
+        const p = await gh(ctx, base + '/pulls', {
+          method: 'POST',
+          body: { title: need(args, 'title'), head, base: baseBranch, body: str(args.body) }
+        });
+        return 'Pull request creata: #' + p.number + ' — ' + p.html_url;
+      }
+      const num = Math.floor(Number(args.number));
+      if (!num || num < 1) throw new Error('Parametro mancante: «number».');
+      if (action === 'comment') {
+        const c = await gh(ctx, base + '/issues/' + num + '/comments', { method: 'POST', body: { body: need(args, 'body') } });
+        return 'Commento aggiunto alla PR #' + num + ' — ' + c.html_url;
+      }
+      if (action === 'merge') {
+        const method = ['merge', 'squash', 'rebase'].includes(args.method) ? args.method : 'squash';
+        const r = await gh(ctx, base + '/pulls/' + num + '/merge', { method: 'PUT', body: { merge_method: method } });
+        return (r && r.message) || 'Pull request #' + num + ' unita (' + method + ').';
+      }
+      if (action === 'read') {
+        const p = await gh(ctx, base + '/pulls/' + num);
+        const files = await gh(ctx, base + '/pulls/' + num + '/files?per_page=30');
+        let out =
+          '#' + p.number + ' [' + (p.merged ? 'merged' : p.state) + (p.draft ? ', bozza' : '') + '] ' + p.title +
+          '\n' + p.head.ref + ' → ' + p.base.ref + ' · autore ' + p.user.login +
+          (p.merged ? '' : ' · unibile: ' + (p.mergeable_state || 'n/d')) +
+          '\n' + p.changed_files + ' file, +' + p.additions + ' −' + p.deletions +
+          '\n\n' + clip(p.body || '(nessuna descrizione)', 2000) + '\n\nFile modificati:';
+        files.forEach((f) => {
+          out += '\n\n▸ ' + f.filename + ' (' + f.status + ', +' + f.additions + ' −' + f.deletions + ')' + (f.patch ? '\n' + clip(f.patch, 1800) : '');
+        });
+        return clip(out);
+      }
+      throw new Error('Azione non valida: usa list, read, create, comment o merge.');
+    }
+  });
+
+  // 19 — GitHub Actions
+  async function ghText(ctx, url) {
+    const res = await fetch(url, {
+      headers: { Authorization: 'Bearer ' + ctx.token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
+      signal: ctx.signal
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.text();
+  }
+
+  def('github_actions', {
+    description:
+      'GitHub Actions (test e build): «list_runs» (ultime esecuzioni), «read_run» (esito dei job, passaggi falliti e log degli errori), ' +
+      '«run_workflow» (avvia un workflow su un branch), «rerun_failed» (rilancia i job falliti).',
+    parameters: {
+      type: 'object',
+      properties: Object.assign({}, REPO_PROPS, {
+        action: { type: 'string', enum: ['list_runs', 'read_run', 'run_workflow', 'rerun_failed'], description: 'Azione da eseguire.' },
+        run_id: { type: 'integer', description: 'ID dell\'esecuzione (per read_run e rerun_failed; si ottiene da list_runs).' },
+        workflow: { type: 'string', description: 'Nome del file del workflow, es. «build-apk.yml» (per run_workflow).' },
+        ref: { type: 'string', description: 'Branch su cui avviare il workflow, o filtro per list_runs.' }
+      }),
+      required: ['owner', 'repo', 'action']
+    },
+    write: (a) => a.action === 'run_workflow' || a.action === 'rerun_failed',
+    title: (a) => {
+      const r = str(a.owner) + '/' + str(a.repo);
+      if (a.action === 'run_workflow') return 'Avvia il workflow «' + str(a.workflow) + '» su ' + (str(a.ref) || 'branch principale') + ' in ' + r;
+      if (a.action === 'rerun_failed') return 'Rilancia i job falliti dell\'esecuzione ' + str(a.run_id) + ' in ' + r;
+      if (a.action === 'read_run') return 'Leggi l\'esecuzione ' + str(a.run_id) + ' di ' + r;
+      return 'Elenca le esecuzioni di Actions in ' + r;
+    },
+    async run(args, ctx) {
+      const { base } = repoArgs(args);
+      const action = args.action;
+      if (action === 'list_runs') {
+        const q = '?per_page=10' + (args.ref ? '&branch=' + encodeURIComponent(args.ref) : '');
+        const d = await gh(ctx, base + '/actions/runs' + q);
+        if (!d.workflow_runs.length) return 'Nessuna esecuzione.';
+        return d.workflow_runs
+          .map((r) => r.id + ' · ' + r.name + ' · ' + r.head_branch + ' · ' + (r.status === 'completed' ? r.conclusion : r.status) + ' · ' + r.created_at.slice(0, 16).replace('T', ' ') + ' · ' + short(r.head_sha))
+          .join('\n');
+      }
+      if (action === 'run_workflow') {
+        const wf = need(args, 'workflow');
+        if (!/^[A-Za-z0-9_.-]+$/.test(wf)) throw new Error('Nome del workflow non valido.');
+        let ref = str(args.ref).trim();
+        if (!ref) ref = (await gh(ctx, base)).default_branch;
+        await gh(ctx, base + '/actions/workflows/' + encodeURIComponent(wf) + '/dispatches', { method: 'POST', body: { ref } });
+        return 'Workflow «' + wf + '» avviato su ' + ref + '. Usa list_runs tra qualche secondo per vedere l\'esecuzione.';
+      }
+      const id = Math.floor(Number(args.run_id));
+      if (!id || id < 1) throw new Error('Parametro mancante: «run_id» (si ottiene con list_runs).');
+      if (action === 'rerun_failed') {
+        await gh(ctx, base + '/actions/runs/' + id + '/rerun-failed-jobs', { method: 'POST' });
+        return 'Rilanciati i job falliti dell\'esecuzione ' + id + '.';
+      }
+      if (action === 'read_run') {
+        const run = await gh(ctx, base + '/actions/runs/' + id);
+        const jobs = (await gh(ctx, base + '/actions/runs/' + id + '/jobs?per_page=30')).jobs;
+        let out = run.name + ' · ' + run.head_branch + ' · ' + (run.status === 'completed' ? run.conclusion : run.status) + ' · ' + run.html_url;
+        for (const j of jobs) {
+          out += '\n\nJob «' + j.name + '»: ' + (j.status === 'completed' ? j.conclusion : j.status);
+          const bad = (j.steps || []).filter((s) => s.conclusion === 'failure');
+          if (bad.length) out += '\n  Passaggi falliti: ' + bad.map((s) => s.name).join('; ');
+          if (j.conclusion === 'failure') {
+            let detail = '';
+            try {
+              const log = await ghText(ctx, 'https://api.github.com' + base + '/actions/jobs/' + j.id + '/logs');
+              detail = '\n  Ultime righe del log:\n' + log.split('\n').slice(-60).join('\n').slice(-3500);
+            } catch (_) {
+              try {
+                const an = await gh(ctx, base + '/check-runs/' + j.id + '/annotations');
+                if (an && an.length) detail = '\n  Errori segnalati:\n' + an.slice(0, 10).map((x) => '  - ' + oneLine(x.message, 300)).join('\n');
+              } catch (_2) {}
+              if (!detail) detail = '\n  (log non leggibile da qui: aprilo su ' + j.html_url + ')';
+            }
+            out += detail;
+          }
+        }
+        return clip(out);
+      }
+      throw new Error('Azione non valida: usa list_runs, read_run, run_workflow o rerun_failed.');
+    }
+  });
+
+  // ─── Esecuzione di JavaScript in ambiente isolato ─────────
+  // iframe «sandbox» (origine opaca, nessun accesso ai dati dell'app) con CSP che blocca la rete,
+  // dentro un Worker che si può terminare se il codice va in loop.
+  function workerMain() {
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    let lines = 0;
+    let fileBytes = 0;
+    const fmt = (a) =>
+      a
+        .map((x) => {
+          if (typeof x === 'string') return x;
+          try {
+            return JSON.stringify(x, (k, v) => (typeof v === 'bigint' ? v.toString() : v));
+          } catch (_) {
+            return String(x);
+          }
+        })
+        .join(' ');
+    const log = (prefix) => (...a) => {
+      if (++lines <= 500) postMessage({ t: 'log', line: prefix + fmt(a) });
+    };
+    const con = { log: log(''), info: log(''), debug: log(''), warn: log('[warn] '), error: log('[error] ') };
+    const files = [];
+    const saveFile = (name, content, mime) => {
+      let data = content;
+      if (typeof data !== 'string') {
+        if (data instanceof ArrayBuffer) data = new Uint8Array(data.slice(0));
+        else if (ArrayBuffer.isView(data)) data = new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+        else data = JSON.stringify(data, null, 2);
+      }
+      fileBytes += typeof data === 'string' ? data.length : data.byteLength;
+      if (fileBytes > 20 * 1024 * 1024) throw new Error('File troppo grandi (massimo 20 MB in totale).');
+      if (files.length >= 10) throw new Error('Massimo 10 file per esecuzione.');
+      files.push({ name: String(name), mime: mime ? String(mime) : '', data });
+    };
+    self.onmessage = async (e) => {
+      try {
+        const fn = new AsyncFunction('console', 'saveFile', e.data.code);
+        const r = await fn(con, saveFile);
+        let result;
+        try {
+          result = r === undefined ? undefined : JSON.stringify(r, (k, v) => (typeof v === 'bigint' ? v.toString() : v), 2);
+        } catch (_) {
+          result = String(r);
+        }
+        postMessage({ t: 'done', ok: true, result, files });
+      } catch (err) {
+        postMessage({ t: 'done', ok: false, error: String((err && err.message) || err), files: [] });
+      }
+    };
+  }
+
+  function frameMain(workerSrc) {
+    let worker = null;
+    window.addEventListener('message', (e) => {
+      if (worker) return;
+      try {
+        worker = new Worker(URL.createObjectURL(new Blob([workerSrc], { type: 'text/javascript' })));
+        worker.onmessage = (m) => parent.postMessage(m.data, '*');
+        worker.onerror = (ev) => parent.postMessage({ t: 'done', ok: false, error: String(ev.message || 'Errore'), files: [] }, '*');
+        worker.postMessage({ code: e.data.code });
+      } catch (err) {
+        parent.postMessage({ t: 'done', ok: false, error: 'Ambiente isolato non disponibile: ' + err.message, files: [] }, '*');
+      }
+    });
+  }
+
+  const SANDBOX_HTML =
+    '<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\' \'unsafe-eval\' blob:; worker-src blob:">' +
+    '<script>(' + frameMain.toString() + ')(' + JSON.stringify('(' + workerMain.toString() + ')()') + ')<\/script>';
+
+  function runSandbox(code, timeoutMs, signal) {
+    return new Promise((resolve, reject) => {
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.style.display = 'none';
+      frame.srcdoc = SANDBOX_HTML;
+      const logs = [];
+      let chars = 0;
+      let done = false;
+      let timer = null;
+      const finish = (fn, v) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        window.removeEventListener('message', onMsg);
+        if (signal) signal.removeEventListener('abort', onAbort);
+        frame.remove();
+        fn(v);
+      };
+      const onMsg = (e) => {
+        if (e.source !== frame.contentWindow || !e.data) return;
+        if (e.data.t === 'log') {
+          if (chars < 30000) {
+            logs.push(String(e.data.line));
+            chars += String(e.data.line).length;
+          }
+        } else if (e.data.t === 'done') finish(resolve, Object.assign({ logs }, e.data));
+      };
+      const onAbort = () => finish(reject, abortError());
+      timer = setTimeout(
+        () => finish(resolve, { logs, ok: false, files: [], error: 'Tempo scaduto dopo ' + timeoutMs / 1000 + ' secondi: esecuzione interrotta.' }),
+        timeoutMs
+      );
+      window.addEventListener('message', onMsg);
+      if (signal) {
+        if (signal.aborted) return onAbort();
+        signal.addEventListener('abort', onAbort);
+      }
+      frame.onload = () => frame.contentWindow.postMessage({ code }, '*');
+      document.body.appendChild(frame);
+    });
+  }
+
+  def('run_javascript', {
+    description:
+      'Esegue codice JavaScript in un ambiente isolato (senza internet, senza accesso al telefono né alla pagina) e restituisce output e risultato. ' +
+      'Usalo per calcoli precisi, conversioni e analisi di dati, parsing, test di piccole funzioni, generazione di file. ' +
+      'Il codice è il corpo di una funzione async: puoi usare await e «return valore». Stampa con console.log. ' +
+      'Per creare un file chiama saveFile(nome, contenuto, mime): comparirà in chat con Condividi/Salva.',
+    parameters: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: 'Codice JavaScript da eseguire (corpo di funzione).' },
+        timeout_seconds: { type: 'integer', description: 'Tempo massimo in secondi (1-30, predefinito 10).' }
+      },
+      required: ['code']
+    },
+    title: (a) => 'Esegui codice JavaScript (' + str(a.code).split('\n').length + ' righe)',
+    details: (a) => clip(str(a.code), 1500),
+    async run(args, ctx) {
+      const code = need(args, 'code');
+      const secs = Math.min(30, Math.max(1, Math.floor(Number(args.timeout_seconds)) || 10));
+      const t0 = Date.now();
+      const r = await runSandbox(code, secs * 1000, ctx.signal);
+      const out = r.logs.length ? 'Output:\n' + r.logs.join('\n') : '';
+      if (!r.ok) throw new Error((r.error || 'Errore') + (out ? '\n' + out : ''));
+      const files = (r.files || [])
+        .map((f) => {
+          const name = safeName(f.name || 'file');
+          if (/\.(exe|apk|bat|cmd|msi|scr|com|dll|jar)$/i.test(name)) return null;
+          const mime = f.mime || mimeFor(name);
+          return { name, mime, blob: new Blob([f.data], { type: mime }) };
+        })
+        .filter(Boolean);
+      let text = 'Eseguito in ' + (Date.now() - t0) + ' ms.' + (out ? '\n' + out : '') + (r.result !== undefined ? '\nValore restituito:\n' + r.result : '');
+      if (!out && r.result === undefined && !files.length) text += '\n(nessun output: usa console.log o return per vedere un risultato)';
+      return files.length ? fileResult('Codice eseguito, file creati', files, text) : text;
+    }
+  });
+
   // ─── API pubblica ─────────────────────────────────────────
   function get(name) {
     return Object.prototype.hasOwnProperty.call(TOOLS, name) ? TOOLS[name] : null;
@@ -1098,7 +1458,8 @@
       if (t && t.title) title = t.title(args);
       if (t && t.details) details = t.details(args);
     } catch (_) {}
-    return { title, details, danger: !!(t && t.danger) };
+    const danger = t && (typeof t.danger === 'function' ? t.danger(args) : t.danger);
+    return { title, details, danger: !!danger };
   }
 
   /** Esegue uno strumento. Restituisce { text, files: [{ name, mime, blob }] }. */

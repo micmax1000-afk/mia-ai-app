@@ -535,6 +535,8 @@
       'Prima di modificare un file esistente leggilo. Le azioni che modificano qualcosa chiedono già conferma all\'utente tramite l\'app: non chiedere conferma a parole, chiama direttamente lo strumento. ' +
       'Se l\'utente rifiuta un\'azione, non ripeterla. Per creare file (create_file, create_zip, create_pdf, create_xlsx, create_svg, generate_image) usa gli strumenti: ' +
       'i file compaiono in chat con i pulsanti Condividi/Salva, quindi non incollare il loro contenuto nella risposta. ' +
+      'Per calcoli precisi, conversioni ed elaborazioni di dati usa run_javascript invece di calcolare a mente: è isolato, senza internet. ' +
+      'Per il codice su GitHub puoi cercare (github_search_code), leggere e unire pull request (github_pull_requests) e controllare test e build (github_actions). ' +
       'Dopo aver usato gli strumenti, riassumi in italiano cosa hai fatto.';
     if (login) t += ' L\'utente GitHub è «' + login + '»: usalo come proprietario (owner) quando non è specificato.';
     else if (settings.githubToken) t += ' Il token GitHub non sembra valido: se serve GitHub, avvisa l\'utente.';
@@ -581,7 +583,7 @@
       const d = Tools.describe(tc.name, tc.args);
       let preview = '';
       try {
-        preview = JSON.stringify(tc.args, null, 2).slice(0, 600);
+        preview = (tc.args && typeof tc.args.code === 'string' ? tc.args.code : JSON.stringify(tc.args, null, 2)).slice(0, 1500);
       } catch (_) {}
       const saved = [];
       let content = res.content;

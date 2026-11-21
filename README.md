@@ -41,7 +41,7 @@ Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.
 
 ### Modalità agente (strumenti)
 
-In **Impostazioni → Modalità agente** Mia può usare 16 strumenti, non solo rispondere a parole:
+In **Impostazioni → Modalità agente** Mia può usare 20 strumenti, non solo rispondere a parole:
 
 | Strumento | Cosa fa | Conferma |
 |--|--|--|
@@ -55,6 +55,10 @@ In **Impostazioni → Modalità agente** Mia può usare 16 strumenti, non solo r
 | `github_issues` | elenca/legge issue; crea issue o commenta | solo crea/commenta |
 | `read_webpage` | legge il testo di una pagina web | no |
 | `notes` | note salvate sul telefono | solo elimina |
+| `github_search_code` | cerca testo/codice nei repository | no |
+| `github_pull_requests` | elenca/legge PR (con diff); crea, commenta, unisce | solo crea/commenta/**unisce** |
+| `github_actions` | esecuzioni di test e build, log degli errori; avvia o rilancia workflow | solo avvia/rilancia |
+| `run_javascript` | esegue JavaScript in ambiente isolato (niente rete), può creare file | no |
 | `create_file` | file di testo: txt, md, csv, json, html, codice… | no |
 | `create_zip` | archivio .zip con più file | no |
 | `create_svg` | immagine disegnata in SVG, salvata anche come PNG | no |
@@ -64,10 +68,12 @@ In **Impostazioni → Modalità agente** Mia può usare 16 strumenti, non solo r
 
 - **File creati:** compaiono nella chat con il pulsante **Condividi / Salva** (pannello di Android: Drive, File, WhatsApp…);
   nel browser vengono scaricati. Sono tenuti sul dispositivo (IndexedDB) finché non elimini la chat.
+- `run_javascript` gira in un iframe «sandbox» con CSP che blocca la rete, dentro un Worker che viene terminato allo scadere
+  del tempo (10 s di default, max 30). Non ha accesso a chiavi, chat o file dell'app. Python non è disponibile.
 - `generate_image` usa la chiave del provider Gemini e il «Modello immagini» in Impostazioni (predefinito `gemini-2.5-flash-image`);
   il piano gratuito potrebbe non includere le immagini.
 - Serve un **token GitHub** (resta solo sul dispositivo). Consigliato un token *fine-grained* limitato ai repository che vuoi
-  far gestire, con permessi **Contents**, **Issues**, **Metadata** in lettura/scrittura. Per creare nuovi repository serve un
+  far gestire, con permessi **Contents**, **Issues**, **Pull requests**, **Actions**, **Metadata** in lettura/scrittura. Per creare nuovi repository serve un
   token *classic* con permesso `repo`.
 - Ogni azione che modifica qualcosa mostra una finestra «Consenti / Rifiuta». Non esiste uno strumento per eliminare repository.
 - Il modello deve supportare le chiamate a funzioni: Gemini sì; sui modelli gratuiti di OpenRouter/Groq dipende dal modello.
