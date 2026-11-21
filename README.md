@@ -17,7 +17,11 @@ App di chat AI personale per Android (Capacitor), senza bundler: HTML + CSS + Ja
 | Google Gemini | chiave da [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | OpenRouter | chiave da [openrouter.ai/keys](https://openrouter.ai/keys) (ha modelli gratuiti) |
 | Groq | chiave da [console.groq.com/keys](https://console.groq.com/keys) |
-| Personalizzato | qualsiasi server con API `/v1/chat/completions` (es. un proxy tuo, LM Studio, vLLM) |
+| Together AI | chiave da [api.together.ai](https://api.together.ai/settings/api-keys) |
+| Fireworks AI | chiave da [fireworks.ai](https://fireworks.ai/account/api-keys) |
+| DeepInfra | chiave da [deepinfra.com](https://deepinfra.com/dash/api_keys) |
+| Ollama (rete locale) | Ollama sul PC in rete (`OLLAMA_HOST=0.0.0.0`). Cambia l'IP nelle Impostazioni. **Non gira sul telefono**. |
+| Personalizzato | qualsiasi server con API `/v1/chat/completions` (es. LM Studio, vLLM, un tuo proxy) |
 
 Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.
 
@@ -30,7 +34,7 @@ Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.
 
 ### Allegati (📎)
 
-- **Immagini** (ridimensionate a 1280 px): Gemini e i modelli «vision» di OpenRouter/Groq.
+- **Immagini** (ridimensionate a 1280 px): Gemini e i modelli «vision» di OpenRouter/Groq/Together/Fireworks/DeepInfra.
 - **PDF** (max 8 MB): solo Gemini e OpenRouter.
 - **File di testo/codice** (txt, md, csv, json, py, js…): funzionano con tutti i modelli,
   perché il contenuto viene inserito nel messaggio.
