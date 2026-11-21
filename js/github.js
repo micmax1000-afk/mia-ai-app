@@ -13,14 +13,14 @@
     return h;
   }
 
-  async function request(token, path, opts) {
+  async function once(token, path, opts) {
     const res = await fetch(API + path, Object.assign({ headers: headers(token) }, opts || {}));
     if (!res.ok) {
       let msg = res.status + ' ' + res.statusText;
       try {
         const d = await res.json();
         if (/not accessible by personal access token/i.test(d.message || '')) {
-          msg = 'Il token non può leggere o scrivere i file. Su GitHub, nel token, imposta Contents su Read and write per questo repository.';
+          msg = 'Il token non può modificare i file. Per salvare, su GitHub imposta Contents su Read and write. La lettura di un repository pubblico funziona lo stesso.';
         } else if (res.status === 404) {
           msg = 'File o repository non trovato.';
         } else {
@@ -33,6 +33,21 @@
     }
     if (res.status === 204) return null;
     return res.json();
+  }
+
+  async function request(token, path, opts) {
+    try {
+      return await once(token, path, opts);
+    } catch (e) {
+      const method = ((opts && opts.method) || 'GET').toUpperCase();
+      // Un token senza permesso Contents fa rispondere 403 anche sui repository pubblici.
+      if (token && method === 'GET' && e.status === 403) {
+        try {
+          return await once('', path, opts);
+        } catch (_) {}
+      }
+      throw e;
+    }
   }
 
   /** Lista i repository dell'utente autenticato (massimo 100). */
