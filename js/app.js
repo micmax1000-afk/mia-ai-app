@@ -996,6 +996,10 @@
       await addFiles(e.target.files);
       e.target.value = '';
     });
+    $('#cameraInput').addEventListener('change', async (e) => {
+      await addFiles(e.target.files);
+      e.target.value = '';
+    });
     $('#pendingAtt').addEventListener('click', (e) => {
       const x = e.target.closest('[data-remove-att]');
       if (!x) return;
@@ -1254,6 +1258,48 @@
     return true;
   }
 
+  function micError(e) {
+    const msg = String((e && (e.message || e.errorMessage)) || '');
+    if (!msg || msg === '0' || /cancel|No speech|No match/i.test(msg)) return '';
+    if (/permission/i.test(msg)) return 'Consenti il microfono: Impostazioni Android, App, Mia AI, Autorizzazioni';
+    if (/not implemented|not available|unavailable/i.test(msg)) return 'Installa o aggiorna l’app Google, serve per il microfono';
+    if (/network/i.test(msg)) return 'Il microfono ha bisogno di internet';
+    return 'Microfono: ' + msg.slice(0, 80);
+  }
+
+  async function hear() {
+    const SR = nativePlugin('SpeechRecognition');
+    if (!SR) return null;
+    try {
+      await SR.requestPermissions();
+    } catch (_) {}
+    toast('Parla adesso');
+    try {
+      const result = await SR.start({
+        language: 'it-IT',
+        maxResults: 3,
+        partialResults: false,
+        popup: false
+      });
+      return (result && result.matches && result.matches[0]) || '';
+    } catch (e) {
+      try {
+        const result = await SR.start({
+          language: 'it-IT',
+          maxResults: 3,
+          prompt: 'Parla in italiano',
+          partialResults: false,
+          popup: true
+        });
+        return (result && result.matches && result.matches[0]) || '';
+      } catch (e2) {
+        const nice = micError(e2) || micError(e);
+        if (nice) toast(nice);
+        return '';
+      }
+    }
+  }
+
   async function toggleMicrophone() {
     const SR = nativePlugin('SpeechRecognition');
     if (SR) {
@@ -1265,42 +1311,15 @@
         } catch (_) {}
         return;
       }
-      try {
-        const avail = await SR.available();
-        if (avail && avail.available === false) {
-          toast('Installa il riconoscimento vocale di Google');
-          return;
-        }
-        const perm = await SR.requestPermissions();
-        const state = perm && (perm.speechRecognition || perm.recordAudio);
-        if (state && state !== 'granted') {
-          toast('Permesso microfono negato. Attivalo nelle impostazioni dell’app.');
-          return;
-        }
-        isListening = true;
-        $('#micBtn').classList.add('listening');
-        toast('Parla…');
-        const result = await SR.start({
-          language: 'it-IT',
-          maxResults: 3,
-          prompt: 'Parla in italiano',
-          partialResults: false,
-          popup: true
-        });
-        const said = result && result.matches && result.matches[0];
-        if (said) {
-          const input = $('#input');
-          input.value = ((input.value || '').trim() + ' ' + said).trim();
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-        } else toast('Non ho sentito nulla');
-      } catch (e) {
-        const msg = String((e && (e.message || e.errorMessage)) || '');
-        if (/permission/i.test(msg)) toast('Permesso microfono negato');
-        else if (/not available|unavailable|no match/i.test(msg)) toast('Riconoscimento vocale non disponibile');
-        else toast('Microfono non disponibile');
-      } finally {
-        isListening = false;
-        $('#micBtn').classList.remove('listening');
+      isListening = true;
+      $('#micBtn').classList.add('listening');
+      const said = await hear();
+      isListening = false;
+      $('#micBtn').classList.remove('listening');
+      if (said) {
+        const input = $('#input');
+        input.value = ((input.value || '').trim() + ' ' + said).trim();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
       }
       return;
     }
@@ -1410,20 +1429,7 @@
 
   function listenOnce() {
     const SR = nativePlugin('SpeechRecognition');
-    if (SR) {
-      return SR.requestPermissions()
-        .then(() =>
-          SR.start({
-            language: 'it-IT',
-            maxResults: 1,
-            prompt: 'Parla in italiano',
-            partialResults: false,
-            popup: true
-          })
-        )
-        .then((result) => (result && result.matches && result.matches[0]) || '')
-        .catch(() => '');
-    }
+    if (SR) return hear();
     const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Ctor) return Promise.resolve('');
     return new Promise((resolve) => {
@@ -1480,36 +1486,14 @@
     $('#voiceBtn').classList.remove('listening');
   }
 
-  async function takePhoto() {
+  function takePhoto() {
     if (busy) return;
-    const Camera = nativePlugin('Camera');
-    if (!Camera) {
-      toast('La fotocamera si usa nell’app sul telefono');
+    const input = $('#cameraInput');
+    if (input) {
+      input.click();
       return;
     }
-    try {
-      const photo = await Camera.getPhoto({
-        quality: 80,
-        resultType: 'base64',
-        source: 'CAMERA',
-        correctOrientation: true
-      });
-      if (!photo || !photo.base64String) return;
-      const img = await loadImage('data:image/jpeg;base64,' + photo.base64String);
-      if (pending.length >= 6) return toast('Massimo 6 allegati');
-      pending.push({
-        kind: 'image',
-        name: 'foto.jpg',
-        mime: 'image/jpeg',
-        data: scaleToJpeg(img, IMAGE_MAX_SIDE, 0.85),
-        thumb: scaleToJpeg(img, 240, 0.7)
-      });
-      renderPending();
-    } catch (e) {
-      const msg = String((e && (e.message || e.errorMessage)) || '');
-      if (/cancel/i.test(msg)) return;
-      toast('Fotocamera non disponibile');
-    }
+    toast('Fotocamera non disponibile');
   }
 
   async function watchShares() {
