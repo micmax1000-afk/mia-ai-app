@@ -181,7 +181,9 @@
     const preset = P.PRESETS[settings.provider] || P.PRESETS.custom;
     const p = profile();
     $('#micBtn').hidden = !isConfigured() || (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window));
-    $('#modelHint').textContent = isConfigured() ? modelLabel(settings.provider, p.model) + ' ▾' : 'Da configurare in Impostazioni';
+    const ready = isConfigured();
+    $('#modelHint').hidden = !ready;
+    $('#modelHint').textContent = ready ? modelLabel(settings.provider, p.model) + ' ▾' : '';
     $('#setupHint').hidden = isConfigured();
   }
 

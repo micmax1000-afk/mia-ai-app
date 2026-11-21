@@ -14,18 +14,17 @@
 <body>
 <div id="app">
   <header class="topbar">
-    <button type="button" class="icon-btn" id="menuBtn" aria-label="Conversazioni">☰</button>
+    <button type="button" class="icon-btn" id="menuBtn" aria-label="Conversazioni"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
     <button type="button" class="title" id="modelBtn" aria-label="Cambia modello">
       <strong id="chatTitle">Mia</strong>
       <small id="modelHint">—</small>
     </button>
     <span id="netDot" class="net-dot" title="Connessione"></span>
-    <button type="button" class="icon-btn" id="newChatBtn" aria-label="Nuova chat">✎</button>
+    <button type="button" class="icon-btn" id="newChatBtn" aria-label="Nuova chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
   </header>
 
   <main id="messages" aria-live="polite">
     <div class="empty" id="emptyState">
-      <img class="logo" src="icons/icon.svg" alt="" width="56" height="56">
       <h1>Mia</h1>
       <p>Come posso aiutarti?</p>
       <p class="hint" id="setupHint" hidden>Prima apri <button type="button" class="link" data-open-settings>Impostazioni</button> e scegli il provider AI.</p>
@@ -39,8 +38,8 @@
 
   <div class="pending-att" id="pendingAtt" hidden></div>
   <form class="composer" id="composer" autocomplete="off">
-    <button type="button" class="attach-btn" id="attachBtn" aria-label="Allega file">📎</button>
-    <button type="button" class="mic-btn" id="micBtn" aria-label="Microfono" hidden>🎤</button>
+    <button type="button" class="attach-btn" id="attachBtn" aria-label="Allega file"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12.5l6.2-6.2a3 3 0 0 1 4.2 4.2l-7.4 7.5a4.2 4.2 0 0 1-6-6l6.8-6.8"/></svg></button>
+    <button type="button" class="mic-btn" id="micBtn" aria-label="Microfono" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2.5 2.5 0 0 1 2.5 2.5V12a2.5 2.5 0 0 1-5 0V6.5A2.5 2.5 0 0 1 12 4zM7 11v1a5 5 0 0 0 10 0v-1M12 17v3"/></svg></button>
     <input type="file" id="fileInput" multiple hidden
       accept="image/*,application/pdf,.pdf,text/*,.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.py,.java,.kt,.c,.cpp,.go,.rs,.php,.sh,.sql,.yaml,.yml,.log,.srt">
     <textarea id="input" rows="1" placeholder="Chiedi a Mia" enterkeyhint="send"></textarea>
@@ -54,7 +53,7 @@
     <strong class="brand">Mia</strong>
   </div>
   <div style="padding:0 12px 8px">
-    <button type="button" class="btn ghost full" id="drawerNew">✎ Nuova chat</button>
+    <button type="button" class="btn ghost full" id="drawerNew"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Nuova chat</button>
   </div>
   <ul class="conv-list" id="convList"></ul>
   <div class="drawer-foot">
