@@ -214,15 +214,18 @@
       actions.innerHTML +=
         '<button type="button" data-act="retry">Rigenera</button>' +
         '<button type="button" data-act="retry-with">Prova con…</button>';
+      if (msg.content && !msg.error) {
+        actions.innerHTML +=
+          '<button type="button" data-act="share">Condividi</button>' +
+          '<button type="button" data-act="push">Su GitHub</button>' +
+          '<button type="button" data-act="read">Ascolta</button>';
+      }
       if (msg.model) {
         const tag = document.createElement('span');
         tag.className = 'model-tag';
         tag.textContent = msg.model;
         actions.appendChild(tag);
       }
-    }
-    if (msg.content && !msg.error) {
-      actions.innerHTML += '<button type="button" data-act="read" aria-label="Leggi ad alta voce">🎤</button>';
     }
     wrap.appendChild(actions);
     return wrap;
@@ -546,6 +549,88 @@
     }
   }
 
+  function needsWeb(text) {
+    return /\b(cerca|sul web|su internet|notizie|meteo|prezzo|oggi|attual)/i.test(text);
+  }
+
+  async function webNotes(text) {
+    const q = text.replace(/^(per favore\s+)?(cerca( sul web| su internet)?)\s+/i, '').trim().slice(0, 180);
+    if (!q) return '';
+    toast('Cerco sul web…');
+    const parts = [];
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const res = await fetch(
+        'https://api.duckduckgo.com/?format=json&no_html=1&skip_disambig=1&q=' + encodeURIComponent(q),
+        { signal: ctrl.signal }
+      );
+      if (res.ok) {
+        const d = await res.json();
+        if (d.AbstractText) parts.push((d.Heading ? d.Heading + '\n' : '') + d.AbstractText);
+        (d.RelatedTopics || []).slice(0, 4).forEach((t) => {
+          if (t && t.Text) parts.push(t.Text);
+        });
+      }
+    } catch (_) {}
+    try {
+      const res = await fetch(
+        'https://it.wikipedia.org/w/api.php?action=opensearch&limit=2&namespace=0&format=json&origin=*&search=' +
+          encodeURIComponent(q),
+        { signal: ctrl.signal }
+      );
+      if (res.ok) {
+        const d = await res.json();
+        (d[1] || []).forEach((title, i) => {
+          parts.push(title + (d[2] && d[2][i] ? ': ' + d[2][i] : '') + (d[3] && d[3][i] ? '\n' + d[3][i] : ''));
+        });
+      }
+    } catch (_) {}
+    clearTimeout(timer);
+    return parts.join('\n\n').slice(0, 6000);
+  }
+
+  async function shareText(text) {
+    const body = String(text || '').trim();
+    if (!body) return;
+    const Share = nativePlugin('Share');
+    try {
+      if (Share) {
+        await Share.share({ title: 'Mia', text: body.slice(0, 8000), dialogTitle: 'Condividi con…' });
+        return;
+      }
+      if (navigator.share) {
+        await navigator.share({ title: 'Mia', text: body.slice(0, 8000) });
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+    }
+    copyText(body);
+    toast('Copiato. Da qui puoi incollarlo in un’altra app.');
+  }
+
+  async function pushAnswer(text) {
+    const body = String(text || '').trim();
+    if (!body) return;
+    if (!settings.githubToken || !settings.githubRepo || settings.githubRepo.indexOf('/') < 1) {
+      toast('In Impostazioni scegli il token e il repository');
+      openSettings();
+      return;
+    }
+    const slash = settings.githubRepo.indexOf('/');
+    const owner = settings.githubRepo.slice(0, slash);
+    const repo = settings.githubRepo.slice(slash + 1);
+    const path = 'note/mia-' + new Date().toISOString().slice(0, 10) + '-' + Date.now() + '.md';
+    toast('Invio su GitHub…');
+    try {
+      await GH.putFile(settings.githubToken, owner, repo, path, body, 'Risposta da Mia');
+      toast('Salvato in ' + settings.githubRepo);
+    } catch (e) {
+      toast(e.message || 'Push non riuscito');
+    }
+  }
+
   function asksRepo(text) {
     return /repo|github|progetto/i.test(text) && /controll|guarda|leggi|analizz|revision|spieg|dimmi|vedi/i.test(text);
   }
@@ -587,6 +672,16 @@
         toast(e.message || 'GitHub non raggiungibile');
         return;
       }
+    }
+    if (!context && needsWeb(text)) {
+      try {
+        const notes = await webNotes(text);
+        if (notes) {
+          context =
+            'Queste note le ha cercate l\'app sul web. Usale se servono. Non dire che non hai accesso a siti esterni.\n\n' +
+            notes;
+        }
+      } catch (_) {}
     }
     const c = ensureConversation(text || pending.map((a) => a.name).join(', '));
     const msg = { role: 'user', content: text };
@@ -926,6 +1021,8 @@
       else if (act.dataset.act === 'retry') retryLast();
       else if (act.dataset.act === 'retry-with') openPicker('retry');
       else if (act.dataset.act === 'read' && c) readAloud(c.messages[index].content);
+      else if (act.dataset.act === 'share' && c) shareText(c.messages[index].content);
+      else if (act.dataset.act === 'push' && c) pushAnswer(c.messages[index].content);
       else if (act.dataset.act === 'edit') editMessage(index);
     });
 
