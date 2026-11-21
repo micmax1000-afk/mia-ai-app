@@ -1,4 +1,4 @@
-/* Mia AI — UI leggera per GitHub (esporta chat) */
+/* Mia AI — pannello GitHub nelle Impostazioni */
 (function () {
   'use strict';
 
@@ -11,117 +11,154 @@
     t.textContent = msg;
     t.hidden = false;
     clearTimeout(toast._t);
-    toast._t = setTimeout(() => (t.hidden = true), 2500);
+    toast._t = setTimeout(() => (t.hidden = true), 2400);
   }
 
-  function getToken() {
+  function settings() {
     try {
-      const s = JSON.parse(localStorage.getItem('miaai_v1_settings') || '{}');
-      return s.githubToken || '';
+      return JSON.parse(localStorage.getItem('miaai_v1_settings') || '{}');
     } catch (_) {
-      return '';
+      return {};
     }
   }
 
-  function setToken(token) {
+  function saveToken(token) {
+    const s = settings();
+    s.githubToken = token;
     try {
-      const s = JSON.parse(localStorage.getItem('miaai_v1_settings') || '{}');
-      s.githubToken = token;
       localStorage.setItem('miaai_v1_settings', JSON.stringify(s));
     } catch (_) {}
+  }
+
+  function token() {
+    const field = $('#githubToken');
+    return ((field && field.value) || settings().githubToken || '').trim();
+  }
+
+  function status(msg) {
+    const el = $('#ghStatus');
+    if (el) el.textContent = msg;
+  }
+
+  function selectedRepo() {
+    const v = ($('#ghRepo') && $('#ghRepo').value) || '';
+    const i = v.indexOf('/');
+    if (i < 1) return null;
+    return { owner: v.slice(0, i), repo: v.slice(i + 1) };
   }
 
   function currentChatMarkdown() {
     try {
       const convs = JSON.parse(localStorage.getItem('miaai_v1_conversations') || '[]');
-      const curId = localStorage.getItem('miaai_v1_current');
-      const c = convs.find((x) => x.id === curId) || convs[0];
+      const raw = localStorage.getItem('miaai_v1_current');
+      const curId = raw && raw[0] === '"' ? JSON.parse(raw) : raw;
+      const c = convs.find((x) => x.id === curId) || null;
       if (!c || !c.messages || !c.messages.length) return null;
-      let md = '# ' + (c.title || 'Chat Mia AI') + '\n\n';
-      md += '_Esportata il ' + new Date().toLocaleString('it-IT') + '_\n\n';
+      let md = '# ' + (c.title || 'Chat') + '\n\n';
+      md += '_Esportata da Mia il ' + new Date().toLocaleString('it-IT') + '_\n\n';
       c.messages.forEach((m) => {
         if (m.error) return;
-        const role = m.role === 'user' ? '**Tu**' : '**Mia**';
-        md += role + '\n\n' + (m.content || '') + '\n\n---\n\n';
+        md += (m.role === 'user' ? '**Tu**' : '**Mia**') + '\n\n' + (m.content || '') + '\n\n';
       });
-      return { md, title: c.title || 'chat' };
+      const slug = (c.title || 'chat').replace(/[^a-z0-9\-_]+/gi, '-').replace(/^-|-$/g, '').slice(0, 48) || 'chat';
+      return { md, slug };
     } catch (_) {
       return null;
     }
   }
 
-  async function exportCurrentChat() {
-    const token = getToken();
-    if (!token) {
-      toast('Inserisci prima il token GitHub');
-      return;
-    }
-    const data = currentChatMarkdown();
-    if (!data) {
-      toast('Nessuna chat da esportare');
-      return;
-    }
-
-    const owner = prompt('Owner del repository (es. micmax1000-afk):');
-    if (!owner) return;
-    const repo = prompt('Nome del repository:');
-    if (!repo) return;
-    const path = prompt('Percorso file (es. chats/chat.md):', 'chats/' + data.title.replace(/[^a-z0-9\-_]/gi, '_') + '.md');
-    if (!path) return;
-    const message = prompt('Messaggio di commit:', 'Esporta chat da Mia AI');
-
+  async function put(path, content, message) {
+    const tok = token();
+    const repo = selectedRepo();
+    if (!tok) throw new Error('Inserisci il token GitHub');
+    if (!repo) throw new Error('Scegli un repository');
+    if (!path) throw new Error('Scrivi il percorso del file');
+    saveToken(tok);
+    let sha;
     try {
-      let sha;
-      try {
-        const existing = await GH.getFile(token, owner, repo, path);
-        sha = existing.sha;
-      } catch (e) {
-        if (e.status !== 404) throw e;
-      }
-      await GH.putFile(token, owner, repo, path, data.md, message || 'Esporta chat da Mia AI', sha);
-      toast('Chat esportata su GitHub');
+      const existing = await GH.getFile(tok, repo.owner, repo.repo, path);
+      sha = existing.sha;
     } catch (e) {
-      toast('Errore GitHub: ' + (e.message || e));
+      if (e.status !== 404) throw e;
     }
+    await GH.putFile(tok, repo.owner, repo.repo, path, content, message, sha);
   }
 
   function init() {
-    const tokenInput = $('#githubToken');
     const testBtn = $('#testGithub');
-    if (!tokenInput || !testBtn) return;
+    const tokenInput = $('#githubToken');
+    if (!testBtn || !tokenInput || !GH) return;
 
-    tokenInput.addEventListener('change', () => setToken(tokenInput.value.trim()));
+    tokenInput.addEventListener('change', () => saveToken(tokenInput.value.trim()));
 
     testBtn.addEventListener('click', async () => {
-      const token = tokenInput.value.trim();
-      if (!token) {
-        toast('Inserisci il token');
-        return;
-      }
-      setToken(token);
+      const tok = tokenInput.value.trim();
+      if (!tok) return toast('Inserisci il token');
+      saveToken(tok);
       try {
-        const u = await GH.me(token);
-        toast('GitHub OK: ' + u.login);
+        const u = await GH.me(tok);
+        toast('GitHub: ' + u.login);
+        status('Connesso come ' + u.login);
       } catch (e) {
-        toast('Token non valido: ' + (e.message || e));
+        toast('Token non valido');
+        status(e.message || 'Errore');
       }
     });
 
-    // Pulsante esporta chat
-    const exportBtn = document.createElement('button');
-    exportBtn.type = 'button';
-    exportBtn.className = 'btn small';
-    exportBtn.textContent = 'Esporta chat corrente su GitHub';
-    exportBtn.style.marginTop = '8px';
-    exportBtn.addEventListener('click', exportCurrentChat);
+    $('#ghLoadRepos').addEventListener('click', async () => {
+      const tok = token();
+      if (!tok) return toast('Inserisci il token');
+      saveToken(tok);
+      status('Carico i repository…');
+      try {
+        const repos = await GH.listRepos(tok);
+        const sel = $('#ghRepo');
+        const current = sel.value;
+        sel.innerHTML = '<option value="">Scegli un repository</option>';
+        (repos || []).forEach((r) => {
+          const o = document.createElement('option');
+          o.value = r.full_name;
+          o.textContent = r.full_name;
+          sel.appendChild(o);
+        });
+        if (current) sel.value = current;
+        status((repos || []).length + ' repository');
+      } catch (e) {
+        status(e.message || 'Errore');
+      }
+    });
 
-    const field = tokenInput.closest('.field');
-    if (field) field.appendChild(exportBtn);
+    $('#ghExportChat').addEventListener('click', async () => {
+      const data = currentChatMarkdown();
+      if (!data) return toast('Nessuna chat da esportare');
+      const pathInput = $('#ghPath');
+      if (!pathInput.value.trim()) pathInput.value = 'note/' + data.slug + '.md';
+      try {
+        status('Salvataggio…');
+        await put(pathInput.value.trim(), data.md, 'Chat da Mia');
+        status('Chat salvata');
+        toast('Chat salvata su GitHub');
+      } catch (e) {
+        status(e.message || 'Errore');
+        toast(e.message || 'Errore GitHub');
+      }
+    });
+
+    $('#ghPutFile').addEventListener('click', async () => {
+      const body = $('#ghFileBody').value;
+      if (!body.trim()) return toast('Il file è vuoto');
+      try {
+        status('Salvataggio…');
+        await put($('#ghPath').value.trim(), body, 'File da Mia');
+        status('File salvato');
+        toast('File salvato su GitHub');
+      } catch (e) {
+        status(e.message || 'Errore');
+        toast(e.message || 'Errore GitHub');
+      }
+    });
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 })();

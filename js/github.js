@@ -35,9 +35,13 @@
   }
 
   /** Contenuto di un file (base64). */
+  function encPath(path) {
+    return String(path || '').split('/').filter(Boolean).map(encodeURIComponent).join('/');
+  }
+
   async function getFile(token, owner, repo, path, ref) {
     const q = ref ? '?ref=' + encodeURIComponent(ref) : '';
-    return request(token, '/repos/' + owner + '/' + repo + '/contents/' + encodeURIComponent(path) + q);
+    return request(token, '/repos/' + owner + '/' + repo + '/contents/' + encPath(path) + q);
   }
 
   /**
@@ -51,7 +55,7 @@
     };
     if (sha) body.sha = sha;
     if (branch) body.branch = branch;
-    return request(token, '/repos/' + owner + '/' + repo + '/contents/' + encodeURIComponent(path), {
+    return request(token, '/repos/' + owner + '/' + repo + '/contents/' + encPath(path), {
       method: 'PUT',
       body: JSON.stringify(body)
     });

@@ -1,33 +1,21 @@
-/* Mia AI - correzioni visualizzazione pannelli (Impostazioni / scelta modello) */
+/* Correzioni pannelli su schermi stretti */
 
-/* Blocca lo scroll dello sfondo quando una sheet è aperta */
 body.sheet-open {
   position: fixed;
   width: 100%;
   overflow: hidden;
 }
 
-/* La sheet copre tutto lo schermo e resta sopra ogni contenuto */
 .sheet {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
   overscroll-behavior: contain;
 }
 
-/* La card interna non esce dai bordi e non taglia i testi */
 .sheet-card {
   width: 100%;
   max-width: 100vw;
-  max-height: 92vh;
   overflow: hidden;
 }
 
-/* Evita che testi, input e select vengano tagliati a destra su schermi stretti */
 .sheet-body,
 .sheet-body input,
 .sheet-body select,
@@ -36,4 +24,8 @@ body.sheet-open {
 .hint {
   overflow-wrap: anywhere;
   max-width: 100%;
+}
+
+@media (min-width: 960px) {
+  #menuBtn { display: none; }
 }

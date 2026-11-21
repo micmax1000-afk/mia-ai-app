@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
-<meta name="theme-color" content="#0b1020" id="themeColor">
+<meta name="theme-color" content="#000000" id="themeColor">
 <meta name="color-scheme" content="dark light">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-<title>Mia AI</title>
+<title>Mia</title>
 <link rel="stylesheet" href="css/app.css">
 <link rel="stylesheet" href="css/app-fix.css">
 </head>
@@ -16,22 +16,23 @@
   <header class="topbar">
     <button type="button" class="icon-btn" id="menuBtn" aria-label="Conversazioni">☰</button>
     <button type="button" class="title" id="modelBtn" aria-label="Cambia modello">
-      <strong id="chatTitle">Mia AI</strong>
+      <strong id="chatTitle">Mia</strong>
       <small id="modelHint">—</small>
     </button>
-    <button type="button" class="icon-btn" id="newChatBtn" aria-label="Nuova chat">＋</button>
+    <span id="netDot" class="net-dot" title="Connessione"></span>
+    <button type="button" class="icon-btn" id="newChatBtn" aria-label="Nuova chat">✎</button>
   </header>
 
   <main id="messages" aria-live="polite">
     <div class="empty" id="emptyState">
-      <img src="icons/icon.svg" alt="" width="72" height="72">
-      <h1>Ciao 👋</h1>
-      <p>Scrivi un messaggio per iniziare.</p>
+      <img class="logo" src="icons/icon.svg" alt="" width="56" height="56">
+      <h1>Mia</h1>
+      <p>Come posso aiutarti?</p>
       <p class="hint" id="setupHint" hidden>Prima apri <button type="button" class="link" data-open-settings>Impostazioni</button> e scegli il provider AI.</p>
       <div class="suggestions">
-        <button type="button" class="chip" data-prompt="Spiegami in modo semplice come funziona l'intelligenza artificiale">Come funziona l'AI?</button>
+        <button type="button" class="chip" data-prompt="Spiegami in modo semplice come funziona l'intelligenza artificiale">Come funziona l'intelligenza artificiale?</button>
         <button type="button" class="chip" data-prompt="Aiutami a scrivere una email cortese per chiedere un appuntamento">Scrivi una email</button>
-        <button type="button" class="chip" data-prompt="Dammi 5 idee per una cena veloce con quello che ho in frigo: uova, zucchine, formaggio">Idee per cena</button>
+        <button type="button" class="chip" data-prompt="Dammi 5 idee per una cena veloce con quello che ho in frigo: uova, zucchine, formaggio">Idee per una cena veloce</button>
       </div>
     </div>
   </main>
@@ -42,25 +43,25 @@
     <button type="button" class="mic-btn" id="micBtn" aria-label="Microfono" hidden>🎤</button>
     <input type="file" id="fileInput" multiple hidden
       accept="image/*,application/pdf,.pdf,text/*,.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.py,.java,.kt,.c,.cpp,.go,.rs,.php,.sh,.sql,.yaml,.yml,.log,.srt">
-    <textarea id="input" rows="1" placeholder="Scrivi un messaggio…" enterkeyhint="send"></textarea>
-    <button type="submit" class="send-btn" id="sendBtn" aria-label="Invia">➤</button>
+    <textarea id="input" rows="1" placeholder="Chiedi a Mia" enterkeyhint="send"></textarea>
+    <button type="submit" class="send-btn" id="sendBtn" aria-label="Invia">↑</button>
   </form>
 </div>
 
-<!-- Drawer conversazioni -->
 <div class="scrim" id="scrim" hidden></div>
 <aside class="drawer" id="drawer" aria-hidden="true">
   <div class="drawer-head">
-    <strong>Conversazioni</strong>
-    <button type="button" class="btn small" id="drawerNew">＋ Nuova</button>
+    <strong class="brand">Mia</strong>
+  </div>
+  <div style="padding:0 12px 8px">
+    <button type="button" class="btn ghost full" id="drawerNew">✎ Nuova chat</button>
   </div>
   <ul class="conv-list" id="convList"></ul>
   <div class="drawer-foot">
-    <button type="button" class="btn ghost" data-open-settings>⚙️ Impostazioni</button>
+    <button type="button" class="btn ghost full" data-open-settings>Impostazioni</button>
   </div>
 </aside>
 
-<!-- Impostazioni -->
 <div class="sheet" id="settings" hidden role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
   <div class="sheet-card">
     <div class="sheet-head">
@@ -90,8 +91,8 @@
       <label class="field">
         <span>Modello</span>
         <div class="row">
-          <input id="model" spellcheck="false" autocapitalize="off" placeholder="Premi «Carica modelli»">
-          <button type="button" class="btn small" id="loadModels">Carica modelli</button>
+          <input id="model" spellcheck="false" autocapitalize="off" placeholder="Carica modelli">
+          <button type="button" class="btn small ghost" id="loadModels">Carica</button>
         </div>
       </label>
       <p class="hint" id="modelsStatus"></p>
@@ -104,7 +105,7 @@
       </div>
 
       <label class="field">
-        <span>Istruzioni di sistema (personalità)</span>
+        <span>Istruzioni di sistema</span>
         <textarea id="systemPrompt" rows="3"></textarea>
       </label>
 
@@ -115,7 +116,7 @@
 
       <label class="field check-field">
         <input type="checkbox" id="autoFallback">
-        <span>Se il modello è occupato, prova da solo gli altri modelli dell'elenco ▾</span>
+        <span>Se il modello è occupato, prova gli altri dell'elenco</span>
       </label>
 
       <label class="field">
@@ -130,24 +131,34 @@
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--border);">
 
       <label class="field">
-        <span>Token GitHub (Personal Access Token)</span>
+        <span>Token GitHub</span>
         <div class="row">
           <input id="githubToken" type="password" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="ghp_…">
           <button type="button" class="btn small ghost" id="testGithub">Testa</button>
         </div>
-        <p class="hint">Token con permesso <code>repo</code>. Serve per aggiornare i repository da Mia AI.</p>
+        <p class="hint">Permesso <code>repo</code>. Resta solo su questo dispositivo.</p>
+        <div class="gh-panel" id="ghPanel">
+          <div class="row">
+            <select id="ghRepo"><option value="">I miei repository…</option></select>
+            <button type="button" class="btn small ghost" id="ghLoadRepos">Carica</button>
+          </div>
+          <input id="ghPath" spellcheck="false" autocapitalize="off" placeholder="percorso, es. note/chat.md">
+          <button type="button" class="btn ghost" id="ghExportChat">Esporta questa chat</button>
+          <textarea id="ghFileBody" placeholder="Oppure scrivi qui un file da salvare sul repository"></textarea>
+          <button type="button" class="btn ghost" id="ghPutFile">Salva file</button>
+          <p class="hint" id="ghStatus"></p>
+        </div>
       </label>
 
       <div class="danger">
         <button type="button" class="btn ghost" id="exportBtn">Esporta chat (JSON)</button>
         <button type="button" class="btn danger-btn" id="clearAll">Elimina tutte le chat</button>
       </div>
-      <p class="hint">Chiavi e conversazioni restano solo su questo dispositivo.</p>
+      <p class="hint">Chiavi e conversazioni restano solo su questo dispositivo. Chiudi per salvare.</p>
     </div>
   </div>
 </div>
 
-<!-- Cambio rapido modello -->
 <div class="sheet" id="picker" hidden role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
   <div class="sheet-card">
     <div class="sheet-head">
@@ -156,8 +167,8 @@
     </div>
     <div class="sheet-body">
       <ul class="conv-list pick-list" id="pickerList"></ul>
-      <button type="button" class="btn ghost full" data-open-settings>＋ Aggiungi un modello o un provider</button>
-      <p class="hint">Ogni modello che usi viene aggiunto qui. Le chiavi si inseriscono una volta per provider in Impostazioni.</p>
+      <button type="button" class="btn ghost full" data-open-settings>Aggiungi un modello</button>
+      <p class="hint">Ogni modello che usi viene aggiunto qui.</p>
     </div>
   </div>
 </div>

@@ -72,8 +72,8 @@
       return who + ': limite giornaliero gratuito raggiunto. Usa un altro provider (es. Gemini) o riprova domani.';
     if (/429|quota|rate|overload|capacity|503|502/i.test(m))
       return who + ': modello occupato o limite di richieste raggiunto. Riprova tra poco o usa «Prova con…».';
-    if (/Failed to fetch|NetworkError|Load failed|network/i.test(m))
-      return who + ': server non raggiungibile (rete, indirizzo errato o CORS non abilitato).';
+    if (/Failed to fetch|NetworkError|Load failed|network|offline/i.test(m))
+      return who + ': nessuna connessione o il server non risponde. Controlla la rete e riprova.';
     if (/404|not found/i.test(m)) return who + ': modello o indirizzo non trovato. Controlla le Impostazioni.';
     return m.length > 300 ? m.slice(0, 300) + '…' : m || 'Errore sconosciuto.';
   }
