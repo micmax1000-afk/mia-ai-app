@@ -15,11 +15,8 @@ App di chat AI personale per Android (Capacitor), senza bundler: HTML + CSS + Ja
 | Provider | Cosa serve |
 |--|--|
 | Google Gemini | chiave da [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
-| OpenRouter | chiave da [openrouter.ai/keys](https://openrouter.ai/keys) (ha modelli gratuiti) |
+| OpenRouter | chiave da [openrouter.ai/keys](https://openrouter.ai/keys) (modelli `:free`) |
 | Groq | chiave da [console.groq.com/keys](https://console.groq.com/keys) |
-| Together AI | chiave da [api.together.ai](https://api.together.ai/settings/api-keys) — richiede acquisto crediti |
-| Fireworks AI | chiave da [fireworks.ai](https://fireworks.ai/account/api-keys) — crediti iniziali limitati |
-| DeepInfra | chiave da [deepinfra.com](https://deepinfra.com/dash/api_keys) — richiede metodo di pagamento |
 | Personalizzato | qualsiasi server con API `/v1/chat/completions` (es. LM Studio, vLLM, un tuo proxy) |
 
 Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.
@@ -33,7 +30,7 @@ Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.
 
 ### Allegati (📎)
 
-- **Immagini** (ridimensionate a 1280 px): Gemini e i modelli «vision» di OpenRouter/Groq/Together/Fireworks/DeepInfra.
+- **Immagini** (ridimensionate a 1280 px): Gemini e i modelli «vision» di OpenRouter/Groq.
 - **PDF** (max 8 MB): solo Gemini e OpenRouter.
 - **File di testo/codice** (txt, md, csv, json, py, js…): funzionano con tutti i modelli,
   perché il contenuto viene inserito nel messaggio.

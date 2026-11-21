@@ -5,6 +5,7 @@
   /**
    * Preset: type 'gemini' usa l'API Google; type 'openai' usa /chat/completions.
    * Il modello è sempre modificabile in Impostazioni (pulsante «Carica modelli»).
+   * Solo provider con tier gratuito utilizzabile.
    */
   const PRESETS = {
     gemini: {
@@ -26,7 +27,7 @@
       keyUrl: 'https://openrouter.ai/keys',
       hint:
         'Chiave gratuita su openrouter.ai/keys. I modelli gratuiti finiscono con «:free»: ' +
-        'premi «Carica modelli» e li trovi in cima all\'elenco.'
+        'premi «Carica modelli» e li trovi in cima all\'elenco (filtro «Solo gratis»).'
     },
     groq: {
       label: 'Groq',
@@ -36,36 +37,6 @@
       model: '',
       needsKey: true,
       keyUrl: 'https://console.groq.com/keys'
-    },
-    together: {
-      label: 'Together AI',
-      short: 'Together',
-      type: 'openai',
-      baseUrl: 'https://api.together.ai/v1',
-      model: '',
-      needsKey: true,
-      keyUrl: 'https://api.together.ai/settings/api-keys',
-      hint: 'Chiave da api.together.ai. Molti modelli open-source a buon prezzo. Richiede acquisto crediti (minimo ~$15).'
-    },
-    fireworks: {
-      label: 'Fireworks AI',
-      short: 'Fireworks',
-      type: 'openai',
-      baseUrl: 'https://api.fireworks.ai/inference/v1',
-      model: '',
-      needsKey: true,
-      keyUrl: 'https://fireworks.ai/account/api-keys',
-      hint: 'Chiave da fireworks.ai. Crediti iniziali limitati, poi a pagamento. Modelli nel formato accounts/fireworks/models/...'
-    },
-    deepinfra: {
-      label: 'DeepInfra',
-      short: 'DeepInfra',
-      type: 'openai',
-      baseUrl: 'https://api.deepinfra.com/v1/openai',
-      model: '',
-      needsKey: true,
-      keyUrl: 'https://deepinfra.com/dash/api_keys',
-      hint: 'Chiave da deepinfra.com. Prezzi bassi per open-source, ma richiede metodo di pagamento.'
     },
     custom: {
       label: 'Personalizzato (compatibile OpenAI)',
@@ -166,7 +137,7 @@
     return (m.attachments || []).filter((a) => (a.kind === 'image' || a.kind === 'pdf') && a.data && !a.dropped);
   }
 
-  // ─── Gemini ──────────────────────────────────────────────────────────────────────
+  // ─── Gemini ───────────────────────────────────────────────────────────────────────
   async function streamGemini(cfg, messages, onText, signal) {
     const contents = messages
       .filter((m) => m.role !== 'system')
