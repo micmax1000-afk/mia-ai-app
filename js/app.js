@@ -1194,19 +1194,52 @@
   const nativePlugins = {};
 
   function isNative() {
-    return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+    const C = window.Capacitor;
+    if (!C) return !!window.androidBridge;
+    if (typeof C.nativePromise === 'function') return true;
+    if (typeof C.isNativePlatform === 'function') {
+      try {
+        if (C.isNativePlatform()) return true;
+      } catch (_) {}
+    }
+    return !!window.androidBridge;
   }
 
   function nativePlugin(name) {
-    if (!isNative() || !window.Capacitor.registerPlugin) return null;
+    const C = window.Capacitor;
+    if (C && C.Plugins && C.Plugins[name]) return C.Plugins[name];
+    if (C && typeof C.nativePromise === 'function') {
+      if (!nativePlugins[name]) {
+        nativePlugins[name] = new Proxy(
+          {},
+          {
+            get(_target, method) {
+              if (method === 'then') return undefined;
+              return (options) => C.nativePromise(name, String(method), options || {});
+            }
+          }
+        );
+      }
+      return nativePlugins[name];
+    }
+    if (!isNative() || !C || typeof C.registerPlugin !== 'function') return null;
     if (!Object.prototype.hasOwnProperty.call(nativePlugins, name)) {
       try {
-        nativePlugins[name] = window.Capacitor.registerPlugin(name);
+        nativePlugins[name] = C.registerPlugin(name);
       } catch (_) {
         nativePlugins[name] = null;
       }
     }
     return nativePlugins[name];
+  }
+
+  async function openAppSettings() {
+    const S = nativePlugin('NativeSettings');
+    if (!S) return;
+    try {
+      if (S.openAndroid) await S.openAndroid({ option: 'application_details' });
+      else if (S.open) await S.open({ optionAndroid: 'application_details', optionIOS: 'app' });
+    } catch (_) {}
   }
 
   function canUseMic() {
@@ -1248,7 +1281,10 @@
     recognition.onerror = function (event) {
       isListening = false;
       $('#micBtn').classList.remove('listening');
-      if (event.error === 'not-allowed') toast('Permesso microfono negato');
+      if (event.error === 'not-allowed') {
+        toast('Microfono bloccato. Attivalo nelle autorizzazioni di Mia AI.');
+        openAppSettings();
+      }
       else if (event.error === 'service-not-allowed' || event.error === 'language-not-supported') {
         toast('Manca il riconoscimento vocale di Google');
       } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
@@ -1261,7 +1297,7 @@
   function micError(e) {
     const msg = String((e && (e.message || e.errorMessage)) || '');
     if (!msg || msg === '0' || /cancel|No speech|No match/i.test(msg)) return '';
-    if (/permission/i.test(msg)) return 'Consenti il microfono: Impostazioni Android, App, Mia AI, Autorizzazioni';
+    if (/permission/i.test(msg)) return 'Consenti il microfono nelle autorizzazioni di Mia AI';
     if (/not implemented|not available|unavailable/i.test(msg)) return 'Installa o aggiorna l’app Google, serve per il microfono';
     if (/network/i.test(msg)) return 'Il microfono ha bisogno di internet';
     return 'Microfono: ' + msg.slice(0, 80);
@@ -1294,7 +1330,10 @@
         return (result && result.matches && result.matches[0]) || '';
       } catch (e2) {
         const nice = micError(e2) || micError(e);
-        if (nice) toast(nice);
+        if (nice) {
+          toast(nice);
+          if (/autorizzazioni/i.test(nice)) openAppSettings();
+        }
         return '';
       }
     }
@@ -1526,7 +1565,7 @@
   function speakWeb(plain) {
     const synth = window.speechSynthesis;
     if (!synth) {
-      toast('Lettura vocale non disponibile');
+      toast('Lettura vocale non disponibile. Installa la voce di Google.');
       return Promise.resolve();
     }
     if (synth.speaking || speaking) {
