@@ -4,6 +4,7 @@
 
   const P = window.MiaProviders;
   const MD = window.MiaMarkdown;
+  const GH = window.MiaGitHub;
   const $ = (s) => document.querySelector(s);
 
   const LS_SETTINGS = 'miaai_v1_settings';
@@ -24,7 +25,8 @@
     theme: 'auto',
     favorites: [], // [{ provider, model }] — modelli per il cambio rapido
     autoFallback: true, // se il modello è occupato, prova da solo gli altri dell'elenco
-    githubToken: ''
+    githubToken: '',
+    githubRepo: ''
   };
 
   function load(key, fallback) {
@@ -45,7 +47,7 @@
 
   let settings = Object.assign({}, DEFAULT_SETTINGS, load(LS_SETTINGS, {}));
   if (!Array.isArray(settings.favorites)) settings.favorites = [];
-  if (typeof settings.githubToken !== 'string') settings.githubToken = '';
+  if (typeof settings.githubRepo !== 'string') settings.githubRepo = '';
   let conversations = load(LS_CONVS, []);
   let currentId = load(LS_CURRENT, null);
   let busy = false;
@@ -436,7 +438,11 @@
     const history = c.messages
       .filter((m) => !m.error)
       .slice(-MAX_HISTORY)
-      .map((m) => ({ role: m.role, content: m.content, attachments: m.attachments }));
+      .map((m) => ({
+        role: m.role,
+        content: m.context ? m.content + '\n\n' + m.context : m.content,
+        attachments: m.attachments
+      }));
 
     setBusy(true);
     renderMessages();
@@ -517,6 +523,15 @@
     }
   }
 
+  function asksRepo(text) {
+    return /repo|github|progetto/i.test(text) && /controll|guarda|leggi|analizz|revision|spieg|dimmi|vedi/i.test(text);
+  }
+
+  function repoNamedIn(text) {
+    const m = String(text || '').match(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/);
+    return m ? m[1] : '';
+  }
+
   async function send(text) {
     text = (text || '').trim();
     if ((!text && !pending.length) || busy) return;
@@ -525,8 +540,34 @@
       openSettings();
       return;
     }
+    let context = '';
+    if (asksRepo(text)) {
+      const full = repoNamedIn(text) || settings.githubRepo || (($('#ghRepo') && $('#ghRepo').value) || '');
+      if (!settings.githubToken) {
+        toast('Serve il token GitHub in Impostazioni');
+        openSettings();
+        return;
+      }
+      if (!full || full.indexOf('/') < 1) {
+        toast('Scegli il repository in Impostazioni, poi riprova');
+        openSettings();
+        return;
+      }
+      toast('Leggo ' + full + '…');
+      try {
+        context =
+          'Questi file li ha scaricati l\'app da GitHub. Sono già qui: non dire che non hai accesso a siti esterni. Di\' cosa fa il progetto e cosa sistemare.\n\n' +
+          (await GH.readRepo(settings.githubToken, full));
+        settings.githubRepo = full;
+        save(LS_SETTINGS, settings);
+      } catch (e) {
+        toast(e.message || 'GitHub non raggiungibile');
+        return;
+      }
+    }
     const c = ensureConversation(text || pending.map((a) => a.name).join(', '));
     const msg = { role: 'user', content: text };
+    if (context) msg.context = context;
     if (pending.length) msg.attachments = pending;
     c.messages.push(msg);
     pending = [];
@@ -666,6 +707,16 @@
     $('#autoFallback').checked = settings.autoFallback !== false;
     const gt = $('#githubToken');
     if (gt) gt.value = settings.githubToken || '';
+    const sel = $('#ghRepo');
+    if (sel && settings.githubRepo) {
+      if (![...sel.options].some((o) => o.value === settings.githubRepo)) {
+        const o = document.createElement('option');
+        o.value = settings.githubRepo;
+        o.textContent = settings.githubRepo;
+        sel.appendChild(o);
+      }
+      sel.value = settings.githubRepo;
+    }
     $('#settings').hidden = false;
     document.body.classList.add('sheet-open');
   }
@@ -688,6 +739,8 @@
     settings.autoFallback = $('#autoFallback').checked;
     const gt = $('#githubToken');
     if (gt) settings.githubToken = gt.value.trim();
+    const sel = $('#ghRepo');
+    if (sel && sel.value) settings.githubRepo = sel.value;
     if (isConfigured()) addFavorite(settings.provider, profile().model);
     save(LS_SETTINGS, settings);
     applyTheme();

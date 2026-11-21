@@ -122,10 +122,37 @@
           sel.appendChild(o);
         });
         if (current) sel.value = current;
+        const saved = settings().githubRepo;
+        if (saved) sel.value = saved;
         status((repos || []).length + ' repository');
       } catch (e) {
         status(e.message || 'Errore');
       }
+    });
+
+    $('#ghRepo').addEventListener('change', () => {
+      const s = settings();
+      s.githubRepo = $('#ghRepo').value;
+      try {
+        localStorage.setItem('miaai_v1_settings', JSON.stringify(s));
+      } catch (_) {}
+    });
+
+    $('#ghReview').addEventListener('click', () => {
+      const repo = selectedRepo();
+      if (!token()) return toast('Inserisci il token');
+      if (!repo) return toast('Scegli un repository');
+      const s = settings();
+      s.githubToken = token();
+      s.githubRepo = repo.owner + '/' + repo.repo;
+      try {
+        localStorage.setItem('miaai_v1_settings', JSON.stringify(s));
+      } catch (_) {}
+      $('#closeSettings').click();
+      const input = $('#input');
+      input.value = 'Controlla il repository ' + s.githubRepo;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      $('#composer').requestSubmit();
     });
 
     $('#ghExportChat').addEventListener('click', async () => {

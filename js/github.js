@@ -19,7 +19,13 @@
       let msg = res.status + ' ' + res.statusText;
       try {
         const d = await res.json();
-        msg = (d.message || msg) + (d.documentation_url ? ' — ' + d.documentation_url : '');
+        if (/not accessible by personal access token/i.test(d.message || '')) {
+          msg = 'Il token non può leggere o scrivere i file. Su GitHub, nel token, imposta Contents su Read and write per questo repository.';
+        } else if (res.status === 404) {
+          msg = 'File o repository non trovato.';
+        } else {
+          msg = d.message || msg;
+        }
       } catch (_) {}
       const err = new Error(msg);
       err.status = res.status;
@@ -66,5 +72,57 @@
     return request(token, '/user');
   }
 
-  global.MiaGitHub = { listRepos, getFile, putFile, me };
+  function decodeB64(b64) {
+    const bin = atob(String(b64 || '').replace(/\n/g, ''));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+
+  /** Testo del repository (radice + README e pochi file) da passare al modello. */
+  async function readRepo(token, fullName) {
+    const slash = String(fullName || '').indexOf('/');
+    if (slash < 1) throw new Error('Scegli un repository');
+    const owner = fullName.slice(0, slash);
+    const repo = fullName.slice(slash + 1);
+    const meta = await request(token, '/repos/' + owner + '/' + repo);
+    const root = await request(token, '/repos/' + owner + '/' + repo + '/contents');
+    const items = Array.isArray(root) ? root : [];
+    let out = 'Repository: ' + fullName + '\n';
+    out += 'Descrizione: ' + (meta.description || 'nessuna') + '\n';
+    out += 'Branch: ' + (meta.default_branch || 'main') + '\n\nFile nella radice:\n';
+    items.forEach((it) => {
+      out += '- ' + it.type + ' ' + it.path + '\n';
+    });
+    const files = items.filter((it) => it.type === 'file');
+    const first = ['README.md', 'readme.md', 'package.json', 'index.html', 'capacitor.config.json'];
+    const ordered = [];
+    first.forEach((name) => {
+      const hit = files.find((f) => f.name.toLowerCase() === name.toLowerCase());
+      if (hit) ordered.push(hit);
+    });
+    files.forEach((f) => {
+      if (ordered.length < 8 && ordered.indexOf(f) < 0) ordered.push(f);
+    });
+    for (const f of ordered) {
+      if (out.length > 18000) break;
+      if (!/\.(md|txt|json|js|mjs|html|css|yml|yaml|xml|py|java|kt|gradle|toml)$/i.test(f.name) && !/^readme/i.test(f.name)) continue;
+      if (f.size > 50000) {
+        out += '\n[' + f.path + ' troppo grande, non letto]\n';
+        continue;
+      }
+      const file = await getFile(token, owner, repo, f.path);
+      let text = '';
+      try {
+        text = decodeB64(file.content || '');
+      } catch (_) {
+        continue;
+      }
+      if (text.length > 5000) text = text.slice(0, 5000) + '\n[…troncato…]';
+      out += '\n----- ' + f.path + ' -----\n' + text + '\n';
+    }
+    return out.slice(0, 20000);
+  }
+
+  global.MiaGitHub = { listRepos, getFile, putFile, me, readRepo };
 })(window);
