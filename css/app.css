@@ -335,3 +335,30 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .check-field { display: flex; align-items: flex-start; gap: 10px; }
 .check-field > span { margin: 0; color: var(--text); font-size: 15px; }
 .check-field input { width: 20px; height: 20px; margin-top: 2px; flex: none; accent-color: var(--accent); }
+
+/* Modalità agente */
+.agent-box { margin-top: 14px; padding: 4px 12px 12px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg); }
+.agent-box .check-field { margin-top: 10px; }
+.confirm-title { margin: 6px 0 8px; font-weight: 600; overflow-wrap: anywhere; }
+.confirm-details {
+  margin: 0 0 8px; padding: 10px; max-height: 38vh; overflow: auto;
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+  font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.confirm-actions { margin-top: 14px; }
+.confirm-actions .btn { flex: 1; }
+.confirm-actions .btn.danger-btn { background: var(--danger); color: #fff; }
+
+.msg.tool { align-items: flex-start; max-width: 100%; }
+.tool-card {
+  width: 100%; font-size: 13px; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 6px 10px;
+}
+.tool-card summary { cursor: pointer; overflow-wrap: anywhere; }
+.tool-card.fail { border-color: var(--danger); }
+.tool-card.denied { opacity: .75; }
+.tool-card pre {
+  margin: 6px 0 2px; padding: 8px; max-height: 40vh; overflow: auto;
+  background: var(--code-bg); border-radius: 8px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text);
+}
+.working { color: var(--muted); font-size: 13px; margin-left: 8px; }

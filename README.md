@@ -39,6 +39,31 @@ Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.
 - Se il modello non accetta l'allegato, compare un avviso: usa **Prova con…** per passare a un altro modello.
 - Se la memoria del telefono si riempie, gli allegati più vecchi vengono rimossi (resta il nome).
 
+### Modalità agente (strumenti)
+
+In **Impostazioni → Modalità agente** Mia può usare 10 strumenti, non solo rispondere a parole:
+
+| Strumento | Cosa fa | Conferma |
+|--|--|--|
+| `github_list_repos` | elenca i tuoi repository | no |
+| `github_create_repo` | crea un repository (privato di default) | **sì** |
+| `github_read_file` | legge un file o elenca una cartella | no |
+| `github_write_file` | crea/sostituisce un file con un commit | **sì** |
+| `github_delete_file` | elimina un file con un commit | **sì** |
+| `github_create_branch` | crea un branch | **sì** |
+| `github_list_branches_commits` | elenca branch o ultimi commit | no |
+| `github_issues` | elenca/legge issue; crea issue o commenta | solo crea/commenta |
+| `read_webpage` | legge il testo di una pagina web | no |
+| `notes` | note salvate sul telefono | solo elimina |
+
+- Serve un **token GitHub** (resta solo sul dispositivo). Consigliato un token *fine-grained* limitato ai repository che vuoi
+  far gestire, con permessi **Contents**, **Issues**, **Metadata** in lettura/scrittura. Per creare nuovi repository serve un
+  token *classic* con permesso `repo`.
+- Ogni azione che modifica qualcosa mostra una finestra «Consenti / Rifiuta». Non esiste uno strumento per eliminare repository.
+- Il modello deve supportare le chiamate a funzioni: Gemini sì; sui modelli gratuiti di OpenRouter/Groq dipende dal modello.
+- `read_webpage` prova l'indirizzo direttamente; se il sito blocca la richiesta usa il servizio r.jina.ai.
+- Ogni richiesta può fare al massimo 8 giri di strumenti; il pulsante ■ ferma tutto.
+
 ### Più modelli nella stessa app
 
 - Tocca il nome del modello in alto (▾) per passare al volo da un modello all'altro,
@@ -78,5 +103,6 @@ npm run build:apk      # serve JDK 21 + Android SDK
 
 - `index.html`, `css/app.css` — interfaccia
 - `js/providers.js` — chiamate a Gemini e alle API compatibili OpenAI (streaming SSE)
+- `js/tools.js` — strumenti della modalità agente (GitHub, web, note)
 - `js/markdown.js` — renderer Markdown sicuro (tutto l'HTML viene escapato)
 - `js/app.js` — conversazioni, impostazioni, UI

@@ -117,6 +117,31 @@
         <span>Se il modello è occupato, prova da solo gli altri modelli dell'elenco ▾</span>
       </label>
 
+      <div class="agent-box">
+        <label class="field check-field">
+          <input type="checkbox" id="agentEnabled">
+          <span><b>Modalità agente</b> — Mia può usare strumenti: GitHub (repository, file, branch, issue), leggere pagine web e salvare note</span>
+        </label>
+        <div id="agentFields">
+          <label class="field">
+            <span>Token GitHub</span>
+            <div class="row">
+              <input id="githubToken" type="password" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="github_pat_…">
+              <button type="button" class="btn small ghost" id="toggleGhToken">👁</button>
+            </div>
+          </label>
+          <p class="hint">
+            Crea un token «fine-grained» su
+            <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens</a>:
+            scegli solo i repository che vuoi far gestire a Mia e, in <i>Repository permissions</i>, dai
+            <b>Contents</b>, <b>Issues</b> e <b>Metadata</b> in lettura/scrittura. Per creare nuovi repository serve un token «classic» con il permesso <b>repo</b>.
+            Il token resta solo su questo dispositivo.
+          </p>
+          <p class="hint">Le azioni che modificano qualcosa (creare, scrivere, eliminare, commentare) chiedono sempre il tuo permesso. Le note sono salvate sul telefono.</p>
+          <p class="hint">«Leggi pagina web» prova l'indirizzo direttamente; se il sito lo blocca passa dal servizio r.jina.ai, che vede l'indirizzo richiesto.</p>
+        </div>
+      </div>
+
       <label class="field">
         <span>Tema</span>
         <select id="theme">
@@ -150,10 +175,29 @@
   </div>
 </div>
 
+<!-- Conferma azione dello strumento -->
+<div class="sheet" id="confirm" hidden role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+  <div class="sheet-card">
+    <div class="sheet-head">
+      <strong>Mia vuole eseguire un'azione</strong>
+    </div>
+    <div class="sheet-body">
+      <p class="confirm-title" id="confirmTitle"></p>
+      <pre class="confirm-details" id="confirmDetails" hidden></pre>
+      <p class="hint" id="confirmWarn" hidden>⚠️ Azione difficile da annullare.</p>
+      <div class="row confirm-actions">
+        <button type="button" class="btn ghost" id="confirmNo">Rifiuta</button>
+        <button type="button" class="btn" id="confirmYes">Consenti</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast" hidden></div>
 
 <script src="js/markdown.js"></script>
 <script src="js/providers.js"></script>
+<script src="js/tools.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

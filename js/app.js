@@ -4,12 +4,14 @@
 
   const P = window.MiaProviders;
   const MD = window.MiaMarkdown;
+  const Tools = window.MiaTools;
   const $ = (s) => document.querySelector(s);
 
   const LS_SETTINGS = 'miaai_v1_settings';
   const LS_CONVS = 'miaai_v1_conversations';
   const LS_CURRENT = 'miaai_v1_current';
   const MAX_HISTORY = 40; // messaggi inviati al modello come contesto
+  const MAX_STEPS = 8; // giri massimi modello → strumenti → modello per ogni richiesta
   const MAX_TEXT_FILE = 200 * 1024; // caratteri massimi di un file di testo
   const MAX_BINARY = 8 * 1024 * 1024; // byte massimi di un PDF
   const IMAGE_MAX_SIDE = 1280; // le foto vengono ridimensionate
@@ -23,7 +25,9 @@
     temperature: 0.7,
     theme: 'auto',
     favorites: [], // [{ provider, model }] — modelli per il cambio rapido
-    autoFallback: true // se il modello è occupato, prova da solo gli altri dell'elenco
+    autoFallback: true, // se il modello è occupato, prova da solo gli altri dell'elenco
+    agentEnabled: false, // modalità agente: il modello può usare gli strumenti (GitHub, web, note)
+    githubToken: ''
   };
 
   function load(key, fallback) {
@@ -190,7 +194,27 @@
   }
 
   // ─── Rendering messaggi ───────────────────────────────────
+  function toolEl(msg, index) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg tool';
+    wrap.dataset.index = index;
+    const det = document.createElement('details');
+    det.className = 'tool-card' + (msg.denied ? ' denied' : msg.ok === false ? ' fail' : '');
+    const sum = document.createElement('summary');
+    sum.textContent =
+      (msg.denied ? '✋ ' : msg.ok === false ? '⚠️ ' : '🔧 ') +
+      (msg.title || msg.name) +
+      (msg.denied ? ' — rifiutato' : msg.ok === false ? ' — errore' : '');
+    const pre = document.createElement('pre');
+    pre.textContent = (msg.preview ? 'Richiesta:\n' + msg.preview + '\n\n' : '') + 'Risultato:\n' + String(msg.content || '').slice(0, 4000);
+    det.append(sum, pre);
+    wrap.appendChild(det);
+    return wrap;
+  }
+
   function messageEl(msg, index) {
+    if (msg.role === 'tool') return toolEl(msg, index);
+    if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length && !(msg.content || '').trim()) return null;
     const wrap = document.createElement('div');
     wrap.className = 'msg ' + msg.role + (msg.error ? ' error' : '');
     wrap.dataset.index = index;
@@ -346,7 +370,10 @@
     box.querySelectorAll('.msg').forEach((n) => n.remove());
     const msgs = (c && c.messages) || [];
     $('#emptyState').hidden = msgs.length > 0;
-    msgs.forEach((m, i) => box.appendChild(messageEl(m, i)));
+    msgs.forEach((m, i) => {
+      const el = messageEl(m, i);
+      if (el) box.appendChild(el);
+    });
     // mostra «Rigenera» solo sull'ultima risposta
     ['retry', 'retry-with'].forEach((act) => {
       box.querySelectorAll('.msg.assistant [data-act="' + act + '"]').forEach((b, i, all) => {
@@ -392,7 +419,7 @@
 
   // ─── Chat ─────────────────────────────────────────────────
   function newChat() {
-    if (busy) P.abort();
+    if (busy) stopAll();
     const c = current();
     if (c && !c.messages.length) {
       closeDrawer();
@@ -425,18 +452,115 @@
     btn.setAttribute('aria-label', v ? 'Ferma' : 'Invia');
   }
 
-  async function runAssistant(c, pick) {
-    const cfg = chatConfig(pick);
-    // rimuovi eventuali errori precedenti in coda
-    while (c.messages.length && c.messages[c.messages.length - 1].error) c.messages.pop();
-    const history = c.messages
-      .filter((m) => !m.error)
-      .slice(-MAX_HISTORY)
-      .map((m) => ({ role: m.role, content: m.content, attachments: m.attachments }));
+  // ─── Modalità agente ──────────────────────────────────────
+  let toolCtl = null; // AbortController degli strumenti in corso
+  let confirmResolve = null;
 
-    setBusy(true);
-    renderMessages();
+  function stopAll() {
+    P.abort();
+    if (toolCtl) toolCtl.abort();
+    if (confirmResolve) answerConfirm(false);
+  }
 
+  function askConfirm(d) {
+    return new Promise((resolve) => {
+      $('#confirmTitle').textContent = d.title;
+      const det = $('#confirmDetails');
+      det.textContent = d.details || '';
+      det.hidden = !d.details;
+      $('#confirmWarn').hidden = !d.danger;
+      $('#confirmYes').className = 'btn' + (d.danger ? ' danger-btn' : '');
+      confirmResolve = resolve;
+      $('#confirm').hidden = false;
+    });
+  }
+
+  function answerConfirm(ok) {
+    const r = confirmResolve;
+    confirmResolve = null;
+    $('#confirm').hidden = true;
+    if (r) r(ok);
+  }
+
+  async function agentPrompt(signal) {
+    const login = settings.githubToken ? await Tools.whoami(settings.githubToken, signal) : null;
+    let t =
+      'MODALITÀ AGENTE: hai a disposizione degli strumenti (GitHub, pagine web, note). Usali quando servono per rispondere o per eseguire ciò che l\'utente chiede. ' +
+      'Non inventare mai nomi di repository, file o risultati: se non sei sicuro, leggi prima (github_list_repos, github_read_file). ' +
+      'Prima di modificare un file esistente leggilo. Le azioni che modificano qualcosa chiedono già conferma all\'utente tramite l\'app: non chiedere conferma a parole, chiama direttamente lo strumento. ' +
+      'Se l\'utente rifiuta un\'azione, non ripeterla. Dopo aver usato gli strumenti, riassumi in italiano cosa hai fatto.';
+    if (login) t += ' L\'utente GitHub è «' + login + '»: usalo come proprietario (owner) quando non è specificato.';
+    else if (settings.githubToken) t += ' Il token GitHub non sembra valido: se serve GitHub, avvisa l\'utente.';
+    else t += ' Non c\'è un token GitHub: gli strumenti GitHub non funzioneranno, avvisa l\'utente se li chiede.';
+    return t;
+  }
+
+  function abortError() {
+    const e = new Error('Interrotto');
+    e.name = 'AbortError';
+    return e;
+  }
+
+  /** Esegue una chiamata a uno strumento (chiedendo conferma se modifica qualcosa). */
+  async function runOneTool(tc, ctl) {
+    const tool = Tools.get(tc.name);
+    if (!tool) return { ok: false, content: 'Strumento sconosciuto: ' + tc.name };
+    if (tc.argsError) return { ok: false, content: 'Argomenti non validi (JSON malformato): riprova.' };
+    const d = Tools.describe(tc.name, tc.args);
+    if (Tools.needsConfirm(tc.name, tc.args)) {
+      const yes = await askConfirm(d);
+      if (!yes) return { ok: false, denied: true, content: 'L\'utente ha rifiutato questa azione. Non riprovare: chiedi cosa preferisce.' };
+    }
+    try {
+      const out = await Tools.run(tc.name, tc.args, { token: settings.githubToken, signal: ctl.signal });
+      return { ok: true, content: out };
+    } catch (e) {
+      if (e && e.name === 'AbortError') return { ok: false, content: 'Interrotto dall\'utente.' };
+      return { ok: false, content: 'Errore: ' + ((e && e.message) || e) };
+    }
+  }
+
+  /** Esegue tutte le chiamate e aggiunge un messaggio «tool» per ognuna (anche se interrotto, per tenere le coppie complete). */
+  async function executeToolCalls(c, calls, ctl, onProgress) {
+    for (const tc of calls) {
+      const res = ctl.signal.aborted ? { ok: false, content: 'Interrotto dall\'utente.' } : await runOneTool(tc, ctl);
+      const d = Tools.describe(tc.name, tc.args);
+      let preview = '';
+      try {
+        preview = JSON.stringify(tc.args, null, 2).slice(0, 600);
+      } catch (_) {}
+      c.messages.push({
+        role: 'tool',
+        toolCallId: tc.id,
+        name: tc.name,
+        title: d.title,
+        preview,
+        content: res.content,
+        ok: res.ok,
+        denied: !!res.denied
+      });
+      c.updated = Date.now();
+      onProgress();
+    }
+    if (ctl.signal.aborted) throw abortError();
+  }
+
+  /** Cronologia da inviare al modello (non inizia mai con risultati di strumenti orfani). */
+  function buildHistory(c) {
+    const list = c.messages.filter((m) => !m.error).slice(-MAX_HISTORY);
+    while (list.length && list[0].role !== 'user') list.shift();
+    return list.map((m) => ({
+      role: m.role,
+      content: m.content,
+      attachments: m.attachments,
+      toolCalls: m.toolCalls,
+      toolCallId: m.toolCallId,
+      name: m.name,
+      ok: m.ok
+    }));
+  }
+
+  function addStreamBubble() {
     const box = $('#messages');
     const wrap = document.createElement('div');
     wrap.className = 'msg assistant';
@@ -446,6 +570,21 @@
     wrap.appendChild(bubble);
     box.appendChild(wrap);
     scrollToBottom(true);
+    return bubble;
+  }
+
+  async function runAssistant(c, pick) {
+    const cfg = chatConfig(pick);
+    // rimuovi eventuali errori precedenti in coda
+    while (c.messages.length && c.messages[c.messages.length - 1].error) c.messages.pop();
+
+    setBusy(true);
+    renderMessages();
+    let bubble = addStreamBubble();
+
+    const agent = !!settings.agentEnabled;
+    const tools = agent ? Tools.definitions() : null;
+    const ctl = (toolCtl = new AbortController());
 
     // Modelli da provare: quello scelto, poi (se attivo) gli altri dell'elenco ▾ già configurati
     const attempts = [cfg];
@@ -465,31 +604,68 @@
     let partial = '';
     let frame = 0;
     try {
-      let text = null;
-      for (let i = 0; i < attempts.length && text === null; i++) {
-        const a = attempts[i];
-        tag = modelLabel(a.provider, a.model);
-        try {
-          text = await P.chat(a, history, (full) => {
-            partial = full;
-            if (!frame) {
-              frame = requestAnimationFrame(() => {
-                frame = 0;
-                bubble.innerHTML = partial ? MD.render(partial) : '<span class="typing"><i></i><i></i><i></i></span>';
-                scrollToBottom(false);
-              });
-            }
-          });
-          addFavorite(a.provider, a.model);
-        } catch (err) {
-          const next = attempts[i + 1];
-          if (!next || partial || !P.isBusyError(err)) throw err;
-          toast(a.model + ' è occupato: provo ' + next.model);
-        }
+      if (agent) {
+        const extra = await agentPrompt(ctl.signal);
+        if (ctl.signal.aborted) throw abortError();
+        attempts.forEach((a) => (a.systemPrompt = (a.systemPrompt || '') + '\n\n' + extra));
       }
-      const usedFallback = tag !== modelLabel(cfg.provider, cfg.model);
-      c.messages.push({ role: 'assistant', content: text, model: (usedFallback ? '↪ ' : '') + tag });
-      if (usedFallback) toast('Ha risposto ' + tag + ' perché ' + cfg.model + ' era occupato');
+
+      for (let step = 0; step < MAX_STEPS; step++) {
+        const history = buildHistory(c);
+        partial = '';
+        let result = null;
+        for (let i = 0; i < attempts.length && result === null; i++) {
+          const a = attempts[i];
+          tag = modelLabel(a.provider, a.model);
+          try {
+            result = await P.chat(
+              a,
+              history,
+              (full) => {
+                partial = full;
+                if (!frame) {
+                  frame = requestAnimationFrame(() => {
+                    frame = 0;
+                    bubble.innerHTML = partial ? MD.render(partial) : '<span class="typing"><i></i><i></i><i></i></span>';
+                    scrollToBottom(false);
+                  });
+                }
+              },
+              { tools }
+            );
+            addFavorite(a.provider, a.model);
+          } catch (err) {
+            const next = attempts[i + 1];
+            if (!next || partial || !P.isBusyError(err)) throw err;
+            toast(a.model + ' è occupato: provo ' + next.model);
+          }
+        }
+        const usedFallback = tag !== modelLabel(cfg.provider, cfg.model);
+        const msg = { role: 'assistant', content: result.text, model: (usedFallback ? '↪ ' : '') + tag };
+        if (result.toolCalls.length) msg.toolCalls = result.toolCalls;
+        c.messages.push(msg);
+        if (usedFallback) toast('Ha risposto ' + tag + ' perché ' + cfg.model + ' era occupato');
+        partial = '';
+        if (!result.toolCalls.length) break;
+
+        if (frame) {
+          cancelAnimationFrame(frame);
+          frame = 0;
+        }
+        renderMessages();
+        bubble = addStreamBubble();
+        await executeToolCalls(c, result.toolCalls, ctl, () => {
+          persistConvs();
+          renderMessages();
+          bubble = addStreamBubble();
+        });
+        if (step === MAX_STEPS - 1)
+          c.messages.push({
+            role: 'assistant',
+            content: '⏹ Mi fermo dopo ' + MAX_STEPS + ' passaggi con gli strumenti. Scrivi «continua» se vuoi che vada avanti.',
+            model: tag
+          });
+      }
       save(LS_SETTINGS, settings);
     } catch (e) {
       if (e && e.name === 'AbortError') {
@@ -505,6 +681,8 @@
       }
     } finally {
       if (frame) cancelAnimationFrame(frame);
+      if (toolCtl === ctl) toolCtl = null;
+      if (confirmResolve) answerConfirm(false);
       c.updated = Date.now();
       persistConvs();
       setBusy(false);
@@ -541,7 +719,7 @@
       toast('Manca la chiave per ' + (P.PRESETS[pick.provider] || {}).label);
       return;
     }
-    while (c.messages.length && c.messages[c.messages.length - 1].role === 'assistant') c.messages.pop();
+    while (c.messages.length && ['assistant', 'tool'].includes(c.messages[c.messages.length - 1].role)) c.messages.pop();
     if (!c.messages.length) return;
     runAssistant(c, pick);
   }
@@ -660,6 +838,9 @@
     $('#tempValue').textContent = Number(settings.temperature).toFixed(1);
     $('#theme').value = settings.theme;
     $('#autoFallback').checked = settings.autoFallback !== false;
+    $('#agentEnabled').checked = !!settings.agentEnabled;
+    $('#githubToken').value = settings.githubToken || '';
+    $('#agentFields').hidden = !settings.agentEnabled;
     $('#settings').hidden = false;
   }
 
@@ -679,6 +860,8 @@
     settings.temperature = Number($('#temperature').value);
     settings.theme = $('#theme').value;
     settings.autoFallback = $('#autoFallback').checked;
+    settings.agentEnabled = $('#agentEnabled').checked;
+    settings.githubToken = $('#githubToken').value.trim();
     if (isConfigured()) addFavorite(settings.provider, profile().model);
     save(LS_SETTINGS, settings);
     applyTheme();
@@ -767,7 +950,7 @@
   function bind() {
     $('#composer').addEventListener('submit', (e) => {
       e.preventDefault();
-      if (busy) P.abort();
+      if (busy) stopAll();
       else send($('#input').value);
     });
     $('#input').addEventListener('input', autoGrow);
@@ -810,7 +993,7 @@
       if (del) {
         if (!confirm('Eliminare questa conversazione?')) return;
         if (del.dataset.del === currentId) {
-          if (busy) P.abort();
+          if (busy) stopAll();
           currentId = null;
         }
         conversations = conversations.filter((c) => c.id !== del.dataset.del);
@@ -818,7 +1001,7 @@
         renderConvList();
         renderMessages();
       } else if (open) {
-        if (busy) P.abort();
+        if (busy) stopAll();
         currentId = open.dataset.id;
         save(LS_CURRENT, currentId);
         renderMessages();
@@ -903,13 +1086,22 @@
       renderModelResults();
       toast('Modello scelto: ' + b.dataset.model);
     });
+    $('#agentEnabled').addEventListener('change', (e) => {
+      $('#agentFields').hidden = !e.target.checked;
+    });
+    $('#toggleGhToken').addEventListener('click', () => {
+      const k = $('#githubToken');
+      k.type = k.type === 'password' ? 'text' : 'password';
+    });
+    $('#confirmYes').addEventListener('click', () => answerConfirm(true));
+    $('#confirmNo').addEventListener('click', () => answerConfirm(false));
     $('#temperature').addEventListener('input', (e) => {
       $('#tempValue').textContent = Number(e.target.value).toFixed(1);
     });
     $('#exportBtn').addEventListener('click', exportChats);
     $('#clearAll').addEventListener('click', () => {
       if (!confirm('Eliminare TUTTE le conversazioni? Non si può annullare.')) return;
-      if (busy) P.abort();
+      if (busy) stopAll();
       conversations = [];
       currentId = null;
       persistConvs();
@@ -923,10 +1115,11 @@
     const App = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
     if (App && window.Capacitor.isNativePlatform()) {
       App.addListener('backButton', () => {
-        if (!$('#picker').hidden) closePicker();
+        if (!$('#confirm').hidden) answerConfirm(false);
+        else if (!$('#picker').hidden) closePicker();
         else if (!$('#settings').hidden) closeSettings();
         else if ($('#drawer').classList.contains('open')) closeDrawer();
-        else if (busy) P.abort();
+        else if (busy) stopAll();
         else App.exitApp();
       });
     }
