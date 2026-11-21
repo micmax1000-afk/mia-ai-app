@@ -177,7 +177,7 @@
 
   function updateHeader() {
     const c = current();
-    $('#chatTitle').textContent = (c && c.title) || 'Mia AI';
+    $('#chatTitle').textContent = (c && c.title) || 'Mia';
     const preset = P.PRESETS[settings.provider] || P.PRESETS.custom;
     const p = profile();
     $('#micBtn').hidden = !isConfigured() || (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window));
@@ -964,7 +964,6 @@
     applyTheme();
     bind();
     renderMessages();
-    if (!isConfigured()) setTimeout(openSettings, 300);
     initSpeechRecognition();
   }
 
