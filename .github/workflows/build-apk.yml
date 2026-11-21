@@ -56,6 +56,26 @@ jobs:
           if ! grep -q 'android.permission.RECORD_AUDIO' "$MANIFEST"; then
             sed -i 's|</manifest>|    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n</manifest>|' "$MANIFEST"
           fi
+          python3 - << 'PY'
+from pathlib import Path
+p = Path("android/app/src/main/AndroidManifest.xml")
+text = p.read_text()
+if "android.intent.action.SEND" not in text:
+    snippet = """
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+"""
+    text = text.replace("</activity>", snippet + "        </activity>", 1)
+    p.write_text(text)
+PY
 
       - name: Usa la chiave di firma fissa (aggiornamenti senza disinstallare)
         run: |

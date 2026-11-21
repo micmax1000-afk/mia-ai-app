@@ -17,6 +17,8 @@
     "@capacitor/keyboard": "^7.0.1",
     "@capacitor/status-bar": "^7.0.1",
     "@capacitor/share": "^7.0.2",
+    "@capacitor/camera": "7.0.2",
+    "@capgo/capacitor-share-target": "7.0.8",
     "@capacitor-community/speech-recognition": "7.0.1",
     "@capacitor-community/text-to-speech": "6.1.0"
   },

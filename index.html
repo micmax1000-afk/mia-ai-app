@@ -39,8 +39,10 @@
       <textarea id="input" rows="1" placeholder="Chiedi a Mia" enterkeyhint="send"></textarea>
       <div class="composer-tools">
         <button type="button" class="attach-btn" id="attachBtn" aria-label="Allega file"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button type="button" class="attach-btn" id="cameraBtn" aria-label="Fotocamera"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-2h6l2 2h3v11H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></svg></button>
         <button type="button" class="model-chip" id="modelBtn" aria-label="Cambia modello"><span id="modelHint">Scegli il modello</span></button>
         <span class="tool-gap"></span>
+        <button type="button" class="mic-btn" id="voiceBtn" aria-label="Conversazione vocale" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg></button>
         <button type="button" class="mic-btn" id="micBtn" aria-label="Microfono" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2.5 2.5 0 0 1 2.5 2.5V12a2.5 2.5 0 0 1-5 0V6.5A2.5 2.5 0 0 1 12 4zM7 11v1a5 5 0 0 0 10 0v-1M12 17v3"/></svg></button>
         <button type="submit" class="send-btn" id="sendBtn" aria-label="Invia">↑</button>
       </div>
@@ -145,7 +147,9 @@
             <button type="button" class="btn small ghost" id="ghLoadRepos">Carica</button>
           </div>
           <button type="button" class="btn ghost" id="ghReview">Fai leggere il repository a Mia</button>
-          <input id="ghPath" spellcheck="false" autocapitalize="off" placeholder="percorso, es. note/chat.md">
+          <input id="ghPath" spellcheck="false" autocapitalize="off" placeholder="percorso, es. README.md">
+          <textarea id="ghEditAsk" placeholder="Cosa cambiare in quel file. Mia lo riscrive e fa il push."></textarea>
+          <button type="button" class="btn ghost" id="ghEdit">Modifica e push</button>
           <button type="button" class="btn ghost" id="ghExportChat">Esporta questa chat</button>
           <textarea id="ghFileBody" placeholder="Oppure scrivi qui un file da salvare sul repository"></textarea>
           <button type="button" class="btn ghost" id="ghPutFile">Salva file</button>

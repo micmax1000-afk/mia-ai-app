@@ -183,6 +183,8 @@
     $('#chatTitle').textContent = titled ? c.title : '';
     const p = profile();
     $('#micBtn').hidden = !canUseMic();
+    const voiceBtn = $('#voiceBtn');
+    if (voiceBtn) voiceBtn.hidden = !canUseMic();
     const ready = isConfigured();
     $('#modelHint').textContent = ready ? modelLabel(settings.provider, p.model) : 'Scegli il modello';
     $('#setupHint').hidden = isConfigured();
@@ -204,6 +206,16 @@
     if (msg.attachments && msg.attachments.length) wrap.appendChild(attachmentsEl(msg.attachments, false));
     if (msg.role === 'user' || msg.error) bubble.textContent = msg.content;
     else bubble.innerHTML = MD.render(msg.content);
+    if (msg.imageUrl) {
+      const img = document.createElement('img');
+      img.className = 'gen-img';
+      img.alt = msg.content || 'immagine';
+      img.src = msg.imageUrl;
+      img.addEventListener('error', () => {
+        img.replaceWith(document.createTextNode('Immagine non disponibile.'));
+      });
+      bubble.appendChild(img);
+    }
     if (msg.content || msg.role !== 'user') wrap.appendChild(bubble);
 
     const actions = document.createElement('div');
@@ -648,6 +660,19 @@
       openSettings();
       return;
     }
+    if (isImageAsk(text) && !pending.length) {
+      $('#input').value = '';
+      autoGrow();
+      await runImage(text);
+      return;
+    }
+    const edit = editCommand(text);
+    if (edit) {
+      $('#input').value = '';
+      autoGrow();
+      await runFileEdit(edit.path, edit.ask, text);
+      return;
+    }
     let context = '';
     if (asksRepo(text)) {
       const full = repoNamedIn(text) || settings.githubRepo || (($('#ghRepo') && $('#ghRepo').value) || '');
@@ -954,6 +979,18 @@
     });
     $('#input').addEventListener('input', autoGrow);
     $('#micBtn').addEventListener('click', toggleMicrophone);
+    $('#voiceBtn').addEventListener('click', voiceLoop);
+    $('#cameraBtn').addEventListener('click', takePhoto);
+    const ghEdit = $('#ghEdit');
+    if (ghEdit) {
+      ghEdit.addEventListener('click', () => {
+        const path = ($('#ghPath') && $('#ghPath').value.trim()) || '';
+        const ask = ($('#ghEditAsk') && $('#ghEditAsk').value.trim()) || '';
+        if (!path || !ask) return toast('Scrivi il percorso e cosa cambiare');
+        $('#closeSettings').click();
+        runFileEdit(path, ask, 'Modifica il file ' + path + ': ' + ask);
+      });
+    }
     $('#attachBtn').addEventListener('click', () => !busy && $('#fileInput').click());
     $('#fileInput').addEventListener('change', async (e) => {
       await addFiles(e.target.files);
@@ -1141,6 +1178,7 @@
     bind();
     renderMessages();
     initSpeechRecognition();
+    watchShares();
   }
 
 
@@ -1281,45 +1319,269 @@
     }
   }
 
+  function isImageAsk(text) {
+    return /\b(disegna|genera(?:mi)? un['’ ]?immagine|crea un['’ ]?immagine|fammi un['’ ]?immagine)\b/i.test(text);
+  }
+
+  function editCommand(text) {
+    const m = String(text || '').match(/modifica(?:\s+il)?\s+file\s+(\S+)\s*[:\-–]\s*([\s\S]+)/i);
+    if (!m) return null;
+    return { path: m[1], ask: m[2].trim() };
+  }
+
+  async function runImage(text) {
+    const prompt =
+      text.replace(/^(per favore\s+)?(disegna|genera(?:mi)? un['’ ]?immagine(?: di)?|crea un['’ ]?immagine(?: di)?|fammi un['’ ]?immagine(?: di)?)\s*/i, '').trim() ||
+      text;
+    const c = ensureConversation(text);
+    c.messages.push({ role: 'user', content: text });
+    const url =
+      'https://image.pollinations.ai/prompt/' +
+      encodeURIComponent(prompt) +
+      '?width=768&height=768&nologo=true&model=flux';
+    c.messages.push({ role: 'assistant', content: prompt, imageUrl: url, model: 'Pollinations' });
+    c.updated = Date.now();
+    persistConvs();
+    renderMessages();
+    renderConvList();
+  }
+
+  async function runFileEdit(path, ask, originalText) {
+    if (!settings.githubToken || !settings.githubRepo || settings.githubRepo.indexOf('/') < 1) {
+      toast('In Impostazioni scegli il token e il repository');
+      openSettings();
+      return;
+    }
+    const slash = settings.githubRepo.indexOf('/');
+    const owner = settings.githubRepo.slice(0, slash);
+    const repo = settings.githubRepo.slice(slash + 1);
+    toast('Leggo ' + path + '…');
+    let file;
+    try {
+      file = await GH.getFile(settings.githubToken, owner, repo, path);
+    } catch (e) {
+      toast(e.message || 'File non trovato');
+      return;
+    }
+    if (!file || file.type === 'dir' || !file.content) {
+      toast('Quel percorso non è un file di testo');
+      return;
+    }
+    let original = '';
+    try {
+      original = GH.decode(file.content);
+    } catch (_) {
+      toast('File non leggibile');
+      return;
+    }
+    if (original.length > 20000) original = original.slice(0, 20000) + '\n[…troncato…]';
+    const c = ensureConversation(originalText);
+    c.messages.push({ role: 'user', content: originalText });
+    c.updated = Date.now();
+    persistConvs();
+    setBusy(true);
+    renderMessages();
+    try {
+      const cfg = chatConfig();
+      const nextRaw = await P.chat(
+        Object.assign({}, cfg, {
+          systemPrompt: 'Rispondi soltanto con il file completo aggiornato. Nessuna spiegazione e nessun blocco markdown.'
+        }),
+        [{ role: 'user', content: 'Percorso: ' + path + '\n\nContenuto attuale:\n' + original + '\n\nModifica:\n' + ask }]
+      );
+      let next = String(nextRaw || '').trim().replace(/^```[a-zA-Z0-9]*\n?/, '').replace(/\n?```$/, '');
+      if (!next) throw new Error('Il modello non ha restituito il file');
+      await GH.putFile(settings.githubToken, owner, repo, path, next, 'Modifica da Mia', file.sha);
+      c.messages.push({
+        role: 'assistant',
+        content: 'Ho aggiornato `' + path + '` su ' + settings.githubRepo + ' e ho fatto il push.',
+        model: modelLabel(cfg.provider, cfg.model)
+      });
+    } catch (e) {
+      c.messages.push({ role: 'assistant', content: '⚠️ ' + (e.message || 'Modifica non riuscita'), error: true });
+    } finally {
+      setBusy(false);
+      c.updated = Date.now();
+      persistConvs();
+      renderMessages();
+      renderConvList();
+    }
+  }
+
+  function listenOnce() {
+    const SR = nativePlugin('SpeechRecognition');
+    if (SR) {
+      return SR.requestPermissions()
+        .then(() =>
+          SR.start({
+            language: 'it-IT',
+            maxResults: 1,
+            prompt: 'Parla in italiano',
+            partialResults: false,
+            popup: true
+          })
+        )
+        .then((result) => (result && result.matches && result.matches[0]) || '')
+        .catch(() => '');
+    }
+    const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Ctor) return Promise.resolve('');
+    return new Promise((resolve) => {
+      const rec = new Ctor();
+      rec.lang = 'it-IT';
+      rec.interimResults = false;
+      rec.onresult = (event) => resolve(event.results[0][0].transcript || '');
+      rec.onerror = () => resolve('');
+      rec.onend = () => {};
+      try {
+        rec.start();
+      } catch (_) {
+        resolve('');
+      }
+    });
+  }
+
+  let voiceMode = false;
+  async function voiceLoop() {
+    voiceMode = !voiceMode;
+    $('#voiceBtn').classList.toggle('listening', voiceMode);
+    if (!voiceMode) {
+      const SR = nativePlugin('SpeechRecognition');
+      if (SR) {
+        try {
+          await SR.stop();
+        } catch (_) {}
+      }
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      toast('Voce ferma');
+      return;
+    }
+    if (!isConfigured()) {
+      voiceMode = false;
+      $('#voiceBtn').classList.remove('listening');
+      toast('Configura prima il provider');
+      openSettings();
+      return;
+    }
+    toast('Modalità voce. Tocca di nuovo per fermare.');
+    while (voiceMode) {
+      const said = String((await listenOnce()) || '').trim();
+      if (!voiceMode) break;
+      if (!said) {
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+      await send(said);
+      if (!voiceMode) break;
+      const c = current();
+      const last = c && c.messages[c.messages.length - 1];
+      if (last && last.role === 'assistant' && !last.error && last.content) await readAloud(last.content);
+    }
+    $('#voiceBtn').classList.remove('listening');
+  }
+
+  async function takePhoto() {
+    if (busy) return;
+    const Camera = nativePlugin('Camera');
+    if (!Camera) {
+      toast('La fotocamera si usa nell’app sul telefono');
+      return;
+    }
+    try {
+      const photo = await Camera.getPhoto({
+        quality: 80,
+        resultType: 'base64',
+        source: 'CAMERA',
+        correctOrientation: true
+      });
+      if (!photo || !photo.base64String) return;
+      const img = await loadImage('data:image/jpeg;base64,' + photo.base64String);
+      if (pending.length >= 6) return toast('Massimo 6 allegati');
+      pending.push({
+        kind: 'image',
+        name: 'foto.jpg',
+        mime: 'image/jpeg',
+        data: scaleToJpeg(img, IMAGE_MAX_SIDE, 0.85),
+        thumb: scaleToJpeg(img, 240, 0.7)
+      });
+      renderPending();
+    } catch (e) {
+      const msg = String((e && (e.message || e.errorMessage)) || '');
+      if (/cancel/i.test(msg)) return;
+      toast('Fotocamera non disponibile');
+    }
+  }
+
+  async function watchShares() {
+    const ST = nativePlugin('CapacitorShareTarget');
+    if (!ST || !ST.addListener) return;
+    try {
+      await ST.addListener('shareReceived', async (event) => {
+        const texts = ((event && event.texts) || []).map((t) => String(t || '').trim()).filter(Boolean);
+        if (texts.length) {
+          const input = $('#input');
+          input.value = ((input.value || '').trim() + ' ' + texts.join('\n')).trim();
+          autoGrow();
+          toast('Testo ricevuto da un’altra app');
+        }
+        for (const f of (event && event.files) || []) {
+          if (!f || !f.uri || !/^image\//.test(f.mimeType || '')) continue;
+          try {
+            const res = await fetch(f.uri);
+            const blob = await res.blob();
+            const file = new File([blob], f.name || 'condivisa.jpg', { type: f.mimeType || 'image/jpeg' });
+            await addFiles([file]);
+          } catch (_) {
+            toast('Immagine condivisa non leggibile');
+          }
+        }
+      });
+    } catch (_) {}
+  }
+
   function speakWeb(plain) {
     const synth = window.speechSynthesis;
     if (!synth) {
       toast('Lettura vocale non disponibile');
-      return;
+      return Promise.resolve();
     }
     if (synth.speaking || speaking) {
       speaking = false;
       synth.cancel();
       toast('Lettura ferma');
-      return;
+      return Promise.resolve();
     }
-    const run = () => {
-      const utterance = new SpeechSynthesisUtterance(plain);
-      currentUtterance = utterance;
-      utterance.lang = 'it-IT';
-      utterance.rate = 1;
-      const voices = synth.getVoices();
-      const voice =
-        voices.find((v) => /^it([-_]|$)/i.test(v.lang)) ||
-        voices.find((v) => /google/i.test(v.name));
-      if (voice) utterance.voice = voice;
-      utterance.onstart = () => {
-        speaking = true;
+    return new Promise((resolve) => {
+      const run = () => {
+        const utterance = new SpeechSynthesisUtterance(plain);
+        currentUtterance = utterance;
+        utterance.lang = 'it-IT';
+        utterance.rate = 1;
+        const voices = synth.getVoices();
+        const voice =
+          voices.find((v) => /^it([-_]|$)/i.test(v.lang)) ||
+          voices.find((v) => /google/i.test(v.name));
+        if (voice) utterance.voice = voice;
+        utterance.onstart = () => {
+          speaking = true;
+        };
+        utterance.onend = () => {
+          speaking = false;
+          resolve();
+        };
+        utterance.onerror = () => {
+          speaking = false;
+          toast('Lettura non riuscita. Controlla la sintesi vocale di Google.');
+          resolve();
+        };
+        try {
+          synth.resume();
+        } catch (_) {}
+        synth.speak(utterance);
       };
-      utterance.onend = () => {
-        speaking = false;
-      };
-      utterance.onerror = () => {
-        speaking = false;
-        toast('Lettura non riuscita. Controlla la sintesi vocale di Google.');
-      };
-      try {
-        synth.resume();
-      } catch (_) {}
-      synth.speak(utterance);
-    };
-    synth.cancel();
-    setTimeout(run, 150);
+      synth.cancel();
+      setTimeout(run, 150);
+    });
   }
 
   async function readAloud(text) {
@@ -1354,7 +1616,7 @@
       }
       return;
     }
-    speakWeb(plain);
+    return speakWeb(plain);
   }
 
   if (window.speechSynthesis) {

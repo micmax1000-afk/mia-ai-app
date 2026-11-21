@@ -139,5 +139,5 @@
     return out.slice(0, 20000);
   }
 
-  global.MiaGitHub = { listRepos, getFile, putFile, me, readRepo };
+  global.MiaGitHub = { listRepos, getFile, putFile, me, readRepo, decode: decodeB64 };
 })(window);
