@@ -169,11 +169,16 @@
     return e;
   }
 
-  /** Testo del messaggio + contenuto dei file di testo allegati. */
-  function textWithFiles(m) {
+  /**
+   * Testo del messaggio + contenuto dei file di testo allegati. Il testo estratto da un PDF viene aggiunto solo se il provider
+   * non legge i PDF da solo (nativePdf = false), oppure se il PDF originale non c'è più (messaggio vecchio, memoria liberata).
+   */
+  function textWithFiles(m, nativePdf) {
     let t = m.content || '';
     (m.attachments || []).forEach((a) => {
       if (a.kind === 'text') t += '\n\n--- File allegato: ' + a.name + ' ---\n' + a.text + '\n--- Fine file ---';
+      else if (a.kind === 'pdf' && a.text && (!nativePdf || a.dropped || !a.data))
+        t += '\n\n--- Testo estratto dal PDF «' + a.name + '»' + (a.pages ? ' (' + a.pages + ' pagine)' : '') + ' ---\n' + a.text + '\n--- Fine PDF ---';
       else if (a.dropped) t += '\n\n[Allegato «' + a.name + '» non più disponibile]';
     });
     return t.trim() || '(allegato)';
@@ -227,7 +232,7 @@
           out.push({ role: 'model', parts });
           return;
         }
-        const parts = [{ text: textWithFiles(m) }];
+        const parts = [{ text: textWithFiles(m, true) }];
         binaries(m).forEach((a) => parts.push({ inlineData: { mimeType: a.mime, data: a.data } }));
         out.push({ role: m.role === 'user' ? 'user' : 'model', parts });
       });
@@ -344,14 +349,19 @@
           }))
         });
       }
-      const bins = binaries(m);
-      if (!bins.length) return msgs.push({ role: m.role, content: textWithFiles(m) });
-      const content = [{ type: 'text', text: textWithFiles(m) }];
+      const all = binaries(m);
+      // senza lettura nativa dei PDF (tutti tranne Gemini e OpenRouter) si usa il testo estratto sul dispositivo
+      all.forEach((a) => {
+        if (a.kind === 'pdf' && !isOpenRouter && !a.text)
+          throw attachmentError('Il PDF «' + a.name + '» non contiene testo selezionabile (forse è una scansione): questo modello non può leggerlo. Usa «Prova con…» e scegli Gemini o OpenRouter, che leggono anche le immagini.');
+      });
+      const bins = all.filter((a) => a.kind === 'image' || isOpenRouter);
+      if (!bins.length) return msgs.push({ role: m.role, content: textWithFiles(m, isOpenRouter) });
+      const content = [{ type: 'text', text: textWithFiles(m, isOpenRouter) }];
       bins.forEach((a) => {
         const url = 'data:' + a.mime + ';base64,' + a.data;
         if (a.kind === 'image') content.push({ type: 'image_url', image_url: { url } });
-        else if (isOpenRouter) content.push({ type: 'file', file: { filename: a.name, file_data: url } });
-        else throw attachmentError('I PDF funzionano solo con Gemini e OpenRouter. Usa «Prova con…» per cambiare modello.');
+        else content.push({ type: 'file', file: { filename: a.name, file_data: url } });
       });
       msgs.push({ role: m.role, content });
     });

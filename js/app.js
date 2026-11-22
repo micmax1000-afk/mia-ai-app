@@ -413,7 +413,14 @@
     }
     if (file.type === 'application/pdf' || /\.pdf$/i.test(name)) {
       if (file.size > MAX_BINARY) throw new Error('PDF troppo grande (max 8 MB): ' + name);
-      return { kind: 'pdf', name, mime: 'application/pdf', data: (await readAs(file, 'dataurl')).split(',')[1] };
+      const att = { kind: 'pdf', name, mime: 'application/pdf', data: (await readAs(file, 'dataurl')).split(',')[1] };
+      // testo estratto sul dispositivo: serve ai modelli che non leggono i PDF da soli (se fallisce, resta il solo PDF per Gemini/OpenRouter)
+      try {
+        const r = await window.MiaDocs.pdfText(await file.arrayBuffer());
+        att.pages = r.pages;
+        if (r.text) att.text = r.text;
+      } catch (_) {}
+      return att;
     }
     if (window.MiaDocs && window.MiaDocs.supports(name)) {
       const d = await window.MiaDocs.extract(file);

@@ -22,6 +22,49 @@
     return text.length > MAX_CHARS ? text.slice(0, MAX_CHARS) + '\n[…troncato…]' : text;
   }
 
+  // ─── pdf ───────────────────────────────────────────────────
+  // pdf.js (Mozilla, Apache-2.0) in js/vendor/, caricato solo quando serve: estrae il testo sul dispositivo, così anche i modelli
+  // che non leggono i PDF da soli (tutti tranne Gemini e OpenRouter) possono usarlo.
+  let pdfLib = null;
+  async function loadPdfJs() {
+    if (!pdfLib) {
+      const lib = await import(new URL('js/vendor/pdf.min.mjs', document.baseURI).href);
+      lib.GlobalWorkerOptions.workerSrc = new URL('js/vendor/pdf.worker.min.mjs', document.baseURI).href;
+      pdfLib = lib;
+    }
+    return pdfLib;
+  }
+
+  /** Testo di un PDF (ArrayBuffer): { text, pages, truncated }. Il testo è vuoto se il PDF è una scansione (solo immagini). */
+  async function pdfText(buffer, maxPages) {
+    const lib = await loadPdfJs();
+    const task = lib.getDocument({ data: new Uint8Array(buffer.slice(0)), isEvalSupported: false });
+    const doc = await task.promise;
+    try {
+      const limit = Math.min(doc.numPages, maxPages || 100);
+      let out = '';
+      let truncated = doc.numPages > limit;
+      for (let i = 1; i <= limit; i++) {
+        const page = await doc.getPage(i);
+        const content = await page.getTextContent();
+        let line = '';
+        content.items.forEach((it) => {
+          line += it.str + (it.hasEOL ? '\n' : ' ');
+        });
+        line = line.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+        if (line) out += (out ? '\n\n' : '') + '[Pagina ' + i + ']\n' + line;
+        if (out.length > MAX_CHARS) {
+          truncated = true;
+          break;
+        }
+      }
+      if (truncated && out) out += '\n[…testo troncato…]';
+      return { text: out.length > MAX_CHARS ? out.slice(0, MAX_CHARS) + '\n[…testo troncato…]' : out, pages: doc.numPages, truncated };
+    } finally {
+      try { await task.destroy(); } catch (_) {}
+    }
+  }
+
   // ─── xlsx ──────────────────────────────────────────────────
   function colIndex(ref) {
     const m = /^([A-Z]+)/i.exec(ref || '');
@@ -205,5 +248,5 @@
     return { text: clip(text || '(nessun testo trovato)') };
   }
 
-  global.MiaDocs = { supports, extract };
+  global.MiaDocs = { supports, extract, pdfText };
 })(window);

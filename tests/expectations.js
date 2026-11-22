@@ -185,5 +185,12 @@ module.exports = {
     /edit_file +→ Modificato/, /uno\|DUE\|tre/, /run exit 3 +→ .*codice di uscita 3/, /run timeout +→ .*tempo scaduto/,
     /\.\.\/ +→ \[ERRORE\].*fuori dalla cartella/, /assoluto +→ \[ERRORE\].*fuori dalla cartella/, /symlink +→ \[ERRORE\].*fuori dalla cartella/,
     /esiste fuori\? false/, /cwd fuori +→ \[ERRORE\]/, /sola lettura +→ list_dir, read_file/
+  ],
+  '23-pdf-allegati.js': [
+    /testo estratto inviato = true \| pagine = true \| contenuto = true \| nessun file binario = true/, /chip dell'allegato nel messaggio = true/,
+    /PDF inviato come dati = true \| testo non duplicato = true/, /file nativo = true \| testo non duplicato = true/,
+    /indica il numero di pagine reale = true \| arriva a pagina 100 = true \| non oltre = true \| avviso di testo troncato = true/,
+    /errore chiaro = ⚠️ Il PDF «scansione\.pdf» non contiene testo selezionabile/, /con Gemini invece va \(legge le immagini\) = true/,
+    /l'allegato si crea comunque e dà l'errore chiaro = true/, /errore chiaro con NVIDIA = true/, /il testo viene usato anche con Gemini = true/, /^ERRORS \[\]/m
   ]
 };
