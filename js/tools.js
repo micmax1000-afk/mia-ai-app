@@ -1970,9 +1970,29 @@
     return Object.prototype.hasOwnProperty.call(DYN, name) ? DYN[name] : null;
   }
 
-  /** Schemi da inviare al modello. */
-  function definitions() {
-    return Object.values(TOOLS).concat(Object.values(DYN)).map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
+  /** Strumenti di ricerca/lettura web offerti dai connettori: { search, fetch } (nomi) o null. */
+  function connectorWeb() {
+    const names = Object.keys(DYN);
+    const search = names.find((n) => /_web_search$/.test(n)) || null;
+    const fetchT = names.find((n) => /_web_fetch$/.test(n)) || null;
+    return { search, fetch: fetchT };
+  }
+
+  /**
+   * Schemi da inviare al modello. Con opts.preferConnectors, se un connettore offre una ricerca (o una lettura) web,
+   * gli strumenti equivalenti di Mia vengono nascosti, così il modello non deve scegliere tra due.
+   */
+  function definitions(opts) {
+    const hide = new Set();
+    if (opts && opts.preferConnectors) {
+      const w = connectorWeb();
+      if (w.search) hide.add('web_search');
+      if (w.fetch) hide.add('read_webpage');
+    }
+    return Object.values(TOOLS)
+      .concat(Object.values(DYN))
+      .filter((t) => !hide.has(t.name))
+      .map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
   }
 
   function needsConfirm(name, args) {
@@ -2004,5 +2024,5 @@
     return { text: clip(out), files: [] };
   }
 
-  global.MiaTools = { definitions, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
+  global.MiaTools = { definitions, connectorWeb, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
 })(window);

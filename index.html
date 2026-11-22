@@ -186,6 +186,10 @@
             <input id="searchKey" type="password" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Chiave API">
           </label>
           <p class="hint">Con «Google, tramite Gemini» non serve altro che la chiave Gemini già inserita (la quota gratuita delle ricerche può essere limitata o non disponibile sul tuo piano). «DuckDuckGo» non ha chiave né API ufficiale: legge la sua pagina web, quindi può smettere di funzionare o chiedere una verifica anti-robot (nel browser è bloccato, nell'app Android dovrebbe funzionare). Per <a href="https://tavily.com" target="_blank" rel="noopener">Tavily</a>, <a href="https://serper.dev" target="_blank" rel="noopener">Serper</a> ed <a href="https://exa.ai" target="_blank" rel="noopener">Exa</a> serve una chiave del servizio: i limiti gratuiti li decide ciascuno e cambiano nel tempo, controllali sul sito. La domanda viene inviata al servizio scelto.</p>
+          <label class="field check-field">
+            <input type="checkbox" id="preferMcpWeb">
+            <span>Se un connettore (es. Parallel) offre la ricerca o la lettura di pagine web, usa quella al posto di quella di Mia, senza doverlo chiedere</span>
+          </label>
           <label class="field">
             <span>Passaggi massimi per richiesta</span>
             <input id="maxSteps" type="number" inputmode="numeric" min="3" max="40" step="1">

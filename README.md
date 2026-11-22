@@ -112,6 +112,7 @@ In **Impostazioni → Modalità agente → Connettori (MCP)** puoi collegare ser
 Premi **Prova**: Mia legge gli strumenti del server e puoi disattivare quelli che non servono (troppi strumenti confondono i modelli).
 
 - Gli strumenti compaiono al modello come `mcp_<connettore>_<strumento>`.
+- Se un connettore offre `web_search` o `web_fetch` (per esempio Parallel), Mia nasconde la propria ricerca/lettura web e dice al modello di usare quella del connettore, così non serve nominarlo. Si disattiva con la casella in Impostazioni.
 - Quelli che il server non dichiara «di sola lettura» chiedono sempre conferma. I contenuti restituiti sono trattati come dati, non come istruzioni.
 - Nel browser il server deve accettare richieste CORS; nell'APK Android le richieste passano dal plugin HTTP nativo di Capacitor.
 - Non sono supportati i server MCP con solo il vecchio trasporto «SSE» né i login OAuth: serve un token che incolli tu.
