@@ -173,16 +173,17 @@
           <label class="field">
             <span>Ricerca web</span>
             <select id="searchProvider">
-              <option value="">Nessuna</option>
+              <option value="gemini">Google, tramite Gemini (usa la chiave Gemini)</option>
               <option value="brave">Brave Search</option>
               <option value="tavily">Tavily</option>
+              <option value="">Disattivata</option>
             </select>
           </label>
-          <label class="field">
+          <label class="field" id="searchKeyField">
             <span>Chiave della ricerca web</span>
             <input id="searchKey" type="password" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Chiave API">
           </label>
-          <p class="hint">Serve una chiave gratuita o a pagamento di <a href="https://brave.com/search/api/" target="_blank" rel="noopener">Brave Search</a> o <a href="https://tavily.com" target="_blank" rel="noopener">Tavily</a> (i limiti gratuiti dipendono dal servizio). Le ricerche vengono inviate a quel servizio.</p>
+          <p class="hint">Con «Google, tramite Gemini» non serve altro che la chiave Gemini già inserita (la quota gratuita delle ricerche può essere limitata o non disponibile sul tuo piano). Per <a href="https://brave.com/search/api/" target="_blank" rel="noopener">Brave Search</a> o <a href="https://tavily.com" target="_blank" rel="noopener">Tavily</a> serve una chiave del servizio. La domanda viene inviata al servizio scelto.</p>
           <label class="field">
             <span>Passaggi massimi per richiesta</span>
             <input id="maxSteps" type="number" inputmode="numeric" min="3" max="40" step="1">

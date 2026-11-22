@@ -33,7 +33,7 @@
     githubToken: '',
     githubRepo: '',
     imageModel: 'gemini-2.5-flash-image', // modello Gemini per generate_image
-    searchProvider: '', // ricerca web: 'brave' | 'tavily'
+    searchProvider: 'gemini', // ricerca web: 'gemini' (Google, con la chiave Gemini) | 'brave' | 'tavily' | '' (disattivata)
     searchKey: '',
     maxSteps: 15, // giri massimi modello → strumenti → modello per ogni richiesta
     mcpServers: [] // connettori MCP: { id, name, url, token, enabled, disabled: [nomi strumenti] }
@@ -647,7 +647,8 @@
         geminiBase: gem.baseUrl,
         imageModel: settings.imageModel,
         searchProvider: settings.searchProvider,
-        searchKey: settings.searchKey
+        searchKey: settings.searchKey,
+        searchModel: gem.model
       });
       return { ok: true, content: out.text, files: out.files };
     } catch (e) {
@@ -1150,7 +1151,8 @@
     $('#agentEnabled').checked = !!settings.agentEnabled;
     $('#agentFields').hidden = !settings.agentEnabled;
     $('#imageModel').value = settings.imageModel || '';
-    $('#searchProvider').value = settings.searchProvider || '';
+    $('#searchProvider').value = settings.searchProvider == null ? 'gemini' : settings.searchProvider;
+    syncSearchFields();
     $('#searchKey').value = settings.searchKey || '';
     $('#maxSteps').value = settings.maxSteps || 15;
     renderMcpList();
@@ -1201,6 +1203,12 @@
     updateHeader();
     $('#settings').hidden = true;
     document.body.classList.remove('sheet-open');
+  }
+
+  /** La chiave della ricerca serve solo per Brave e Tavily (Google usa la chiave Gemini). */
+  function syncSearchFields() {
+    const needsKey = ['brave', 'tavily'].includes($('#searchProvider').value);
+    $('#searchKeyField').hidden = !needsKey;
   }
 
   // ─── Connettori MCP (impostazioni) ───────────────────────
@@ -1538,6 +1546,7 @@
     $('#agentEnabled').addEventListener('change', (e) => {
       $('#agentFields').hidden = !e.target.checked;
     });
+    $('#searchProvider').addEventListener('change', syncSearchFields);
     $('#mcpAdd').addEventListener('click', () => {
       settings.mcpServers.push({ id: uid(), name: '', url: '', token: '', enabled: true, disabled: [] });
       renderMcpList();

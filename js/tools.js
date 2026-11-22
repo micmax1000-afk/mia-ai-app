@@ -1660,7 +1660,7 @@
   // 23 — web_search (serve una chiave Brave Search o Tavily)
   def('web_search', {
     description:
-      'Cerca sul web e restituisce titoli, indirizzi e brevi estratti. Usalo per notizie, fatti recenti, documentazione, prezzi. ' +
+      'Cerca sul web (Google, Brave o Tavily secondo le impostazioni) e restituisce una risposta o titoli, indirizzi ed estratti, con le fonti. Usalo per notizie, fatti recenti, documentazione, prezzi. ' +
       'Poi puoi leggere una pagina intera con read_webpage.',
     parameters: {
       type: 'object',
@@ -1675,7 +1675,9 @@
       const q = need(args, 'query');
       const n = Math.min(10, Math.max(1, Math.floor(Number(args.limit)) || 6));
       const provider = ctx.searchProvider;
-      if (!provider || !ctx.searchKey) throw new Error('Manca la ricerca web: in Impostazioni scegli Brave Search o Tavily e incolla la chiave.');
+      if (!provider) throw new Error('La ricerca web è disattivata: in Impostazioni → Ricerca web scegli un servizio.');
+      if (provider === 'gemini' && !ctx.geminiKey) throw new Error('Per la ricerca di Google serve la chiave Gemini: inseriscila in Impostazioni (provider Google Gemini), oppure scegli Brave o Tavily.');
+      if (provider !== 'gemini' && !ctx.searchKey) throw new Error('Manca la chiave della ricerca web: in Impostazioni → Ricerca web incollala.');
       const strip = (s) => oneLine(str(s).replace(/<[^>]+>/g, ''), 300);
       const fail = async (res, who) => {
         let m = '';
@@ -1688,6 +1690,42 @@
         if (res.status === 429) throw new Error(who + ': limite di ricerche raggiunto, riprova più tardi.');
         throw new Error(who + ': errore' + (m ? ' — ' + oneLine(m, 160) : '') + ' [HTTP ' + res.status + ']');
       };
+      if (provider === 'gemini') {
+        // Gemini cerca su Google da solo («grounding») e risponde con le fonti: usa la chiave Gemini già inserita
+        const model = /^gemini/i.test(ctx.searchModel || '') ? ctx.searchModel : 'gemini-2.5-flash';
+        const base = String(ctx.geminiBase || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
+        const res = await fetch(base + '/models/' + encodeURIComponent(model) + ':generateContent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': ctx.geminiKey },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: 'Cerca sul web e rispondi in modo fattuale e sintetico, nella lingua della domanda, citando i dati e le date importanti.' }] },
+            contents: [{ role: 'user', parts: [{ text: q }] }],
+            tools: [{ google_search: {} }]
+          }),
+          signal: ctx.signal
+        });
+        if (!res.ok) {
+          let m = '';
+          try {
+            m = ((await res.json()).error || {}).message || '';
+          } catch (_) {}
+          if (res.status === 429 || /quota|rate/i.test(m)) throw new Error('Ricerca Google: limite del piano raggiunto (le ricerche con Google hanno una quota a parte). Riprova più tardi o scegli Brave/Tavily. [HTTP ' + res.status + ']');
+          if (res.status === 400 || res.status === 403 || res.status === 404) throw new Error('Ricerca Google non disponibile con questa chiave o modello: ' + oneLine(m, 160) + ' — scegli Brave o Tavily. [HTTP ' + res.status + ']');
+          throw new Error('Ricerca Google: errore ' + oneLine(m, 160) + ' [HTTP ' + res.status + ']');
+        }
+        const d = await res.json();
+        const cand = d.candidates && d.candidates[0];
+        const answer = ((cand && cand.content && cand.content.parts) || []).map((p) => p.text || '').join('').trim();
+        const gm = (cand && cand.groundingMetadata) || {};
+        const sources = [];
+        (gm.groundingChunks || []).forEach((c) => c.web && c.web.uri && !sources.some((x) => x.uri === c.web.uri) && sources.push(c.web));
+        if (!answer) throw new Error('La ricerca non ha restituito una risposta' + ((d.promptFeedback && d.promptFeedback.blockReason) ? ' (' + d.promptFeedback.blockReason + ')' : '') + '.');
+        return (
+          answer +
+          (gm.webSearchQueries && gm.webSearchQueries.length ? '\n\nRicerche fatte: ' + gm.webSearchQueries.slice(0, 4).join('; ') : '') +
+          (sources.length ? '\n\nFonti:\n' + sources.slice(0, n).map((x, i) => i + 1 + '. ' + oneLine(x.title || x.uri, 100) + ' — ' + x.uri).join('\n') : '\n\n(nessuna fonte indicata)')
+        );
+      }
       if (provider === 'tavily') {
         const res = await fetch('https://api.tavily.com/search', {
           method: 'POST',
