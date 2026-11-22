@@ -82,7 +82,7 @@ In **Impostazioni → Modalità agente** Mia può usare 24 strumenti (più quell
 | `create_file` | file di testo: txt, md, csv, json, html, codice… | no |
 | `create_zip` | archivio .zip con più file | no |
 | `create_svg` | immagine disegnata in SVG, salvata anche come PNG | no |
-| `generate_image` | immagine generata dall'AI (modello immagini di Gemini) | no |
+| `generate_image` | immagine generata dall'AI: NVIDIA FLUX.1 schnell (chiave NVIDIA, crediti gratuiti) o Gemini; «Automatica» prova prima NVIDIA e poi Gemini | no |
 | `create_pdf` | PDF A4 con titoli, elenchi, tabelle (caratteri latini, niente emoji) | no |
 | `create_xlsx` | foglio Excel con più fogli, numeri e formule | no |
 
@@ -93,8 +93,7 @@ In **Impostazioni → Modalità agente** Mia può usare 24 strumenti (più quell
   (le variabili persistono) e viene chiusa se il codice supera il tempo (90 s di default, max 180).
 - `run_javascript` gira in un iframe «sandbox» con CSP che blocca la rete, dentro un Worker che viene terminato allo scadere
   del tempo (10 s di default, max 30). Non ha accesso a chiavi, chat o file dell'app. Python non è disponibile.
-- `generate_image` usa la chiave del provider Gemini e il «Modello immagini» in Impostazioni (predefinito `gemini-2.5-flash-image`);
-  il piano gratuito potrebbe non includere le immagini.
+- `generate_image` usa le chiavi NVIDIA e/o Gemini già inserite (Impostazioni → Creazione di immagini). Il servizio FLUX di NVIDIA consuma crediti gratuiti che si esauriscono e il suo formato di risposta non è stato verificato sulla documentazione (l'app accetta più formati); il piano gratuito di Gemini può non includere le immagini.
 - Serve un **token GitHub** (resta solo sul dispositivo). Consigliato un token *fine-grained* limitato ai repository che vuoi
   far gestire, con permessi **Contents**, **Issues**, **Pull requests**, **Actions**, **Metadata** in lettura/scrittura. Per creare nuovi repository serve un
   token *classic* con permesso `repo`.

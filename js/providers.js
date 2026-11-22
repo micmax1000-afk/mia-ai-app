@@ -435,7 +435,7 @@
           free: pr || /:free$/.test(id) ? free : null,
           vision: inp.includes('image') || /vision|-vl\b|vl-|omni/i.test(id) || null,
           // solo modelli che rispondono con testo (no embedding, rerank, moderazione, audio, immagini)
-          chat: !(Array.isArray(out) && !out.includes('text')) && !/embed|rerank|guard|content-safety|moderation|whisper|tts/i.test(id)
+          chat: !(Array.isArray(out) && !out.includes('text')) && !/embed|rerank|guard|content-safety|moderation|whisper|tts|clip|detector|gliner|\bpii\b|calibration|reward|parakeet|canary|retriev|starcoder|riva-(asr|tts)/i.test(id)
         };
       })
       .filter((m) => m.id && m.chat);

@@ -33,6 +33,7 @@
     githubToken: '',
     githubRepo: '',
     imageModel: 'gemini-2.5-flash-image', // modello Gemini per generate_image
+    imageProvider: 'auto', // generate_image: 'auto' (prima NVIDIA FLUX, poi Gemini) | 'nvidia' | 'gemini'
     searchProvider: 'gemini', // ricerca web: 'gemini' (Google, con la chiave Gemini) | 'ddg' | 'tavily' | 'serper' | 'exa' | '' (disattivata)
     searchKey: '',
     preferMcpWeb: true, // se un connettore offre ricerca/lettura web, usa quella al posto di quella di Mia
@@ -653,6 +654,8 @@
         geminiKey: gem.apiKey,
         geminiBase: gem.baseUrl,
         imageModel: settings.imageModel,
+        imageProvider: settings.imageProvider,
+        nvidiaKey: profile('nvidia').apiKey,
         searchProvider: settings.searchProvider,
         searchKey: settings.searchKey,
         searchModel: gem.model
@@ -1158,6 +1161,7 @@
     $('#agentEnabled').checked = !!settings.agentEnabled;
     $('#agentFields').hidden = !settings.agentEnabled;
     $('#imageModel').value = settings.imageModel || '';
+    $('#imageProvider').value = settings.imageProvider || 'auto';
     $('#searchProvider').value = settings.searchProvider == null ? 'gemini' : settings.searchProvider;
     syncSearchFields();
     $('#searchKey').value = settings.searchKey || '';
@@ -1198,6 +1202,7 @@
     settings.autoFallback = $('#autoFallback').checked;
     settings.agentEnabled = $('#agentEnabled').checked;
     settings.imageModel = $('#imageModel').value.trim() || DEFAULT_SETTINGS.imageModel;
+    settings.imageProvider = $('#imageProvider').value || 'auto';
     settings.searchProvider = $('#searchProvider').value;
     settings.searchKey = $('#searchKey').value.trim();
     settings.preferMcpWeb = $('#preferMcpWeb').checked;
