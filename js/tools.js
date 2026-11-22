@@ -1583,6 +1583,179 @@
     }
   });
 
+  // ─── Modifica precisa di un file GitHub ────────────────────
+  // 22 — github_edit_file
+  def('github_edit_file', {
+    description:
+      'Modifica un file di GitHub sostituendo frammenti di testo esatti (come un «trova e sostituisci»), senza riscrivere tutto il file. ' +
+      'Ogni «old_text» deve comparire UNA sola volta nel file: copialo esattamente da github_read_file e aggiungi contesto se serve. ' +
+      'Preferiscilo a github_write_file per cambiare poche righe di file esistenti.',
+    write: true,
+    parameters: {
+      type: 'object',
+      properties: Object.assign({}, REPO_PROPS, {
+        path: { type: 'string', description: 'Percorso del file da modificare.' },
+        edits: {
+          type: 'array',
+          description: 'Sostituzioni da fare, in ordine.',
+          items: {
+            type: 'object',
+            properties: {
+              old_text: { type: 'string', description: 'Testo esatto da sostituire (unico nel file).' },
+              new_text: { type: 'string', description: 'Testo nuovo (vuoto per cancellare).' }
+            },
+            required: ['old_text', 'new_text']
+          }
+        },
+        message: { type: 'string', description: 'Messaggio del commit.' },
+        branch: { type: 'string', description: 'Branch (facoltativo, predefinito: branch principale).' }
+      }),
+      required: ['owner', 'repo', 'path', 'edits', 'message']
+    },
+    title: (a) => 'Modifica «' + str(a.path) + '» in ' + str(a.owner) + '/' + str(a.repo) + ' (' + ((a.edits && a.edits.length) || 0) + ' sostituzioni)',
+    details: (a) =>
+      'Commit: ' + str(a.message) + (a.branch ? '\nBranch: ' + a.branch : '') + '\n' +
+      (Array.isArray(a.edits) ? a.edits : [])
+        .map((e, i) => '\n@@ ' + (i + 1) + ' @@\n' + clip(str(e && e.old_text).replace(/^/gm, '- '), 500) + '\n' + clip(str(e && e.new_text).replace(/^/gm, '+ '), 500))
+        .join('\n')
+        .slice(0, 2500),
+    async run(args, ctx) {
+      const { base } = repoArgs(args);
+      const path = need(args, 'path');
+      const message = need(args, 'message');
+      const edits = Array.isArray(args.edits) ? args.edits : [];
+      if (!edits.length) throw new Error('Nessuna modifica: «edits» è vuoto.');
+      const refQ = args.branch ? '?ref=' + encodeURIComponent(args.branch) : '';
+      const url = base + '/contents/' + encPath(path);
+      const file = await gh(ctx, url + refQ);
+      if (Array.isArray(file) || file.type !== 'file' || !file.content) throw new Error('«' + path + '» non è un file di testo leggibile.');
+      const original = base64ToUtf8(file.content);
+      if (original.includes('\u0000')) throw new Error('File binario: non modificabile.');
+      const crlf = original.includes('\r\n');
+      let text = original;
+      edits.forEach((e, i) => {
+        let oldT = str(e && e.old_text);
+        let newT = str(e && e.new_text);
+        if (!oldT) throw new Error('Modifica ' + (i + 1) + ': «old_text» è vuoto.');
+        if (crlf) {
+          // il file usa «a capo» di Windows: adatta il testo cercato
+          oldT = oldT.replace(/\r?\n/g, '\r\n');
+          newT = newT.replace(/\r?\n/g, '\r\n');
+        }
+        const n = text.split(oldT).length - 1;
+        if (n === 0) throw new Error('Modifica ' + (i + 1) + ': testo non trovato nel file. Rileggilo con github_read_file e copia il frammento esatto.');
+        if (n > 1) throw new Error('Modifica ' + (i + 1) + ': il testo compare ' + n + ' volte. Aggiungi più righe di contesto per renderlo unico.');
+        text = text.replace(oldT, () => newT);
+      });
+      if (text === original) throw new Error('Le sostituzioni non cambiano il file.');
+      const body = { message, content: utf8ToBase64(text), sha: file.sha };
+      if (args.branch) body.branch = args.branch;
+      const r = await gh(ctx, url, { method: 'PUT', body });
+      const delta = text.length - original.length;
+      return 'File modificato: ' + path + ' — ' + edits.length + ' sostituzioni, ' + (delta >= 0 ? '+' : '') + delta + ' caratteri — commit ' + short(r.commit && r.commit.sha);
+    }
+  });
+
+  // ─── Ricerca web ───────────────────────────────────────────
+  // 23 — web_search (serve una chiave Brave Search o Tavily)
+  def('web_search', {
+    description:
+      'Cerca sul web e restituisce titoli, indirizzi e brevi estratti. Usalo per notizie, fatti recenti, documentazione, prezzi. ' +
+      'Poi puoi leggere una pagina intera con read_webpage.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Cosa cercare, scritto come una ricerca (meglio in poche parole).' },
+        limit: { type: 'integer', description: 'Quanti risultati (1-10, predefinito 6).' }
+      },
+      required: ['query']
+    },
+    title: (a) => 'Cerca sul web: «' + oneLine(a.query, 80) + '»',
+    async run(args, ctx) {
+      const q = need(args, 'query');
+      const n = Math.min(10, Math.max(1, Math.floor(Number(args.limit)) || 6));
+      const provider = ctx.searchProvider;
+      if (!provider || !ctx.searchKey) throw new Error('Manca la ricerca web: in Impostazioni scegli Brave Search o Tavily e incolla la chiave.');
+      const strip = (s) => oneLine(str(s).replace(/<[^>]+>/g, ''), 300);
+      const fail = async (res, who) => {
+        let m = '';
+        try {
+          const d = await res.json();
+          m = (d.error && (d.error.message || d.error)) || d.detail || d.message || '';
+          if (typeof m !== 'string') m = JSON.stringify(m);
+        } catch (_) {}
+        if (res.status === 401 || res.status === 403) throw new Error(who + ': chiave non valida o non autorizzata [HTTP ' + res.status + ']');
+        if (res.status === 429) throw new Error(who + ': limite di ricerche raggiunto, riprova più tardi.');
+        throw new Error(who + ': errore' + (m ? ' — ' + oneLine(m, 160) : '') + ' [HTTP ' + res.status + ']');
+      };
+      if (provider === 'tavily') {
+        const res = await fetch('https://api.tavily.com/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + ctx.searchKey },
+          body: JSON.stringify({ query: q, max_results: n, include_answer: true }),
+          signal: ctx.signal
+        });
+        if (!res.ok) await fail(res, 'Tavily');
+        const d = await res.json();
+        const list = d.results || [];
+        if (!list.length) return 'Nessun risultato.';
+        return (d.answer ? 'Sintesi: ' + oneLine(d.answer, 600) + '\n\n' : '') + list.map((r, i) => i + 1 + '. ' + oneLine(r.title, 120) + '\n   ' + r.url + '\n   ' + strip(r.content)).join('\n');
+      }
+      if (provider === 'brave') {
+        const res = await fetch('https://api.search.brave.com/res/v1/web/search?q=' + encodeURIComponent(q) + '&count=' + n, {
+          headers: { Accept: 'application/json', 'X-Subscription-Token': ctx.searchKey },
+          signal: ctx.signal
+        });
+        if (!res.ok) await fail(res, 'Brave Search');
+        const d = await res.json();
+        const list = (d.web && d.web.results) || [];
+        if (!list.length) return 'Nessun risultato.';
+        return list.map((r, i) => i + 1 + '. ' + oneLine(strip(r.title), 120) + '\n   ' + r.url + '\n   ' + strip(r.description)).join('\n');
+      }
+      throw new Error('Servizio di ricerca sconosciuto: ' + provider);
+    }
+  });
+
+  // ─── Piano di lavoro ───────────────────────────────────────
+  // 24 — update_plan (nessun effetto: serve a organizzarsi e a mostrare i progressi)
+  function planProgress(a) {
+    const steps = Array.isArray(a && a.steps) ? a.steps : [];
+    return { total: steps.length, done: steps.filter((s) => s && s.status === 'done').length };
+  }
+  def('update_plan', {
+    description:
+      'Scrive o aggiorna l\'elenco dei passi di un compito con più passaggi (visibile all\'utente). ' +
+      'Usalo all\'inizio di un lavoro lungo e aggiornalo man mano che completi i passi. Non fa altro: dopo averlo chiamato continua con il lavoro vero.',
+    parameters: {
+      type: 'object',
+      properties: {
+        steps: {
+          type: 'array',
+          description: 'L\'elenco completo e aggiornato dei passi.',
+          items: {
+            type: 'object',
+            properties: {
+              text: { type: 'string', description: 'Cosa fare in questo passo.' },
+              status: { type: 'string', enum: ['pending', 'in_progress', 'done'], description: 'Stato del passo.' }
+            },
+            required: ['text', 'status']
+          }
+        }
+      },
+      required: ['steps']
+    },
+    title: (a) => {
+      const p = planProgress(a);
+      return 'Piano di lavoro: ' + p.done + '/' + p.total + ' passi completati';
+    },
+    async run(args) {
+      const steps = Array.isArray(args.steps) ? args.steps : [];
+      if (!steps.length) throw new Error('Il piano è vuoto.');
+      const p = planProgress(args);
+      return 'Piano aggiornato: ' + p.done + '/' + p.total + ' completati. Continua con il prossimo passo.';
+    }
+  });
+
   // ─── Strumenti dei connettori MCP (registrati a runtime) ──
   const DYN = {}; // nome → strumento
   const DYN_BY_SERVER = {}; // id server → [nomi]
