@@ -61,6 +61,7 @@
   <div style="padding:0 12px 8px">
     <button type="button" class="btn ghost full" id="drawerNew"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Nuova chat</button>
   </div>
+  <div style="padding:0 12px 8px"><input type="search" id="convSearch" placeholder="Cerca nelle chat…" aria-label="Cerca nelle chat" autocomplete="off"></div>
   <ul class="conv-list" id="convList"></ul>
   <div class="drawer-foot">
     <button type="button" class="btn ghost full" data-open-settings>Impostazioni</button>
@@ -112,6 +113,12 @@
       <label class="field">
         <span>Istruzioni di sistema</span>
         <textarea id="systemPrompt" rows="3"></textarea>
+      </label>
+
+      <label class="field">
+        <span>Memoria (cose che Mia deve ricordare di te, una per riga)</span>
+        <textarea id="memory" rows="3" maxlength="4000" placeholder="Es.: Mi chiamo Marco. Preferisco risposte brevi."></textarea>
+        <small class="hint">Viene aggiunta a ogni conversazione. In modalità agente Mia può aggiungere e togliere righe (chiede conferma). Non scrivere password o dati sensibili.</small>
       </label>
 
       <label class="field">
@@ -215,6 +222,18 @@
         </div>
       </div>
 
+      <div class="field">
+        <span>Sincronizzazione tra dispositivi</span>
+        <input type="text" id="syncRepo" placeholder="nome-utente/mia-dati" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <label class="field check-field">
+          <input type="checkbox" id="syncAuto">
+          <span>Sincronizza da sola (all'apertura e quando esci dall'app)</span>
+        </label>
+        <button type="button" class="btn ghost" id="syncNow">Sincronizza ora</button>
+        <small class="hint" id="syncStatus"></small>
+        <small class="hint">Usa un repository GitHub <b>privato</b> (se è pubblico Mia rifiuta di inviare). Serve il token GitHub di «Modalità agente» con accesso a quel repository e «Contents» in lettura e scrittura. Si sincronizzano chat, testo dei PDF e Memoria; non chiavi, token, immagini e file allegati.</small>
+      </div>
+
       <div class="danger">
         <button type="button" class="btn ghost" id="exportBtn">Esporta chat (JSON)</button>
         <button type="button" class="btn ghost" id="importBtn">Importa chat</button>
@@ -266,6 +285,7 @@
 <script src="js/mcp.js"></script>
 <script src="js/tools.js"></script>
 <script src="js/docs.js"></script>
+<script src="js/sync.js"></script>
 <script src="js/github.js"></script>
 <script src="js/github-ui.js"></script>
 <script src="js/app.js"></script>

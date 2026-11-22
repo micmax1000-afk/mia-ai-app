@@ -7,7 +7,7 @@ const CACHE = 'mia-web-v1';
 const CORE = [
   './', 'index.html', 'manifest.webmanifest', 'icons/icon.svg',
   'css/app.css', 'css/app-fix.css',
-  'js/markdown.js', 'js/providers.js', 'js/files.js', 'js/mcp.js', 'js/tools.js', 'js/docs.js',
+  'js/markdown.js', 'js/providers.js', 'js/files.js', 'js/mcp.js', 'js/tools.js', 'js/docs.js', 'js/sync.js',
   'js/github.js', 'js/github-ui.js', 'js/app.js', 'js/app-fix.js', 'js/pwa.js'
 ];
 

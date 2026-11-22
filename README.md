@@ -49,7 +49,7 @@ Il token resta solo nel `localStorage` del dispositivo.
 ### Allegati (📎)
 
 - **Immagini** (ridimensionate a 1280 px): Gemini e i modelli «vision» di OpenRouter/Groq.
-- **PDF** (max 8 MB): solo Gemini e OpenRouter.
+- **PDF** (max 8 MB): Gemini e OpenRouter li leggono da soli (anche le scansioni). Con tutti gli altri modelli Mia estrae il **testo** del PDF sul dispositivo (pdf.js, fino a 100 pagine) e lo allega al messaggio. Se il PDF è una scansione (solo immagini) i modelli senza lettura nativa non possono leggerlo: l'app lo dice e suggerisce Gemini o OpenRouter.
 - **File di testo/codice** (txt, md, csv, json, py, js…): funzionano con tutti i modelli,
   perché il contenuto viene inserito nel messaggio.
 - Se il modello non accetta l'allegato, compare un avviso: usa **Prova con…** per passare a un altro modello.
@@ -70,7 +70,9 @@ In **Impostazioni → Modalità agente** Mia può usare 24 strumenti (più quell
 | `github_list_branches_commits` | elenca branch o ultimi commit | no |
 | `github_issues` | elenca/legge issue; crea issue o commenta | solo crea/commenta |
 | `read_webpage` | legge il testo di una pagina web | no |
-| `notes` | note salvate sul telefono | solo elimina |
+| `notes` | note salvate sul telefono (salva, elenca, leggi, elimina, **cerca**) | solo elimina |
+| `search_chats` | cerca nelle conversazioni salvate (titoli, messaggi, nomi degli allegati) | no |
+| `memory` | Memoria personale: aggiunge, elenca, toglie fatti da ricordare | aggiungi e togli |
 | `github_edit_file` | modifica un file con «trova e sostituisci» esatto (non lo riscrive per intero), con commit | **sì** |
 | `web_search` | ricerca web con fonti: Google tramite Gemini (predefinita, usa la chiave Gemini), DuckDuckGo (non ufficiale, senza chiave), Tavily, Serper o Exa (piani gratuiti con chiave) | no |
 | `update_plan` | scrive e aggiorna l'elenco dei passi di un lavoro lungo, visibile in chat | no |
@@ -159,6 +161,14 @@ vai su *Actions* → «Pagina web (GitHub Pages)» → *Run workflow*.
 
 **Installarla come app:** Chrome/Edge → menu → «Installa Mia». Funziona anche senza rete per aprire l'app e leggere le chat già salvate (le risposte dei modelli richiedono internet).
 
+**Sincronizzare le chat tra dispositivi (repository GitHub privato)**
+1. Crea su GitHub un repository **privato** vuoto (per esempio `mia-dati`).
+2. Il token GitHub di «Modalità agente» deve avere accesso a *quel* repository con **Contents** in lettura e scrittura (fine-grained: *Repository access → Only select repositories*).
+3. Impostazioni → **Sincronizzazione tra dispositivi**: scrivi `nome-utente/mia-dati` e premi **Sincronizza ora**. Con «Sincronizza da sola» l'app sincronizza all'apertura e quando esci.
+4. Sugli altri dispositivi fai lo stesso con lo stesso repository. Per ogni chat vince la versione più recente; le chat eliminate restano segnate per 90 giorni, così non ricompaiono.
+
+Nel repository c'è un solo file, `mia-chats.json`, con chat, testo dei PDF allegati e Memoria. **Non** vengono inviati chiavi API, token, immagini e file allegati o creati (restano sul dispositivo d'origine). Se il repository risulta pubblico Mia **rifiuta** di inviare. Se un altro dispositivo scrive nello stesso momento l'app riprova da sola. Il file nel repository è in chiaro per chi ha accesso al repository: non scrivere in chat dati che non vuoi lì.
+
 **Portare le chat su un altro dispositivo (con Drive)**
 1. Sul dispositivo di partenza: Impostazioni → **Esporta chat**. Su Android si apre il pannello «Condividi»: scegli **Drive** (Salva su Drive). Nel browser il file viene scaricato: caricalo tu su Drive.
 2. Sull'altro dispositivo: Impostazioni → **Importa chat** e scegli il file da Drive.
@@ -169,7 +179,7 @@ Il file contiene solo le conversazioni, **non** chiavi, token o impostazioni (va
 **Cosa cambia rispetto all'app Android**
 - Il browser applica le regole **CORS**: alcune richieste a servizi esterni possono essere bloccate (di norma vanno Gemini, OpenRouter, Groq e GitHub; possono non andare altri provider, la ricerca DuckDuckGo e vari connettori MCP).
 - Non ci sono fotocamera, condivisione da altre app e microfono/lettura vocale nativi (il microfono del browser funziona con Chrome ed Edge).
-- **Nessuna sincronizzazione automatica**: chat, chiavi e impostazioni stanno nel browser di quel dispositivo. Per spostare le chat usa Esporta/Importa (vedi sopra).
+- Chat, chiavi e impostazioni stanno nel browser di quel dispositivo. Per averle su più dispositivi usa la **sincronizzazione con un repository privato** o Esporta/Importa (vedi sopra); le chiavi vanno inserite su ogni dispositivo.
 - I dati stanno nel `localStorage` dell'indirizzo `micmax1000-afk.github.io`: altri siti ospitati su GitHub Pages con lo stesso account condividono quello spazio. Usa un browser o un profilo dedicato se ne hai.
 
 ## APK con GitHub Actions
@@ -213,7 +223,8 @@ Test end-to-end con Playwright, servizi esterni simulati (circa 1 minuto). Detta
 - `js/mcp.js` — client MCP; `js/docs.js` — testo da xlsx/docx/pptx/zip
 - `sw.js`, `js/pwa.js` — service worker della versione web (non attivo nell'app Android)
 - `js/files.js` — archivio dei file creati e condivisione
-- `js/vendor/` — librerie incluse: JSZip (zip/xlsx) e jsPDF (pdf), caricate solo quando servono
+- `js/vendor/` — librerie incluse: JSZip (zip/xlsx), jsPDF (crea pdf) e pdf.js (legge pdf), caricate solo quando servono
+- `js/sync.js` — sincronizzazione delle chat con un repository GitHub privato
 - `js/markdown.js` — renderer Markdown sicuro (tutto l'HTML viene escapato)
 - `js/app.js` — conversazioni, impostazioni, UI
 - `js/app-fix.js` — gestione classe `sheet-open` per bloccare lo scroll dello sfondo
