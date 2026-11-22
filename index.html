@@ -166,10 +166,18 @@
         <div id="agentFields">
           <p class="hint">Usa il token GitHub qui sopra. Per crearne uno fine-grained: <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens</a>.</p>
           <label class="field">
-            <span>Modello immagini (Gemini)</span>
+            <span>Creazione di immagini</span>
+            <select id="imageProvider">
+              <option value="auto">Automatica (prima NVIDIA FLUX, poi Gemini)</option>
+              <option value="nvidia">NVIDIA FLUX.1 schnell (chiave NVIDIA)</option>
+              <option value="gemini">Gemini (chiave Gemini)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Modello immagini di Gemini</span>
             <input id="imageModel" spellcheck="false" autocapitalize="off" placeholder="gemini-2.5-flash-image">
           </label>
-          <p class="hint">Per «genera immagine» usa la chiave del provider Google Gemini. Il piano gratuito può non includere le immagini: se dà errore, controlla il nome del modello o i limiti del tuo account.</p>
+          <p class="hint">Usano le chiavi dei provider NVIDIA e Google Gemini già inserite. NVIDIA dà crediti gratuiti da sviluppatore che si esauriscono; il piano gratuito di Gemini può non includere le immagini. In «Automatica», se il primo servizio fallisce, prova il secondo.</p>
           <label class="field">
             <span>Ricerca web</span>
             <select id="searchProvider">
@@ -208,9 +216,11 @@
 
       <div class="danger">
         <button type="button" class="btn ghost" id="exportBtn">Esporta chat (JSON)</button>
+        <button type="button" class="btn ghost" id="importBtn">Importa chat</button>
+        <input type="file" id="importInput" hidden>
         <button type="button" class="btn danger-btn" id="clearAll">Elimina tutte le chat</button>
       </div>
-      <p class="hint">Chiavi e conversazioni restano solo su questo dispositivo. Chiudi per salvare.</p>
+      <p class="hint">Chiavi e conversazioni restano solo su questo dispositivo. Per portare le chat su un altro dispositivo: «Esporta chat» → salva il file su Drive → sull'altro dispositivo «Importa chat» e scegli il file da Drive. Le chiavi non vengono esportate. Chiudi per salvare.</p>
     </div>
   </div>
 </div>

@@ -33,6 +33,7 @@
     githubToken: '',
     githubRepo: '',
     imageModel: 'gemini-2.5-flash-image', // modello Gemini per generate_image
+    imageProvider: 'auto', // generate_image: 'auto' (prima NVIDIA FLUX, poi Gemini) | 'nvidia' | 'gemini'
     searchProvider: 'gemini', // ricerca web: 'gemini' (Google, con la chiave Gemini) | 'ddg' | 'tavily' | 'serper' | 'exa' | '' (disattivata)
     searchKey: '',
     preferMcpWeb: true, // se un connettore offre ricerca/lettura web, usa quella al posto di quella di Mia
@@ -653,6 +654,8 @@
         geminiKey: gem.apiKey,
         geminiBase: gem.baseUrl,
         imageModel: settings.imageModel,
+        imageProvider: settings.imageProvider,
+        nvidiaKey: profile('nvidia').apiKey,
         searchProvider: settings.searchProvider,
         searchKey: settings.searchKey,
         searchModel: gem.model
@@ -1158,6 +1161,7 @@
     $('#agentEnabled').checked = !!settings.agentEnabled;
     $('#agentFields').hidden = !settings.agentEnabled;
     $('#imageModel').value = settings.imageModel || '';
+    $('#imageProvider').value = settings.imageProvider || 'auto';
     $('#searchProvider').value = settings.searchProvider == null ? 'gemini' : settings.searchProvider;
     syncSearchFields();
     $('#searchKey').value = settings.searchKey || '';
@@ -1198,6 +1202,7 @@
     settings.autoFallback = $('#autoFallback').checked;
     settings.agentEnabled = $('#agentEnabled').checked;
     settings.imageModel = $('#imageModel').value.trim() || DEFAULT_SETTINGS.imageModel;
+    settings.imageProvider = $('#imageProvider').value || 'auto';
     settings.searchProvider = $('#searchProvider').value;
     settings.searchKey = $('#searchKey').value.trim();
     settings.preferMcpWeb = $('#preferMcpWeb').checked;
@@ -1363,15 +1368,115 @@
     }
   }
 
-  function exportChats() {
-    const blob = new Blob([JSON.stringify(conversations, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'mia-ai-chat-' + new Date().toISOString().slice(0, 10) + '.json';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  async function exportChats() {
+    if (!conversations.length) return toast('Nessuna chat da esportare');
+    const payload = { app: 'mia-ai', version: 1, exported: new Date().toISOString(), conversations };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const name = 'mia-ai-chat-' + new Date().toISOString().slice(0, 10) + '.json';
+    try {
+      // su Android apre il pannello «Condividi» (da lì: Salva su Drive); nel browser scarica il file
+      const how = await Files.shareBlob(blob, name, 'application/json');
+      if (how === 'downloaded') toast('File scaricato: caricalo su Drive per portarlo su un altro dispositivo');
+    } catch (e) {
+      toast((e && e.message) || 'Esportazione non riuscita');
+    }
+  }
+
+  const finiteNum = (v) => (typeof v === 'number' && isFinite(v) ? v : 0);
+  const str = (v, n) => (typeof v === 'string' ? v.slice(0, n) : '');
+
+  /** Ripulisce una conversazione letta da un file: tiene solo i campi noti e scarta il resto. */
+  function cleanConversation(c) {
+    if (!c || typeof c !== 'object' || !Array.isArray(c.messages)) return null;
+    const out = {
+      id: str(c.id, 64) || uid(),
+      title: str(c.title, 120),
+      created: finiteNum(c.created) || Date.now(),
+      updated: finiteNum(c.updated) || finiteNum(c.created) || Date.now(),
+      messages: []
+    };
+    for (const m of c.messages.slice(0, 2000)) {
+      if (!m || typeof m !== 'object' || !['user', 'assistant', 'tool'].includes(m.role)) continue;
+      const n = { role: m.role, content: str(m.content, 300000) };
+      if (m.error) n.error = true;
+      if (m.model) n.model = str(m.model, 120);
+      if (m.context) n.context = str(m.context, 20000);
+      if (typeof m.imageUrl === 'string' && /^https:\/\//i.test(m.imageUrl)) n.imageUrl = m.imageUrl.slice(0, 2000);
+      if (Array.isArray(m.attachments)) {
+        n.attachments = m.attachments
+          .filter((a) => a && ['image', 'pdf', 'text'].includes(a.kind) && typeof a.name === 'string')
+          .slice(0, 12)
+          .map((a) => {
+            const x = { kind: a.kind, name: str(a.name, 200), mime: str(a.mime, 100) };
+            if (typeof a.data === 'string') x.data = a.data;
+            if (typeof a.thumb === 'string') x.thumb = a.thumb;
+            if (typeof a.text === 'string') x.text = str(a.text, 300000);
+            if (a.dropped) x.dropped = true;
+            return x;
+          });
+      }
+      if (m.role === 'assistant' && Array.isArray(m.toolCalls)) {
+        n.toolCalls = m.toolCalls
+          .filter((t) => t && typeof t.id === 'string' && typeof t.name === 'string')
+          .slice(0, 20)
+          .map((t) => {
+            const x = { id: str(t.id, 80), name: str(t.name, 80), args: t.args && typeof t.args === 'object' && !Array.isArray(t.args) ? t.args : {} };
+            if (typeof t.sig === 'string') x.sig = t.sig;
+            return x;
+          });
+      }
+      if (m.role === 'tool') {
+        Object.assign(n, { toolCallId: str(m.toolCallId, 80), name: str(m.name, 80), title: str(m.title, 300), preview: str(m.preview, 2000), ok: m.ok !== false, denied: !!m.denied });
+        // i file creati dagli strumenti restano sul dispositivo d'origine: non si trasferiscono
+      }
+      out.messages.push(n);
+    }
+    // coppie richiesta/risultato degli strumenti: se mancano dei pezzi, togli quelli orfani (altrimenti i modelli rifiutano la cronologia)
+    const resultIds = new Set(out.messages.filter((m) => m.role === 'tool').map((m) => m.toolCallId));
+    out.messages.forEach((m) => {
+      if (m.toolCalls && !m.toolCalls.every((t) => resultIds.has(t.id))) delete m.toolCalls;
+    });
+    const callIds = new Set();
+    out.messages.forEach((m) => (m.toolCalls || []).forEach((t) => callIds.add(t.id)));
+    out.messages = out.messages.filter((m) => m.role !== 'tool' || callIds.has(m.toolCallId));
+    return out.messages.length ? out : null;
+  }
+
+  /** Legge un file esportato da Mia e unisce le chat a quelle presenti (vince la più recente). */
+  async function importChats(file) {
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) return toast('File troppo grande (massimo 50 MB)');
+    let data;
+    try {
+      data = JSON.parse(await file.text());
+    } catch (_) {
+      return toast('Il file non è valido: scegli un\'esportazione di Mia (.json)');
+    }
+    const list = Array.isArray(data) ? data : data && Array.isArray(data.conversations) ? data.conversations : null;
+    if (!list) return toast('Il file non contiene chat di Mia');
+    const cleaned = list.slice(0, 2000).map(cleanConversation).filter(Boolean);
+    if (!cleaned.length) return toast('Nessuna chat trovata nel file');
+    const byId = new Map(conversations.map((c) => [c.id, c]));
+    let added = 0;
+    let updated = 0;
+    let kept = 0;
+    cleaned.forEach((c) => {
+      const ex = byId.get(c.id);
+      if (!ex) {
+        conversations.push(c);
+        byId.set(c.id, c);
+        added++;
+      } else if (c.updated > ex.updated) {
+        Object.assign(ex, c);
+        updated++;
+      } else kept++;
+    });
+    persistConvs();
+    renderConvList();
+    renderMessages();
+    toast(
+      'Importate ' + added + ' chat nuove' + (updated ? ', ' + updated + ' aggiornate' : '') + (kept ? ', ' + kept + ' già presenti più recenti' : '')
+    );
   }
 
   // ─── Composer ─────────────────────────────────────────────
@@ -1566,6 +1671,12 @@
       $('#tempValue').textContent = Number(e.target.value).toFixed(1);
     });
     $('#exportBtn').addEventListener('click', exportChats);
+    $('#importBtn').addEventListener('click', () => $('#importInput').click());
+    $('#importInput').addEventListener('change', async (e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      await importChats(f);
+    });
     $('#clearAll').addEventListener('click', () => {
       if (!confirm('Eliminare TUTTE le conversazioni? Non si può annullare.')) return;
       if (busy) stopAll();

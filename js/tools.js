@@ -750,10 +750,99 @@
   });
 
   // 14 — immagini generate dall'AI (Gemini)
+  /** Riconosce png/jpeg/webp dai primi byte di un'immagine in base64. */
+  function sniffImage(b64) {
+    let head = '';
+    try {
+      head = atob(String(b64).slice(0, 24));
+    } catch (_) {}
+    if (head.startsWith('\x89PNG')) return 'image/png';
+    if (head.startsWith('\xff\xd8')) return 'image/jpeg';
+    if (head.startsWith('RIFF') && head.slice(8, 12) === 'WEBP') return 'image/webp';
+    return 'image/png';
+  }
+
+  async function geminiImage(prompt, ctx) {
+    const model = ctx.imageModel || 'gemini-2.5-flash-image';
+    const base = String(ctx.geminiBase || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
+    const res = await fetch(base + '/models/' + encodeURIComponent(model) + ':generateContent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': ctx.geminiKey },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } }),
+      signal: ctx.signal
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (_) {}
+    if (!res.ok) {
+      const m = (data && data.error && data.error.message) || 'Errore Gemini';
+      let hint = '';
+      if (res.status === 429 || /quota|limit/i.test(m)) hint = ' Il piano gratuito potrebbe non includere la generazione di immagini o aver raggiunto il limite.';
+      else if (res.status === 404 || /not found|not supported/i.test(m)) hint = ' Controlla il nome del «Modello immagini» in Impostazioni.';
+      throw new Error('Gemini: ' + m + ' [HTTP ' + res.status + ']' + hint);
+    }
+    const cand = data && data.candidates && data.candidates[0];
+    const parts = (cand && cand.content && cand.content.parts) || [];
+    let img = null;
+    let text = '';
+    parts.forEach((p) => {
+      const inl = p.inlineData || p.inline_data;
+      if (inl && inl.data && !img) img = { data: inl.data, mime: inl.mimeType || inl.mime_type || 'image/png' };
+      else if (p.text) text += p.text;
+    });
+    if (!img) {
+      const why = (data && data.promptFeedback && data.promptFeedback.blockReason) || (cand && cand.finishReason) || '';
+      throw new Error('Gemini non ha restituito un\'immagine' + (why ? ' (' + why + ')' : '') + (text ? ': ' + oneLine(text, 200) : '') + '.');
+    }
+    return { data: img.data, mime: img.mime, note: text ? 'Nota del modello: ' + oneLine(text, 300) : '', who: 'Gemini' };
+  }
+
+  // FLUX.1 schnell sul servizio ospitato da NVIDIA. Formato della risposta NON verificato sulla documentazione:
+  // si accettano più forme e, se i campi di dimensione vengono rifiutati (422), si riprova con la richiesta minima.
+  async function nvidiaImage(prompt, ctx) {
+    const url = 'https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-schnell';
+    const post = async (body) => {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: 'Bearer ' + ctx.nvidiaKey },
+        body: JSON.stringify(body),
+        signal: ctx.signal
+      });
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (_) {}
+      return { res, data };
+    };
+    let { res, data } = await post({ prompt, width: 1024, height: 1024, seed: 0, steps: 4 });
+    if (res.status === 422) ({ res, data } = await post({ prompt, seed: 0, steps: 4 }));
+    if (!res.ok) {
+      let m = '';
+      if (data) m = data.detail || data.message || data.title || (data.error && (data.error.message || data.error)) || '';
+      if (typeof m !== 'string') m = JSON.stringify(m);
+      const st = res.status;
+      let hint = '';
+      if (st === 401 || st === 403) hint = ' La chiave NVIDIA non è valida o non ha accesso a questo modello.';
+      else if (st === 402 || /credit|quota|billing|payment/i.test(m)) hint = ' I crediti gratuiti NVIDIA potrebbero essere finiti: controlla il saldo su build.nvidia.com.';
+      else if (st === 429) hint = ' Troppe richieste: riprova tra poco.';
+      else if (st === 404) hint = ' Il servizio immagini non risulta disponibile per questa chiave.';
+      throw new Error('NVIDIA FLUX: ' + (m ? oneLine(m, 200) : 'errore') + ' [HTTP ' + st + ']' + hint);
+    }
+    const d = data || {};
+    const first = (Array.isArray(d.artifacts) && d.artifacts[0]) || (Array.isArray(d.images) && d.images[0]) || (Array.isArray(d.data) && d.data[0]) || d;
+    const why = first && typeof first === 'object' && (first.finishReason || first.finish_reason);
+    if (why && !/^(success|stop)$/i.test(String(why))) throw new Error('NVIDIA FLUX: immagine non generata (' + why + '): il testo potrebbe essere stato bloccato dai filtri.');
+    let b64 = typeof first === 'string' ? first : first.base64 || first.b64_json || first.image || first.b64 || d.image || d.base64 || '';
+    if (typeof b64 === 'string') b64 = b64.replace(/^data:image\/[a-z]+;base64,/i, '');
+    if (!b64 || typeof b64 !== 'string') throw new Error('NVIDIA FLUX: risposta senza immagine (campi ricevuti: ' + Object.keys(d).join(', ').slice(0, 120) + ').');
+    return { data: b64, mime: sniffImage(b64), note: '', who: 'NVIDIA FLUX.1 schnell' };
+  }
+
   def('generate_image', {
     description:
-      'Genera con l\'intelligenza artificiale una foto o un\'illustrazione a partire da una descrizione (usa il modello immagini di Gemini). ' +
-      'Per loghi, schemi e grafici precisi è meglio create_svg.',
+      'Genera con l\'intelligenza artificiale una foto o un\'illustrazione a partire da una descrizione (NVIDIA FLUX.1 schnell o Gemini, secondo le impostazioni). ' +
+      'Scrivi la descrizione in inglese per risultati migliori. Per loghi, schemi e grafici precisi è meglio create_svg.',
     parameters: {
       type: 'object',
       properties: {
@@ -765,44 +854,34 @@
     title: (a) => 'Genera un\'immagine: «' + oneLine(a.prompt, 80) + '»',
     async run(args, ctx) {
       const prompt = need(args, 'prompt');
-      if (!ctx.geminiKey) throw new Error('Serve la chiave Gemini: inseriscila in Impostazioni (provider Google Gemini).');
-      const model = ctx.imageModel || 'gemini-2.5-flash-image';
-      const base = String(ctx.geminiBase || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
-      const res = await fetch(base + '/models/' + encodeURIComponent(model) + ':generateContent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': ctx.geminiKey },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } }),
-        signal: ctx.signal
-      });
-      let data = null;
-      try {
-        data = await res.json();
-      } catch (_) {}
-      if (!res.ok) {
-        const m = (data && data.error && data.error.message) || 'Errore Gemini';
-        let hint = '';
-        if (res.status === 429 || /quota|limit/i.test(m))
-          hint = ' Il piano gratuito potrebbe non includere la generazione di immagini o aver raggiunto il limite.';
-        else if (res.status === 404 || /not found|not supported/i.test(m))
-          hint = ' Controlla il nome del «Modello immagini» in Impostazioni.';
-        throw new Error(m + ' [HTTP ' + res.status + ']' + hint);
+      const choice = ctx.imageProvider || 'auto';
+      const order = choice === 'nvidia' ? ['nvidia'] : choice === 'gemini' ? ['gemini'] : ['nvidia', 'gemini'];
+      const usable = order.filter((k) => (k === 'nvidia' ? ctx.nvidiaKey : ctx.geminiKey));
+      if (!usable.length) {
+        throw new Error(
+          choice === 'nvidia'
+            ? 'Serve la chiave NVIDIA: inseriscila in Impostazioni (provider NVIDIA).'
+            : choice === 'gemini'
+            ? 'Serve la chiave Gemini: inseriscila in Impostazioni (provider Google Gemini).'
+            : 'Per generare immagini serve la chiave NVIDIA (FLUX) o quella Gemini: inseriscine una in Impostazioni.'
+        );
       }
-      const cand = data && data.candidates && data.candidates[0];
-      const parts = (cand && cand.content && cand.content.parts) || [];
       let img = null;
-      let text = '';
-      parts.forEach((p) => {
-        const inl = p.inlineData || p.inline_data;
-        if (inl && inl.data && !img) img = { data: inl.data, mime: inl.mimeType || inl.mime_type || 'image/png' };
-        else if (p.text) text += p.text;
-      });
-      if (!img) {
-        const why = (data && data.promptFeedback && data.promptFeedback.blockReason) || (cand && cand.finishReason) || '';
-        throw new Error('Il modello non ha restituito un\'immagine' + (why ? ' (' + why + ')' : '') + (text ? ': ' + oneLine(text, 200) : '') + '.');
+      const failures = [];
+      for (const k of usable) {
+        try {
+          img = await (k === 'nvidia' ? nvidiaImage : geminiImage)(prompt, ctx);
+          break;
+        } catch (e) {
+          if (e && e.name === 'AbortError') throw e;
+          failures.push((e && e.message) || String(e));
+        }
       }
+      if (!img) throw new Error(failures.join(' | '));
       const ext = /jpe?g/i.test(img.mime) ? 'jpg' : /webp/i.test(img.mime) ? 'webp' : 'png';
       const name = safeName(str(args.filename).trim() || 'immagine-' + new Date().toISOString().slice(0, 16).replace(/[-:T]/g, ''), ext);
-      return fileResult('Immagine generata', [{ name, mime: img.mime, blob: base64ToBlob(img.data, img.mime) }], text ? 'Nota del modello: ' + oneLine(text, 300) : '');
+      const note = [img.note, failures.length ? 'Il primo servizio ha fallito (' + oneLine(failures[0], 120) + '): ho usato ' + img.who + '.' : 'Creata con ' + img.who + '.'].filter(Boolean).join(' ');
+      return fileResult('Immagine generata', [{ name, mime: img.mime, blob: base64ToBlob(img.data, img.mime) }], note);
     }
   });
 

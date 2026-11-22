@@ -82,7 +82,7 @@ In **Impostazioni → Modalità agente** Mia può usare 24 strumenti (più quell
 | `create_file` | file di testo: txt, md, csv, json, html, codice… | no |
 | `create_zip` | archivio .zip con più file | no |
 | `create_svg` | immagine disegnata in SVG, salvata anche come PNG | no |
-| `generate_image` | immagine generata dall'AI (modello immagini di Gemini) | no |
+| `generate_image` | immagine generata dall'AI: NVIDIA FLUX.1 schnell (chiave NVIDIA, crediti gratuiti) o Gemini; «Automatica» prova prima NVIDIA e poi Gemini | no |
 | `create_pdf` | PDF A4 con titoli, elenchi, tabelle (caratteri latini, niente emoji) | no |
 | `create_xlsx` | foglio Excel con più fogli, numeri e formule | no |
 
@@ -93,8 +93,7 @@ In **Impostazioni → Modalità agente** Mia può usare 24 strumenti (più quell
   (le variabili persistono) e viene chiusa se il codice supera il tempo (90 s di default, max 180).
 - `run_javascript` gira in un iframe «sandbox» con CSP che blocca la rete, dentro un Worker che viene terminato allo scadere
   del tempo (10 s di default, max 30). Non ha accesso a chiavi, chat o file dell'app. Python non è disponibile.
-- `generate_image` usa la chiave del provider Gemini e il «Modello immagini» in Impostazioni (predefinito `gemini-2.5-flash-image`);
-  il piano gratuito potrebbe non includere le immagini.
+- `generate_image` usa le chiavi NVIDIA e/o Gemini già inserite (Impostazioni → Creazione di immagini). Il servizio FLUX di NVIDIA consuma crediti gratuiti che si esauriscono e il suo formato di risposta non è stato verificato sulla documentazione (l'app accetta più formati); il piano gratuito di Gemini può non includere le immagini.
 - Serve un **token GitHub** (resta solo sul dispositivo). Consigliato un token *fine-grained* limitato ai repository che vuoi
   far gestire, con permessi **Contents**, **Issues**, **Pull requests**, **Actions**, **Metadata** in lettura/scrittura. Per creare nuovi repository serve un
   token *classic* con permesso `repo`.
@@ -160,10 +159,17 @@ vai su *Actions* → «Pagina web (GitHub Pages)» → *Run workflow*.
 
 **Installarla come app:** Chrome/Edge → menu → «Installa Mia». Funziona anche senza rete per aprire l'app e leggere le chat già salvate (le risposte dei modelli richiedono internet).
 
+**Portare le chat su un altro dispositivo (con Drive)**
+1. Sul dispositivo di partenza: Impostazioni → **Esporta chat**. Su Android si apre il pannello «Condividi»: scegli **Drive** (Salva su Drive). Nel browser il file viene scaricato: caricalo tu su Drive.
+2. Sull'altro dispositivo: Impostazioni → **Importa chat** e scegli il file da Drive.
+3. Le chat nuove vengono aggiunte; se una chat esiste già, vince la versione più recente (nessuna chat viene cancellata). Un messaggio riassume quante chat sono state aggiunte e aggiornate.
+
+Il file contiene solo le conversazioni, **non** chiavi, token o impostazioni (vanno reinseriti). I file creati dagli strumenti (PDF, Excel, immagini…) restano sul dispositivo d'origine. Il file viene ripulito in lettura: si tengono solo i campi noti, e il contenuto si mostra sempre come testo.
+
 **Cosa cambia rispetto all'app Android**
 - Il browser applica le regole **CORS**: alcune richieste a servizi esterni possono essere bloccate (di norma vanno Gemini, OpenRouter, Groq e GitHub; possono non andare altri provider, la ricerca DuckDuckGo e vari connettori MCP).
 - Non ci sono fotocamera, condivisione da altre app e microfono/lettura vocale nativi (il microfono del browser funziona con Chrome ed Edge).
-- **Nessuna sincronizzazione**: chat, chiavi e impostazioni stanno nel browser di quel dispositivo. Esporta le chat in JSON per spostarle.
+- **Nessuna sincronizzazione automatica**: chat, chiavi e impostazioni stanno nel browser di quel dispositivo. Per spostare le chat usa Esporta/Importa (vedi sopra).
 - I dati stanno nel `localStorage` dell'indirizzo `micmax1000-afk.github.io`: altri siti ospitati su GitHub Pages con lo stesso account condividono quello spazio. Usa un browser o un profilo dedicato se ne hai.
 
 ## APK con GitHub Actions
