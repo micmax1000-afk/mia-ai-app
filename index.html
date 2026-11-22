@@ -61,6 +61,7 @@
   <div style="padding:0 12px 8px">
     <button type="button" class="btn ghost full" id="drawerNew"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Nuova chat</button>
   </div>
+  <div style="padding:0 12px 8px"><input type="search" id="convSearch" placeholder="Cerca nelle chat…" aria-label="Cerca nelle chat" autocomplete="off"></div>
   <ul class="conv-list" id="convList"></ul>
   <div class="drawer-foot">
     <button type="button" class="btn ghost full" data-open-settings>Impostazioni</button>
@@ -112,6 +113,12 @@
       <label class="field">
         <span>Istruzioni di sistema</span>
         <textarea id="systemPrompt" rows="3"></textarea>
+      </label>
+
+      <label class="field">
+        <span>Memoria (cose che Mia deve ricordare di te, una per riga)</span>
+        <textarea id="memory" rows="3" maxlength="4000" placeholder="Es.: Mi chiamo Marco. Preferisco risposte brevi."></textarea>
+        <small class="hint">Viene aggiunta a ogni conversazione. In modalità agente Mia può aggiungere e togliere righe (chiede conferma). Non scrivere password o dati sensibili.</small>
       </label>
 
       <label class="field">

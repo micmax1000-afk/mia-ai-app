@@ -192,5 +192,13 @@ module.exports = {
     /indica il numero di pagine reale = true \| arriva a pagina 100 = true \| non oltre = true \| avviso di testo troncato = true/,
     /errore chiaro = ⚠️ Il PDF «scansione\.pdf» non contiene testo selezionabile/, /con Gemini invece va \(legge le immagini\) = true/,
     /l'allegato si crea comunque e dà l'errore chiaro = true/, /errore chiaro con NVIDIA = true/, /il testo viene usato anche con Gemini = true/, /^ERRORS \[\]/m
+  ],
+  '24-ricerca-memoria.js': [
+    /«besciamella» → Ricetta lasagne/, /estratto mostrato = true/, /«LISBONA tre».* → Viaggio a Lisbona/, /«itinerario» → Viaggio a Lisbona/, /«zzzz» → Nessuna chat contiene «zzzz»/,
+    /testo cercato mostrato come testo = true/, /elenco completo → 3 chat/, /clic su un risultato apre la chat = Scrivi una funzione/,
+    /search_chats → "• Ricetta lasagne/, /notes search «pane» → "• Spesa/, /notes search «xyz» → "Nessuna nota contiene/, /notes search nel titolo «idee» → "• Idee/,
+    /memoria nelle istruzioni di sistema = true \| indicata come dati = true/, /add → Ricordato: Vivo a Torino => \[Mi chiamo Marco\. \/ Vivo a Torino\]/,
+    /add doppione → Già in memoria/, /remove → Tolte 1 righe/, /remove inesistente → Nessuna riga contiene/, /memoria piena → ERR Memoria piena/,
+    /add e remove chiedono conferma = true/, /^ERRORS \[\]/m
   ]
 };

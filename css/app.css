@@ -495,3 +495,6 @@ html[data-offline='1'] .net-dot {
 .mcp-server details { margin-top: 6px; font-size: 13px; }
 .mcp-server details label { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; }
 .mcp-server details input { margin-top: 2px; accent-color: var(--accent); }
+
+.conv-list .open-conv small.conv-snippet { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#convSearch { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border, rgba(128,128,128,.35)); background: transparent; color: inherit; font: inherit; font-size: 14px; }

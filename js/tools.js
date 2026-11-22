@@ -466,11 +466,12 @@
 
   def('notes', {
     description:
-      'Note personali salvate sul telefono: «save» (salva o aggiorna una nota per titolo), «list» (elenco), «read» (legge per titolo), «delete» (elimina per titolo).',
+      'Note personali salvate sul telefono: «save» (salva o aggiorna una nota per titolo), «list» (elenco), «read» (legge per titolo), «delete» (elimina per titolo), «search» (cerca parole nel titolo e nel testo di tutte le note).',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['save', 'list', 'read', 'delete'], description: 'Azione da eseguire.' },
+        action: { type: 'string', enum: ['save', 'list', 'read', 'delete', 'search'], description: 'Azione da eseguire.' },
+        query: { type: 'string', description: 'Parole da cercare nei titoli e nei testi delle note (per search).' },
         title: { type: 'string', description: 'Titolo della nota (per save, read, delete).' },
         text: { type: 'string', description: 'Testo della nota (per save).' }
       },
@@ -481,6 +482,7 @@
       if (a.action === 'delete') return 'Elimina la nota «' + str(a.title) + '»';
       if (a.action === 'save') return 'Salva la nota «' + str(a.title) + '»';
       if (a.action === 'read') return 'Leggi la nota «' + str(a.title) + '»';
+      if (a.action === 'search') return 'Cerca «' + str(a.query) + '» nelle note';
       return 'Elenca le note';
     },
     async run(args) {
@@ -489,6 +491,12 @@
       if (args.action === 'list') {
         if (!list.length) return 'Nessuna nota.';
         return list.map((n) => '• ' + n.title + ' (' + new Date(n.updated).toLocaleDateString('it-IT') + ')').join('\n');
+      }
+      if (args.action === 'search') {
+        const words = need(args, 'query').toLowerCase().split(/\s+/).filter(Boolean);
+        const hits = list.filter((n) => words.every((w) => (n.title + '\n' + n.text).toLowerCase().includes(w)));
+        if (!hits.length) return 'Nessuna nota contiene «' + str(args.query) + '».';
+        return hits.map((n) => '• ' + n.title + ': ' + clip(str(n.text).replace(/\s+/g, ' ').slice(0, 160))).join('\n');
       }
       if (args.action === 'save') {
         const title = need(args, 'title');
@@ -508,7 +516,54 @@
         saveNotes(list);
         return 'Nota eliminata: ' + t;
       }
-      throw new Error('Azione non valida: usa save, list, read o delete.');
+      throw new Error('Azione non valida: usa save, list, read, delete o search.');
+    }
+  });
+
+  // ─── Ricerca nelle chat e Memoria ─────────────────────────
+  def('search_chats', {
+    description: 'Cerca parole nelle conversazioni salvate sul dispositivo (titoli, messaggi, nomi degli allegati). Restituisce titolo, data e un estratto.',
+    parameters: { type: 'object', properties: { query: { type: 'string', description: 'Parole da cercare (devono comparire tutte).' } }, required: ['query'] },
+    title: (a) => 'Cerca «' + str(a.query) + '» nelle chat',
+    async run(args, ctx) {
+      const found = ctx.searchChats ? ctx.searchChats(need(args, 'query')) : [];
+      if (!found.length) return 'Nessuna chat contiene «' + str(args.query) + '».';
+      return found.map((r) => '• ' + r.title + ' (' + new Date(r.updated).toLocaleDateString('it-IT') + ')' + (r.snippet ? ': ' + r.snippet : '')).join('\n');
+    }
+  });
+
+  def('memory', {
+    description:
+      'Memoria personale dell\'utente (fatti stabili: nome, preferenze, progetti), aggiunta a ogni conversazione. «add» aggiunge una riga, «list» la elenca, «remove» toglie le righe che contengono il testo dato. Salva solo ciò che l\'utente chiede di ricordare o che è chiaramente stabile; mai password o dati sensibili.',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['add', 'list', 'remove'], description: 'Azione da eseguire.' },
+        text: { type: 'string', description: 'Il fatto da ricordare (add) o parte del testo da togliere (remove).' }
+      },
+      required: ['action']
+    },
+    write: (a) => a.action === 'add' || a.action === 'remove',
+    title: (a) => (a.action === 'add' ? 'Ricorda: «' + str(a.text) + '»' : a.action === 'remove' ? 'Dimentica: «' + str(a.text) + '»' : 'Mostra la memoria'),
+    async run(args, ctx) {
+      if (!ctx.getMemory) throw new Error('Memoria non disponibile.');
+      const lines = ctx.getMemory().split('\n').map((l) => l.trim()).filter(Boolean);
+      if (args.action === 'list') return lines.length ? lines.map((l) => '• ' + l).join('\n') : 'La memoria è vuota.';
+      const text = need(args, 'text').trim().replace(/\s*\n\s*/g, ' ');
+      if (args.action === 'add') {
+        if (lines.some((l) => l.toLowerCase() === text.toLowerCase())) return 'Già in memoria: ' + text;
+        if (lines.join('\n').length + text.length > 3800) throw new Error('Memoria piena: togli qualche riga prima.');
+        lines.push(text);
+        ctx.setMemory(lines.join('\n'));
+        return 'Ricordato: ' + text;
+      }
+      if (args.action === 'remove') {
+        const keep = lines.filter((l) => !l.toLowerCase().includes(text.toLowerCase()));
+        if (keep.length === lines.length) return 'Nessuna riga contiene «' + text + '».';
+        ctx.setMemory(keep.join('\n'));
+        return 'Tolte ' + (lines.length - keep.length) + ' righe dalla memoria.';
+      }
+      throw new Error('Azione non valida: usa add, list o remove.');
     }
   });
 
