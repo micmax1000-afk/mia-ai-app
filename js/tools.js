@@ -815,11 +815,30 @@
       } catch (_) {}
       return { res, data };
     };
-    let { res, data } = await post({ prompt, width: 1024, height: 1024, seed: 0, steps: 4 });
-    if (res.status === 422) ({ res, data } = await post({ prompt, seed: 0, steps: 4 }));
+    // Il servizio convalida la richiesta e rifiuta i campi che non conosce (422 «extra_forbidden»): si leggono dall'errore
+    // i campi opzionali che non vanno bene e si riprova senza, fino a 5 volte. Il testo («prompt») non si tocca mai.
+    const body = { prompt, width: 1024, height: 1024, seed: 0, steps: 4 };
+    let res;
+    let data;
+    for (let i = 0; i < 5; i++) {
+      ({ res, data } = await post(body));
+      if (res.status !== 422) break;
+      const list = Array.isArray(data) ? data : data && Array.isArray(data.detail) ? data.detail : data && Array.isArray(data.errors) ? data.errors : [];
+      const bad = [];
+      list.forEach((e) => {
+        const f = e && Array.isArray(e.loc) ? e.loc[e.loc.length - 1] : null;
+        if (typeof f === 'string' && f !== 'prompt' && Object.prototype.hasOwnProperty.call(body, f)) bad.push(f);
+      });
+      if (!bad.length) break;
+      bad.forEach((f) => delete body[f]);
+    }
     if (!res.ok) {
       let m = '';
-      if (data) m = data.detail || data.message || data.title || (data.error && (data.error.message || data.error)) || '';
+      if (data) {
+        const arr = Array.isArray(data) ? data : Array.isArray(data.detail) ? data.detail : null;
+        if (arr) m = arr.map((e) => (e && e.loc ? e.loc.join('.') + ': ' : '') + ((e && (e.msg || e.message)) || JSON.stringify(e))).join('; ');
+        else m = data.detail || data.message || data.title || (data.error && (data.error.message || data.error)) || '';
+      }
       if (typeof m !== 'string') m = JSON.stringify(m);
       const st = res.status;
       let hint = '';
@@ -827,7 +846,7 @@
       else if (st === 402 || /credit|quota|billing|payment/i.test(m)) hint = ' I crediti gratuiti NVIDIA potrebbero essere finiti: controlla il saldo su build.nvidia.com.';
       else if (st === 429) hint = ' Troppe richieste: riprova tra poco.';
       else if (st === 404) hint = ' Il servizio immagini non risulta disponibile per questa chiave.';
-      throw new Error('NVIDIA FLUX: ' + (m ? oneLine(m, 200) : 'errore') + ' [HTTP ' + st + ']' + hint);
+      throw new Error('NVIDIA FLUX: ' + (m ? oneLine(m, 240) : 'errore') + ' [HTTP ' + st + ']' + hint);
     }
     const d = data || {};
     const first = (Array.isArray(d.artifacts) && d.artifacts[0]) || (Array.isArray(d.images) && d.images[0]) || (Array.isArray(d.data) && d.data[0]) || d;
@@ -839,9 +858,34 @@
     return { data: b64, mime: sniffImage(b64), note: '', who: 'NVIDIA FLUX.1 schnell' };
   }
 
+  // Pollinations: gratuito e senza chiave (progetto di comunità, nessuna garanzia di disponibilità).
+  // Dal browser l'indirizzo può non permettere la lettura (CORS): con ctx.allowLink si restituisce allora il solo link, che l'<img> sa mostrare.
+  async function pollinationsImage(prompt, ctx) {
+    const url =
+      'https://image.pollinations.ai/prompt/' +
+      encodeURIComponent(prompt.slice(0, 900)) +
+      '?width=1024&height=1024&nologo=true&model=flux&seed=' +
+      Math.floor(Math.random() * 1e9);
+    let res;
+    try {
+      res = await fetch(url, { signal: ctx.signal });
+    } catch (e) {
+      if (e && e.name === 'AbortError') throw e;
+      if (ctx.allowLink) return { url, mime: 'image/jpeg', note: 'Immagine mostrata come collegamento (non salvabile da qui).', who: 'Pollinations' };
+      throw new Error('Pollinations non raggiungibile da qui (rete, o regole CORS del browser).');
+    }
+    if (!res.ok) {
+      if (res.status === 429) throw new Error('Pollinations: troppe richieste, riprova tra qualche secondo [HTTP 429]');
+      throw new Error('Pollinations: errore [HTTP ' + res.status + ']');
+    }
+    const blob = await res.blob();
+    if (!/^image\//.test(blob.type) || blob.size < 200) throw new Error('Pollinations non ha restituito un\'immagine.');
+    return { blob, mime: blob.type, note: '', who: 'Pollinations (FLUX)' };
+  }
+
   def('generate_image', {
     description:
-      'Genera con l\'intelligenza artificiale una foto o un\'illustrazione a partire da una descrizione (NVIDIA FLUX.1 schnell o Gemini, secondo le impostazioni). ' +
+      'Genera con l\'intelligenza artificiale una foto o un\'illustrazione a partire da una descrizione (NVIDIA FLUX.1 schnell, Gemini o Pollinations, secondo le impostazioni). ' +
       'Scrivi la descrizione in inglese per risultati migliori. Per loghi, schemi e grafici precisi è meglio create_svg.',
     parameters: {
       type: 'object',
@@ -855,22 +899,16 @@
     async run(args, ctx) {
       const prompt = need(args, 'prompt');
       const choice = ctx.imageProvider || 'auto';
-      const order = choice === 'nvidia' ? ['nvidia'] : choice === 'gemini' ? ['gemini'] : ['nvidia', 'gemini'];
-      const usable = order.filter((k) => (k === 'nvidia' ? ctx.nvidiaKey : ctx.geminiKey));
+      const order = ['nvidia', 'gemini', 'pollinations'].includes(choice) ? [choice] : ['nvidia', 'gemini', 'pollinations'];
+      const usable = order.filter((k) => (k === 'nvidia' ? ctx.nvidiaKey : k === 'gemini' ? ctx.geminiKey : true));
       if (!usable.length) {
-        throw new Error(
-          choice === 'nvidia'
-            ? 'Serve la chiave NVIDIA: inseriscila in Impostazioni (provider NVIDIA).'
-            : choice === 'gemini'
-            ? 'Serve la chiave Gemini: inseriscila in Impostazioni (provider Google Gemini).'
-            : 'Per generare immagini serve la chiave NVIDIA (FLUX) o quella Gemini: inseriscine una in Impostazioni.'
-        );
+        throw new Error(choice === 'nvidia' ? 'Serve la chiave NVIDIA: inseriscila in Impostazioni (provider NVIDIA).' : 'Serve la chiave Gemini: inseriscila in Impostazioni (provider Google Gemini).');
       }
       let img = null;
       const failures = [];
       for (const k of usable) {
         try {
-          img = await (k === 'nvidia' ? nvidiaImage : geminiImage)(prompt, ctx);
+          img = await (k === 'nvidia' ? nvidiaImage : k === 'gemini' ? geminiImage : pollinationsImage)(prompt, ctx);
           break;
         } catch (e) {
           if (e && e.name === 'AbortError') throw e;
@@ -878,10 +916,12 @@
         }
       }
       if (!img) throw new Error(failures.join(' | '));
+      const first = failures.length ? 'Il primo servizio ha fallito (' + oneLine(failures[0], 120) + '): ho usato ' + img.who + '.' : 'Creata con ' + img.who + '.';
+      if (img.url) return { text: 'Immagine generata con ' + img.who + ' (solo collegamento). ' + first, files: [], imageUrl: img.url };
       const ext = /jpe?g/i.test(img.mime) ? 'jpg' : /webp/i.test(img.mime) ? 'webp' : 'png';
       const name = safeName(str(args.filename).trim() || 'immagine-' + new Date().toISOString().slice(0, 16).replace(/[-:T]/g, ''), ext);
-      const note = [img.note, failures.length ? 'Il primo servizio ha fallito (' + oneLine(failures[0], 120) + '): ho usato ' + img.who + '.' : 'Creata con ' + img.who + '.'].filter(Boolean).join(' ');
-      return fileResult('Immagine generata', [{ name, mime: img.mime, blob: base64ToBlob(img.data, img.mime) }], note);
+      const blob = img.blob || base64ToBlob(img.data, img.mime);
+      return fileResult('Immagine generata', [{ name, mime: img.mime, blob }], [img.note, first].filter(Boolean).join(' '));
     }
   });
 
@@ -2099,7 +2139,7 @@
     if (!t) throw new Error('Strumento sconosciuto: ' + name);
     if (ctx && ctx.signal && ctx.signal.aborted) throw abortError();
     const out = await t.run(args || {}, ctx || {});
-    if (out && typeof out === 'object' && typeof out.text === 'string') return { text: clip(out.text), files: out.files || [] };
+    if (out && typeof out === 'object' && typeof out.text === 'string') return { text: clip(out.text), files: out.files || [], imageUrl: out.imageUrl };
     return { text: clip(out), files: [] };
   }
 
