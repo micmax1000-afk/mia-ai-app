@@ -40,7 +40,8 @@ Dati nel dispositivo: `localStorage` → `miaai_v1_settings`, `miaai_v1_conversa
 - **APK:** `.github/workflows/build-apk.yml` parte a ogni push (anche sui branch). Artifact `mia-ai-debug-apk`, firma fissa (le chat restano installando sopra).
   Il repository è pubblico: la chiave di firma è visibile, va bene per un'app personale, non per il Play Store.
 - **Pagina web:** `.github/workflows/pages.yml` pubblica `www/` su `https://micmax1000-afk.github.io/mia-ai-app/` a ogni unione su `main`.
-  Richiede, una volta, *Settings → Pages → Source: GitHub Actions* (al momento NON attivato: il passo «Pubblica» fallisce).
+  Richiede, una volta, *Settings → Pages → Source: GitHub Actions*: **ora è attivo** e la pubblicazione riesce (verificato su GitHub Actions). L'apertura della pagina da un PC non è ancora stata verificata dal proprietario (dall'ambiente di sviluppo `github.io` non è raggiungibile).
+  Le modifiche ai soli file `.md` (e a `tests/`) non fanno partire né il build dell'APK né la pubblicazione: per una PR di sola documentazione non c'è un build sul commit di testa, si guarda l'ultimo build verde di `main`.
 
 ## Cose da sapere (insidie già incontrate)
 - `P.chat` restituisce **testo**; con `{ full: true }` restituisce `{ text, toolCalls }`. `runFileEdit` (di `main`) si aspetta una stringa.
@@ -60,7 +61,7 @@ Dati nel dispositivo: `localStorage` → `miaai_v1_settings`, `miaai_v1_conversa
 - Niente CLI `gh`: per GitHub si usano gli strumenti MCP. Chromium e Playwright sono preinstallati (`/opt/pw-browsers`, versione 1.63.0 — la stessa fissata in `tests/package.json`).
 
 ## Stato e idee aperte
-- Da attivare: GitHub Pages (vedi sopra).
+- GitHub Pages: attivo e pubblicato; da verificare l'apertura da PC (vedi sopra).
 - Verificato dal proprietario sul telefono: chat e provider, Python (anche grafici), strumenti GitHub con token corretto, ricerca web, creazione file (zip, Excel), connettore Parallel, immagini (NVIDIA/Pollinations) con Condividi/Salva, esporta chat in JSON con Condividi.
-- Non ancora verificato sul telefono: importazione chat, Mia Bridge, Serper/Exa/Tavily con chiavi vere, versione web su PC.
+- Non ancora verificato: importazione chat, Mia Bridge, Serper/Exa/Tavily con chiavi vere, versione web su PC (apertura della pagina, installazione come app).
 - Idee: sincronizzazione chat tra dispositivi (repository GitHub privato), CI che esegue `tests/` sulle PR, app per Windows/Ubuntu (Electron) se i limiti CORS del browser danno fastidio.
