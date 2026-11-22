@@ -47,8 +47,8 @@
       needsKey: true,
       keyUrl: 'https://build.nvidia.com/settings/api-keys',
       hint:
-        'Chiave «nvapi-…» da build.nvidia.com (accesso gratuito per sviluppatori, con limiti di richieste). ' +
-        'Premi «Carica modelli» e scegli un modello per chat (es. Llama, Mistral, DeepSeek, Qwen). ' +
+        'Chiave «nvapi-…» da build.nvidia.com. NVIDIA dà crediti gratuiti per sviluppatori: finiti quelli, le richieste possono smettere di funzionare, ' +
+        'quindi controlla il saldo sul sito. Premi «Carica modelli» e scegli un modello per chat (es. Llama, Mistral, DeepSeek, Qwen). ' +
         'Nel browser le richieste possono essere bloccate dal CORS; nell\'app Android dovrebbero funzionare.'
     },
     mistral: {
@@ -60,16 +60,6 @@
       needsKey: true,
       keyUrl: 'https://console.mistral.ai/api-keys',
       hint: 'Chiave da console.mistral.ai. Il piano gratuito («Experiment»), se disponibile per il tuo account, ha limiti di richieste.'
-    },
-    cerebras: {
-      label: 'Cerebras',
-      short: 'Cerebras',
-      type: 'openai',
-      baseUrl: 'https://api.cerebras.ai/v1',
-      model: '',
-      needsKey: true,
-      keyUrl: 'https://cloud.cerebras.ai',
-      hint: 'Chiave da cloud.cerebras.ai: piano gratuito con limiti di richieste, risposte molto veloci.'
     },
     sambanova: {
       label: 'SambaNova',

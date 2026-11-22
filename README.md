@@ -17,16 +17,15 @@ App di chat AI personale per Android (Capacitor), senza bundler: HTML + CSS + Ja
 | Google Gemini | chiave da [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | OpenRouter | chiave da [openrouter.ai/keys](https://openrouter.ai/keys) (modelli `:free`) |
 | Groq | chiave da [console.groq.com/keys](https://console.groq.com/keys) |
-| NVIDIA | chiave `nvapi-…` da [build.nvidia.com](https://build.nvidia.com/settings/api-keys) (accesso gratuito per sviluppatori, con limiti) |
+| NVIDIA | chiave `nvapi-…` da [build.nvidia.com](https://build.nvidia.com/settings/api-keys): crediti gratuiti per sviluppatori, che si esauriscono (controlla il saldo sul sito) |
 | Mistral AI | chiave da [console.mistral.ai](https://console.mistral.ai/api-keys) (piano gratuito «Experiment», se disponibile) |
-| Cerebras | chiave da [cloud.cerebras.ai](https://cloud.cerebras.ai) (piano gratuito con limiti) |
 | SambaNova | chiave da [cloud.sambanova.ai](https://cloud.sambanova.ai/apis) (piano gratuito con limiti) |
 | Hugging Face | token da [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) con il permesso «Make calls to Inference Providers» (crediti mensili limitati) |
 | Personalizzato | qualsiasi server con API `/v1/chat/completions` (es. LM Studio, vLLM, un tuo proxy) |
 
 Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.
 
-I limiti dei piani gratuiti cambiano nel tempo: controllali sul sito di ogni servizio. Dal browser alcuni servizi possono bloccare le richieste (CORS); nell'app Android dovrebbero funzionare, ma non l'ho potuto verificare con i servizi veri. Con Mistral l'app adatta da sola gli id delle chiamate agli strumenti (9 caratteri alfanumerici), che il servizio richiede.
+I limiti dei piani gratuiti cambiano nel tempo: controllali sul sito di ogni servizio. Per la ricerca web i piani gratuiti sono quelli indicati da ciascun servizio (Tavily e Serper senza carta secondo le loro pagine; per Exa la quota gratuita non è confermata dalla documentazione). Dal browser alcuni servizi possono bloccare le richieste (CORS); nell'app Android dovrebbero funzionare, ma non l'ho potuto verificare con i servizi veri. Con Mistral l'app adatta da sola gli id delle chiamate agli strumenti (9 caratteri alfanumerici), che il servizio richiede.
 
 ### Integrazione GitHub
 
@@ -73,7 +72,7 @@ In **Impostazioni → Modalità agente** Mia può usare 24 strumenti (più quell
 | `read_webpage` | legge il testo di una pagina web | no |
 | `notes` | note salvate sul telefono | solo elimina |
 | `github_edit_file` | modifica un file con «trova e sostituisci» esatto (non lo riscrive per intero), con commit | **sì** |
-| `web_search` | ricerca web con fonti: Google tramite Gemini (predefinita, usa la chiave Gemini), DuckDuckGo (non ufficiale, senza chiave), Brave Search o Tavily | no |
+| `web_search` | ricerca web con fonti: Google tramite Gemini (predefinita, usa la chiave Gemini), DuckDuckGo (non ufficiale, senza chiave), Tavily, Serper o Exa (piani gratuiti con chiave) | no |
 | `update_plan` | scrive e aggiorna l'elenco dei passi di un lavoro lungo, visibile in chat | no |
 | `github_search_code` | cerca testo/codice nei repository | no |
 | `github_pull_requests` | elenca/legge PR (con diff); crea, commenta, unisce | solo crea/commenta/**unisce** |
@@ -104,7 +103,7 @@ In **Impostazioni → Modalità agente** Mia può usare 24 strumenti (più quell
 - `read_webpage` prova l'indirizzo direttamente; se il sito blocca la richiesta usa il servizio r.jina.ai.
 - Ogni richiesta può fare al massimo 15 giri di strumenti (regolabile da 3 a 40 in Impostazioni); il pulsante ■ ferma tutto.
 - Nei lavori lunghi i risultati più vecchi degli strumenti vengono accorciati nel contesto, e l'ultima richiesta dell'utente resta sempre inclusa.
-- La ricerca web invia la domanda al servizio scelto (Google/Gemini, DuckDuckGo, Brave o Tavily). **DuckDuckGo non ha un'API ufficiale**: Mia legge la sua pagina HTML, cosa che va contro i suoi termini d'uso, può rompersi senza preavviso e può essere bloccata con una verifica anti-robot; nel browser è bloccata dalle regole CORS (nell'app Android dovrebbe funzionare, ma non è verificato). Con Google usa il «grounding» di Gemini: la quota gratuita delle ricerche dipende dal tuo piano.
+- La ricerca web invia la domanda al servizio scelto (Google/Gemini, DuckDuckGo, Tavily, Serper o Exa). **DuckDuckGo non ha un'API ufficiale**: Mia legge la sua pagina HTML, cosa che va contro i suoi termini d'uso, può rompersi senza preavviso e può essere bloccata con una verifica anti-robot; nel browser è bloccata dalle regole CORS (nell'app Android dovrebbe funzionare, ma non è verificato). Con Google usa il «grounding» di Gemini: la quota gratuita delle ricerche dipende dal tuo piano.
 
 ### Connettori (MCP)
 
