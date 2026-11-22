@@ -17,7 +17,7 @@ App di chat AI personale per Android (Capacitor), senza bundler: HTML + CSS + Ja
 | Google Gemini | chiave da [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | OpenRouter | chiave da [openrouter.ai/keys](https://openrouter.ai/keys) (modelli `:free`) |
 | Groq | chiave da [console.groq.com/keys](https://console.groq.com/keys) |
-| NVIDIA | chiave `nvapi-…` da [build.nvidia.com](https://build.nvidia.com/settings/api-keys): crediti gratuiti per sviluppatori, che si esauriscono (controlla il saldo sul sito) |
+| NVIDIA | chiave `nvapi-…` da [build.nvidia.com](https://build.nvidia.com/settings/api-keys): servizio di **prova** (crediti gratuiti che si esauriscono, solo test e valutazione, non produzione). Dai [termini «API Trial»](https://assets.ngc.nvidia.com/products/api-catalog/legal/NVIDIA%20API%20Trial%20Terms%20of%20Service.pdf): NVIDIA può usare testi e risposte per migliorare i suoi modelli e **vieta di inviare dati personali, sanitari, finanziari o riservati**. Il numero di crediti e il limite di richieste non sono nei termini: li mostra il tuo profilo |
 | Mistral AI | chiave da [console.mistral.ai](https://console.mistral.ai/api-keys) (piano gratuito «Experiment», se disponibile) |
 | SambaNova | chiave da [cloud.sambanova.ai](https://cloud.sambanova.ai/apis) (piano gratuito con limiti) |
 | Hugging Face | token da [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) con il permesso «Make calls to Inference Providers» (crediti mensili limitati) |

@@ -47,9 +47,10 @@
       needsKey: true,
       keyUrl: 'https://build.nvidia.com/settings/api-keys',
       hint:
-        'Chiave «nvapi-…» da build.nvidia.com. NVIDIA dà crediti gratuiti per sviluppatori: finiti quelli, le richieste possono smettere di funzionare, ' +
-        'quindi controlla il saldo sul sito. Premi «Carica modelli» e scegli un modello per chat (es. Llama, Mistral, DeepSeek, Qwen). ' +
-        'Nel browser le richieste possono essere bloccate dal CORS; nell\'app Android dovrebbero funzionare.'
+        'Chiave «nvapi-…» da build.nvidia.com. È un servizio di PROVA (termini «API Trial» di NVIDIA): crediti gratuiti che si esauriscono, solo per test e valutazione, ' +
+        'non per produzione. Importante: NVIDIA può usare i testi che invii e le risposte per migliorare i suoi modelli, e i termini vietano di inviare dati personali di ' +
+        'persone identificabili, dati sanitari, finanziari o riservati: non allegare documenti sensibili a questi modelli. ' +
+        'Premi «Carica modelli» e scegli un modello per chat. Nel browser le richieste possono essere bloccate dal CORS; nell\'app Android funzionano.'
     },
     mistral: {
       label: 'Mistral AI',
