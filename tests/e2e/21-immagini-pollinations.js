@@ -49,6 +49,11 @@ const cors={'access-control-allow-origin':'*','access-control-allow-headers':'*'
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-file]')]); console.log('   Condividi/Salva (browser) → scarica:', dl.suggestedFilename());
   await page.reload(); console.log('   dopo il ricaricamento il file c\'è ancora =', await page.locator('.file-card').count()===1);
 
+  console.log('— formato dalla richiesta');
+  for (const [testo, atteso] of [['disegna un tramonto panoramico orizzontale','1344x768'],['disegna un ritratto verticale di un gufo','768x1344'],['disegna una mela','1024x1024']]) {
+    await setup(base()); pol.urls=[]; await page.fill('#input',testo); await page.click('#sendBtn'); await page.waitForSelector('.file-card',{timeout:20000});
+    const q = new URL(pol.urls[0]).searchParams; console.log('   «'+testo+'» → '+q.get('width')+'x'+q.get('height')+(q.get('width')+'x'+q.get('height')===atteso?' (atteso)':' (!! atteso '+atteso+')'));
+  }
   console.log('— il modello non risponde: si usa il testo originale');
   await setup(base()); chatMode='fail'; pol.urls=[];
   await page.fill('#input','disegna una casa rossa'); await page.click('#sendBtn'); await page.waitForSelector('.file-card',{timeout:25000});
