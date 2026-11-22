@@ -20,7 +20,7 @@ function copyDir(src, dest) {
 fs.rmSync(www, { recursive: true, force: true });
 fs.mkdirSync(www, { recursive: true });
 
-for (const f of ['index.html', 'manifest.webmanifest']) {
+for (const f of ['index.html', 'manifest.webmanifest', 'sw.js']) {
   const s = path.join(root, f);
   if (fs.existsSync(s)) fs.copyFileSync(s, path.join(www, f));
 }

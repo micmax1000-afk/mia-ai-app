@@ -90,8 +90,24 @@
         msg += ' — ' + data.errors.map((e) => (typeof e === 'string' ? e : e.message || e.code)).join('; ');
       if (res.status === 401) msg = 'Token GitHub non valido o scaduto (' + msg + ')';
       else if (res.status === 403 && /rate limit/i.test(msg)) msg = 'Limite di richieste GitHub raggiunto: riprova più tardi.';
-      else if (res.status === 403 || res.status === 404)
+      else if (res.status === 403 || res.status === 404) {
         msg += ' (se il repository esiste, il token potrebbe non avere accesso o i permessi necessari)';
+        // dettagli per capire quale permesso manca
+        const h = (n) => {
+          try {
+            return res.headers.get(n);
+          } catch (_) {
+            return null;
+          }
+        };
+        const kind = /^github_pat_/.test(ctx.token) ? 'fine-grained' : /^gh[pousr]_/.test(ctx.token) ? 'classic o altro' : 'sconosciuto';
+        const needP = h('x-accepted-github-permissions');
+        const scopes = h('x-oauth-scopes');
+        msg += ' — richiesta: ' + (opts.method || 'GET') + ' ' + path.split('?')[0] + ' · token: ' + kind;
+        if (needP) msg += ' · permessi richiesti da GitHub: ' + needP;
+        if (scopes !== null && scopes !== undefined) msg += ' · scope del token: ' + (scopes || 'nessuno');
+        if (data && data.documentation_url) msg += ' · guida: ' + data.documentation_url;
+      }
       throw new Error(msg + ' [HTTP ' + res.status + ']');
     }
     return data;
@@ -1954,9 +1970,29 @@
     return Object.prototype.hasOwnProperty.call(DYN, name) ? DYN[name] : null;
   }
 
-  /** Schemi da inviare al modello. */
-  function definitions() {
-    return Object.values(TOOLS).concat(Object.values(DYN)).map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
+  /** Strumenti di ricerca/lettura web offerti dai connettori: { search, fetch } (nomi) o null. */
+  function connectorWeb() {
+    const names = Object.keys(DYN);
+    const search = names.find((n) => /_web_search$/.test(n)) || null;
+    const fetchT = names.find((n) => /_web_fetch$/.test(n)) || null;
+    return { search, fetch: fetchT };
+  }
+
+  /**
+   * Schemi da inviare al modello. Con opts.preferConnectors, se un connettore offre una ricerca (o una lettura) web,
+   * gli strumenti equivalenti di Mia vengono nascosti, così il modello non deve scegliere tra due.
+   */
+  function definitions(opts) {
+    const hide = new Set();
+    if (opts && opts.preferConnectors) {
+      const w = connectorWeb();
+      if (w.search) hide.add('web_search');
+      if (w.fetch) hide.add('read_webpage');
+    }
+    return Object.values(TOOLS)
+      .concat(Object.values(DYN))
+      .filter((t) => !hide.has(t.name))
+      .map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
   }
 
   function needsConfirm(name, args) {
@@ -1988,5 +2024,5 @@
     return { text: clip(out), files: [] };
   }
 
-  global.MiaTools = { definitions, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
+  global.MiaTools = { definitions, connectorWeb, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
 })(window);

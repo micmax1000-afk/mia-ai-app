@@ -112,6 +112,7 @@ In **Impostazioni → Modalità agente → Connettori (MCP)** puoi collegare ser
 Premi **Prova**: Mia legge gli strumenti del server e puoi disattivare quelli che non servono (troppi strumenti confondono i modelli).
 
 - Gli strumenti compaiono al modello come `mcp_<connettore>_<strumento>`.
+- Se un connettore offre `web_search` o `web_fetch` (per esempio Parallel), Mia nasconde la propria ricerca/lettura web e dice al modello di usare quella del connettore, così non serve nominarlo. Si disattiva con la casella in Impostazioni.
 - Quelli che il server non dichiara «di sola lettura» chiedono sempre conferma. I contenuti restituiti sono trattati come dati, non come istruzioni.
 - Nel browser il server deve accettare richieste CORS; nell'APK Android le richieste passano dal plugin HTTP nativo di Capacitor.
 - Non sono supportati i server MCP con solo il vecchio trasporto «SSE» né i login OAuth: serve un token che incolli tu.
@@ -147,6 +148,24 @@ diapositive e note di PowerPoint, elenco e contenuto dei file di testo di uno zi
 
 Chiavi e conversazioni restano solo nel `localStorage` del dispositivo.
 
+## Versione web (PC e tablet)
+
+La stessa app gira in un browser (Chrome, Edge, Firefox) su Windows, Ubuntu e tablet. Indirizzo: **https://micmax1000-afk.github.io/mia-ai-app/**
+
+**Attivazione (una volta sola):** su GitHub, nel repository → *Settings* → *Pages* → *Build and deployment* → **Source: GitHub Actions**.
+Poi, a ogni unione su `main`, il workflow «Pagina web (GitHub Pages)» ripubblica la pagina da solo. Se il primo tentativo era fallito perché Pages non era ancora attivo,
+vai su *Actions* → «Pagina web (GitHub Pages)» → *Run workflow*.
+
+**In locale:** `npm install && npm run serve` e apri `http://localhost:8080`.
+
+**Installarla come app:** Chrome/Edge → menu → «Installa Mia». Funziona anche senza rete per aprire l'app e leggere le chat già salvate (le risposte dei modelli richiedono internet).
+
+**Cosa cambia rispetto all'app Android**
+- Il browser applica le regole **CORS**: alcune richieste a servizi esterni possono essere bloccate (di norma vanno Gemini, OpenRouter, Groq e GitHub; possono non andare altri provider, la ricerca DuckDuckGo e vari connettori MCP).
+- Non ci sono fotocamera, condivisione da altre app e microfono/lettura vocale nativi (il microfono del browser funziona con Chrome ed Edge).
+- **Nessuna sincronizzazione**: chat, chiavi e impostazioni stanno nel browser di quel dispositivo. Esporta le chat in JSON per spostarle.
+- I dati stanno nel `localStorage` dell'indirizzo `micmax1000-afk.github.io`: altri siti ospitati su GitHub Pages con lo stesso account condividono quello spazio. Usa un browser o un profilo dedicato se ne hai.
+
 ## APK con GitHub Actions
 
 1. Ogni push (o **Actions → Build APK → Run workflow**) compila l'APK.
@@ -178,6 +197,7 @@ npm run build:apk      # serve JDK 21 + Android SDK
 - `js/tools.js` — strumenti della modalità agente (GitHub, web, note, file)
 - `bridge/mia-bridge.js` — server MCP per collegare il computer
 - `js/mcp.js` — client MCP; `js/docs.js` — testo da xlsx/docx/pptx/zip
+- `sw.js`, `js/pwa.js` — service worker della versione web (non attivo nell'app Android)
 - `js/files.js` — archivio dei file creati e condivisione
 - `js/vendor/` — librerie incluse: JSZip (zip/xlsx) e jsPDF (pdf), caricate solo quando servono
 - `js/markdown.js` — renderer Markdown sicuro (tutto l'HTML viene escapato)
