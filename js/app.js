@@ -1617,6 +1617,7 @@
     applyTheme();
     bind();
     renderMessages();
+    renderConvList(); // su schermi larghi la barra delle chat è sempre visibile: l'elenco va compilato subito
     initSpeechRecognition();
     watchShares();
   }
