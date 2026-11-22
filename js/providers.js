@@ -38,6 +38,59 @@
       needsKey: true,
       keyUrl: 'https://console.groq.com/keys'
     },
+    nvidia: {
+      label: 'NVIDIA (build.nvidia.com)',
+      short: 'NVIDIA',
+      type: 'openai',
+      baseUrl: 'https://integrate.api.nvidia.com/v1',
+      model: '',
+      needsKey: true,
+      keyUrl: 'https://build.nvidia.com/settings/api-keys',
+      hint:
+        'Chiave «nvapi-…» da build.nvidia.com (accesso gratuito per sviluppatori, con limiti di richieste). ' +
+        'Premi «Carica modelli» e scegli un modello per chat (es. Llama, Mistral, DeepSeek, Qwen). ' +
+        'Nel browser le richieste possono essere bloccate dal CORS; nell\'app Android dovrebbero funzionare.'
+    },
+    mistral: {
+      label: 'Mistral AI',
+      short: 'Mistral',
+      type: 'openai',
+      baseUrl: 'https://api.mistral.ai/v1',
+      model: '',
+      needsKey: true,
+      keyUrl: 'https://console.mistral.ai/api-keys',
+      hint: 'Chiave da console.mistral.ai. Il piano gratuito («Experiment»), se disponibile per il tuo account, ha limiti di richieste.'
+    },
+    cerebras: {
+      label: 'Cerebras',
+      short: 'Cerebras',
+      type: 'openai',
+      baseUrl: 'https://api.cerebras.ai/v1',
+      model: '',
+      needsKey: true,
+      keyUrl: 'https://cloud.cerebras.ai',
+      hint: 'Chiave da cloud.cerebras.ai: piano gratuito con limiti di richieste, risposte molto veloci.'
+    },
+    sambanova: {
+      label: 'SambaNova',
+      short: 'SambaNova',
+      type: 'openai',
+      baseUrl: 'https://api.sambanova.ai/v1',
+      model: '',
+      needsKey: true,
+      keyUrl: 'https://cloud.sambanova.ai/apis',
+      hint: 'Chiave da cloud.sambanova.ai: piano gratuito con limiti di richieste.'
+    },
+    huggingface: {
+      label: 'Hugging Face (Inference Providers)',
+      short: 'HF',
+      type: 'openai',
+      baseUrl: 'https://router.huggingface.co/v1',
+      model: '',
+      needsKey: true,
+      keyUrl: 'https://huggingface.co/settings/tokens',
+      hint: 'Token da huggingface.co/settings/tokens con il permesso «Make calls to Inference Providers». I crediti gratuiti mensili sono limitati.'
+    },
     custom: {
       label: 'Personalizzato (compatibile OpenAI)',
       short: 'Custom',
@@ -266,20 +319,35 @@
     return h;
   }
 
+  /** Id di 9 caratteri [A-Za-z0-9] derivato in modo stabile da un id qualsiasi. */
+  function toNineId(id) {
+    id = String(id == null ? '' : id);
+    if (/^[A-Za-z0-9]{9}$/.test(id)) return id;
+    let h1 = 0x811c9dc5;
+    let h2 = 0x1b873593;
+    for (let i = 0; i < id.length; i++) {
+      h1 = Math.imul(h1 ^ id.charCodeAt(i), 16777619) >>> 0;
+      h2 = Math.imul(h2 + id.charCodeAt(i), 2246822519) >>> 0;
+    }
+    return (h1.toString(36) + h2.toString(36) + '000000000').replace(/[^a-z0-9]/g, '0').slice(0, 9);
+  }
+
   async function streamOpenAI(cfg, messages, onText, signal, tools) {
     const msgs = [];
     if (cfg.systemPrompt) msgs.push({ role: 'system', content: cfg.systemPrompt });
     const isOpenRouter = /openrouter\.ai/.test(cfg.baseUrl);
+    // Mistral accetta solo id di chiamata agli strumenti di 9 caratteri alfanumerici: se serve, ne ricava uno stabile
+    const nineId = /mistral\.ai/.test(cfg.baseUrl) ? toNineId : (id) => id;
     messages.forEach((m) => {
       if (m.role === 'tool') {
-        return msgs.push({ role: 'tool', tool_call_id: m.toolCallId, content: m.content });
+        return msgs.push({ role: 'tool', tool_call_id: nineId(m.toolCallId), content: m.content });
       }
       if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length) {
         return msgs.push({
           role: 'assistant',
           content: m.content || null,
           tool_calls: m.toolCalls.map((tc) => ({
-            id: tc.id,
+            id: nineId(tc.id),
             type: 'function',
             function: { name: tc.name, arguments: JSON.stringify(tc.args || {}) }
           }))

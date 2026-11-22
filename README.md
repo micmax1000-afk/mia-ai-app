@@ -17,9 +17,16 @@ App di chat AI personale per Android (Capacitor), senza bundler: HTML + CSS + Ja
 | Google Gemini | chiave da [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | OpenRouter | chiave da [openrouter.ai/keys](https://openrouter.ai/keys) (modelli `:free`) |
 | Groq | chiave da [console.groq.com/keys](https://console.groq.com/keys) |
+| NVIDIA | chiave `nvapi-…` da [build.nvidia.com](https://build.nvidia.com/settings/api-keys) (accesso gratuito per sviluppatori, con limiti) |
+| Mistral AI | chiave da [console.mistral.ai](https://console.mistral.ai/api-keys) (piano gratuito «Experiment», se disponibile) |
+| Cerebras | chiave da [cloud.cerebras.ai](https://cloud.cerebras.ai) (piano gratuito con limiti) |
+| SambaNova | chiave da [cloud.sambanova.ai](https://cloud.sambanova.ai/apis) (piano gratuito con limiti) |
+| Hugging Face | token da [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) con il permesso «Make calls to Inference Providers» (crediti mensili limitati) |
 | Personalizzato | qualsiasi server con API `/v1/chat/completions` (es. LM Studio, vLLM, un tuo proxy) |
 
 Dopo aver inserito la chiave, premi **Carica modelli** e scegli il modello.
+
+I limiti dei piani gratuiti cambiano nel tempo: controllali sul sito di ogni servizio. Dal browser alcuni servizi possono bloccare le richieste (CORS); nell'app Android dovrebbero funzionare, ma non l'ho potuto verificare con i servizi veri. Con Mistral l'app adatta da sola gli id delle chiamate agli strumenti (9 caratteri alfanumerici), che il servizio richiede.
 
 ### Integrazione GitHub
 
