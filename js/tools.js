@@ -815,11 +815,30 @@
       } catch (_) {}
       return { res, data };
     };
-    let { res, data } = await post({ prompt, width: 1024, height: 1024, seed: 0, steps: 4 });
-    if (res.status === 422) ({ res, data } = await post({ prompt, seed: 0, steps: 4 }));
+    // Il servizio convalida la richiesta e rifiuta i campi che non conosce (422 «extra_forbidden»): si leggono dall'errore
+    // i campi opzionali che non vanno bene e si riprova senza, fino a 5 volte. Il testo («prompt») non si tocca mai.
+    const body = { prompt, width: 1024, height: 1024, seed: 0, steps: 4 };
+    let res;
+    let data;
+    for (let i = 0; i < 5; i++) {
+      ({ res, data } = await post(body));
+      if (res.status !== 422) break;
+      const list = Array.isArray(data) ? data : data && Array.isArray(data.detail) ? data.detail : data && Array.isArray(data.errors) ? data.errors : [];
+      const bad = [];
+      list.forEach((e) => {
+        const f = e && Array.isArray(e.loc) ? e.loc[e.loc.length - 1] : null;
+        if (typeof f === 'string' && f !== 'prompt' && Object.prototype.hasOwnProperty.call(body, f)) bad.push(f);
+      });
+      if (!bad.length) break;
+      bad.forEach((f) => delete body[f]);
+    }
     if (!res.ok) {
       let m = '';
-      if (data) m = data.detail || data.message || data.title || (data.error && (data.error.message || data.error)) || '';
+      if (data) {
+        const arr = Array.isArray(data) ? data : Array.isArray(data.detail) ? data.detail : null;
+        if (arr) m = arr.map((e) => (e && e.loc ? e.loc.join('.') + ': ' : '') + ((e && (e.msg || e.message)) || JSON.stringify(e))).join('; ');
+        else m = data.detail || data.message || data.title || (data.error && (data.error.message || data.error)) || '';
+      }
       if (typeof m !== 'string') m = JSON.stringify(m);
       const st = res.status;
       let hint = '';
@@ -827,7 +846,7 @@
       else if (st === 402 || /credit|quota|billing|payment/i.test(m)) hint = ' I crediti gratuiti NVIDIA potrebbero essere finiti: controlla il saldo su build.nvidia.com.';
       else if (st === 429) hint = ' Troppe richieste: riprova tra poco.';
       else if (st === 404) hint = ' Il servizio immagini non risulta disponibile per questa chiave.';
-      throw new Error('NVIDIA FLUX: ' + (m ? oneLine(m, 200) : 'errore') + ' [HTTP ' + st + ']' + hint);
+      throw new Error('NVIDIA FLUX: ' + (m ? oneLine(m, 240) : 'errore') + ' [HTTP ' + st + ']' + hint);
     }
     const d = data || {};
     const first = (Array.isArray(d.artifacts) && d.artifacts[0]) || (Array.isArray(d.images) && d.images[0]) || (Array.isArray(d.data) && d.data[0]) || d;
