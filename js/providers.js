@@ -5,6 +5,7 @@
   /**
    * Preset: type 'gemini' usa l'API Google; type 'openai' usa /chat/completions.
    * Il modello è sempre modificabile in Impostazioni (pulsante «Carica modelli»).
+   * Solo provider con tier gratuito utilizzabile.
    */
   const PRESETS = {
     gemini: {
@@ -12,7 +13,7 @@
       short: 'Gemini',
       type: 'gemini',
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-      model: 'gemini-3.5-flash',
+      model: 'gemini-3.6-flash',
       needsKey: true,
       keyUrl: 'https://aistudio.google.com/apikey'
     },
@@ -26,7 +27,7 @@
       keyUrl: 'https://openrouter.ai/keys',
       hint:
         'Chiave gratuita su openrouter.ai/keys. I modelli gratuiti finiscono con «:free»: ' +
-        'premi «Carica modelli» e li trovi in cima all\'elenco.'
+        'premi «Carica modelli» e li trovi in cima all\'elenco (filtro «Solo gratis»).'
     },
     groq: {
       label: 'Groq',
@@ -73,8 +74,8 @@
       return who + ': limite giornaliero gratuito raggiunto. Usa un altro provider (es. Gemini) o riprova domani.';
     if (/429|quota|rate|overload|capacity|503|502/i.test(m))
       return who + ': modello occupato o limite di richieste raggiunto. Riprova tra poco o usa «Prova con…».';
-    if (/Failed to fetch|NetworkError|Load failed|network/i.test(m))
-      return who + ': server non raggiungibile (rete, indirizzo errato o CORS non abilitato).';
+    if (/Failed to fetch|NetworkError|Load failed|network|offline/i.test(m))
+      return who + ': nessuna connessione o il server non risponde. Controlla la rete e riprova.';
     if (/404|not found/i.test(m)) return who + ': modello o indirizzo non trovato. Controlla le Impostazioni.';
     return m.length > 300 ? m.slice(0, 300) + '…' : m || 'Errore sconosciuto.';
   }
@@ -116,7 +117,7 @@
     }
   }
 
-  // ─── Allegati ─────────────────────────────────────────────
+  // ─── Allegati ──────────────────────────────
   // attachment: { kind: 'image'|'pdf'|'text', name, mime, data (base64) | text, dropped? }
   function attachmentError(msg) {
     const e = new Error(msg);
@@ -138,7 +139,7 @@
     return (m.attachments || []).filter((a) => (a.kind === 'image' || a.kind === 'pdf') && a.data && !a.dropped);
   }
 
-  // ─── Gemini ───────────────────────────────────────────────
+  // ─── Gemini ──────────────────────────────
   function newCallId() {
     return 'call_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   }
@@ -257,7 +258,7 @@
       }));
   }
 
-  // ─── Compatibile OpenAI ───────────────────────────────────
+  // ─── Compatibile OpenAI ──────────────────────────────
   function openaiHeaders(cfg) {
     const h = { 'Content-Type': 'application/json' };
     if (cfg.apiKey) h.Authorization = 'Bearer ' + cfg.apiKey;
@@ -382,13 +383,13 @@
       .filter((m) => m.id && m.chat);
   }
 
-  // ─── API pubblica ─────────────────────────────────────────
+  // ─── API pubblica ──────────────────────────────
   /**
    * cfg: { provider, baseUrl, apiKey, model, systemPrompt, temperature }
    * messages: [{ role: 'user'|'assistant'|'tool', content, toolCalls?, toolCallId?, name? }]
    * onText(fullTextSoFar) chiamata a ogni pezzo ricevuto.
    * opts.tools: schemi degli strumenti ({ name, description, parameters }) per la modalità agente.
-   * Restituisce { text, toolCalls: [{ id, name, args }] }.
+   * Restituisce il testo; con opts.full = true restituisce { text, toolCalls: [{ id, name, args }] }.
    */
   async function chat(cfg, messages, onText, opts) {
     const preset = PRESETS[cfg.provider] || PRESETS.custom;
@@ -403,7 +404,8 @@
       const out = await fn(cfg, messages, (full) => cb(cleanText(full)), signal, opts && opts.tools);
       const text = cleanText(out.text);
       if (!text.trim() && !out.toolCalls.length) throw new Error('Risposta vuota dal modello.');
-      return { text, toolCalls: out.toolCalls };
+      // Senza opts.full restituisce solo il testo (come prima): così funzionano anche le chiamate che si aspettano una stringa.
+      return opts && opts.full ? { text, toolCalls: out.toolCalls } : text;
     } finally {
       if (controller && controller.signal === signal) controller = null;
     }

@@ -47,12 +47,19 @@ jobs:
           cp -r resources/android-res/. android/app/src/main/res/
           ls android/app/src/main/res/mipmap-xxxhdpi/
 
-      - name: Ensure INTERNET permission
+      - name: Ensure INTERNET + RECORD_AUDIO permissions
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           if ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
             sed -i 's|</manifest>|    <uses-permission android:name="android.permission.INTERNET" />\n</manifest>|' "$MANIFEST"
           fi
+          if ! grep -q 'android.permission.RECORD_AUDIO' "$MANIFEST"; then
+            sed -i 's|</manifest>|    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n</manifest>|' "$MANIFEST"
+          fi
+          if ! grep -q 'android.permission.CAMERA' "$MANIFEST"; then
+            sed -i 's|</manifest>|    <uses-permission android:name="android.permission.CAMERA" />\n</manifest>|' "$MANIFEST"
+          fi
+          python3 scripts/patch-android-manifest.py
 
       - name: Usa la chiave di firma fissa (aggiornamenti senza disinstallare)
         run: |

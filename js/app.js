@@ -7,6 +7,7 @@
   const Tools = window.MiaTools;
   const Files = window.MiaFiles;
   const Mcp = window.MiaMcp;
+  const GH = window.MiaGitHub;
   const $ = (s) => document.querySelector(s);
 
   const LS_SETTINGS = 'miaai_v1_settings';
@@ -28,8 +29,9 @@
     theme: 'auto',
     favorites: [], // [{ provider, model }] — modelli per il cambio rapido
     autoFallback: true, // se il modello è occupato, prova da solo gli altri dell'elenco
-    agentEnabled: false, // modalità agente: il modello può usare gli strumenti (GitHub, web, note)
+    agentEnabled: false, // modalità agente: il modello può usare gli strumenti (GitHub, web, note, file, codice)
     githubToken: '',
+    githubRepo: '',
     imageModel: 'gemini-2.5-flash-image', // modello Gemini per generate_image
     mcpServers: [] // connettori MCP: { id, name, url, token, enabled, disabled: [nomi strumenti] }
   };
@@ -53,6 +55,7 @@
   let settings = Object.assign({}, DEFAULT_SETTINGS, load(LS_SETTINGS, {}));
   if (!Array.isArray(settings.favorites)) settings.favorites = [];
   if (!Array.isArray(settings.mcpServers)) settings.mcpServers = [];
+  if (typeof settings.githubRepo !== 'string') settings.githubRepo = '';
   let conversations = load(LS_CONVS, []);
   let currentId = load(LS_CURRENT, null);
   let busy = false;
@@ -179,23 +182,26 @@
     const dark =
       settings.theme === 'dark' ||
       (settings.theme === 'auto' && !window.matchMedia('(prefers-color-scheme: light)').matches);
-    $('#themeColor').setAttribute('content', dark ? '#0b1020' : '#f6f7fb');
+    $('#themeColor').setAttribute('content', dark ? '#000000' : '#ffffff');
     const sb = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.StatusBar;
     if (sb && window.Capacitor.isNativePlatform()) {
       try {
         sb.setStyle({ style: dark ? 'DARK' : 'LIGHT' });
-        sb.setBackgroundColor({ color: dark ? '#0b1020' : '#f6f7fb' });
+        sb.setBackgroundColor({ color: dark ? '#000000' : '#ffffff' });
       } catch (_) {}
     }
   }
 
   function updateHeader() {
     const c = current();
-    $('#chatTitle').textContent = (c && c.title) || 'Mia AI';
-    const preset = P.PRESETS[settings.provider] || P.PRESETS.custom;
+    const titled = c && c.messages && c.messages.length && c.title;
+    $('#chatTitle').textContent = titled ? c.title : '';
     const p = profile();
-    $('#micBtn').hidden = !isConfigured() || (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window));
-    $('#modelHint').textContent = isConfigured() ? modelLabel(settings.provider, p.model) + ' ▾' : 'Da configurare in Impostazioni';
+    $('#micBtn').hidden = !canUseMic();
+    const voiceBtn = $('#voiceBtn');
+    if (voiceBtn) voiceBtn.hidden = !canUseMic();
+    const ready = isConfigured();
+    $('#modelHint').textContent = ready ? modelLabel(settings.provider, p.model) : 'Scegli il modello';
     $('#setupHint').hidden = isConfigured();
   }
 
@@ -271,6 +277,16 @@
     if (msg.attachments && msg.attachments.length) wrap.appendChild(attachmentsEl(msg.attachments, false));
     if (msg.role === 'user' || msg.error) bubble.textContent = msg.content;
     else bubble.innerHTML = MD.render(msg.content);
+    if (msg.imageUrl) {
+      const img = document.createElement('img');
+      img.className = 'gen-img';
+      img.alt = msg.content || 'immagine';
+      img.src = msg.imageUrl;
+      img.addEventListener('error', () => {
+        img.replaceWith(document.createTextNode('Immagine non disponibile.'));
+      });
+      bubble.appendChild(img);
+    }
     if (msg.content || msg.role !== 'user') wrap.appendChild(bubble);
 
     const actions = document.createElement('div');
@@ -281,15 +297,18 @@
       actions.innerHTML +=
         '<button type="button" data-act="retry">Rigenera</button>' +
         '<button type="button" data-act="retry-with">Prova con…</button>';
+      if (msg.content && !msg.error) {
+        actions.innerHTML +=
+          '<button type="button" data-act="share">Condividi</button>' +
+          '<button type="button" data-act="push">Push</button>' +
+          '<button type="button" data-act="read">Ascolta</button>';
+      }
       if (msg.model) {
         const tag = document.createElement('span');
         tag.className = 'model-tag';
         tag.textContent = msg.model;
         actions.appendChild(tag);
       }
-    }
-    if (msg.content && !msg.error) {
-      actions.innerHTML += '<button type="button" data-act="read" aria-label="Leggi ad alta voce">🎤</button>';
     }
     wrap.appendChild(actions);
     return wrap;
@@ -444,9 +463,22 @@
       ul.innerHTML = '<li class="hint" style="padding:10px">Nessuna conversazione.</li>';
       return;
     }
+    const order = ['Oggi', 'Ieri', 'Ultimi 7 giorni', 'Precedenti'];
+    const groups = {};
     [...conversations]
       .sort((a, b) => b.updated - a.updated)
       .forEach((c) => {
+        const label = dayGroup(c.updated);
+        (groups[label] || (groups[label] = [])).push(c);
+      });
+    order.forEach((label) => {
+      const list = groups[label];
+      if (!list) return;
+      const head = document.createElement('li');
+      head.className = 'conv-label';
+      head.textContent = label;
+      ul.appendChild(head);
+      list.forEach((c) => {
         const li = document.createElement('li');
         if (c.id === currentId) li.className = 'active';
         const open = document.createElement('button');
@@ -455,18 +487,29 @@
         open.dataset.id = c.id;
         const title = document.createElement('span');
         title.textContent = c.title || 'Nuova chat';
-        const when = document.createElement('small');
-        when.textContent = new Date(c.updated).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
-        open.append(title, when);
+        open.appendChild(title);
         const del = document.createElement('button');
         del.type = 'button';
         del.className = 'del-conv';
         del.dataset.del = c.id;
         del.setAttribute('aria-label', 'Elimina');
-        del.textContent = '🗑';
+        del.textContent = '×';
         li.append(open, del);
         ul.appendChild(li);
       });
+    });
+  }
+
+  function dayGroup(ts) {
+    const d = new Date(ts);
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const then = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const days = Math.round((start - then) / 86400000);
+    if (days <= 0) return 'Oggi';
+    if (days === 1) return 'Ieri';
+    if (days < 7) return 'Ultimi 7 giorni';
+    return 'Precedenti';
   }
 
   // ─── Chat ─────────────────────────────────────────────────
@@ -500,7 +543,7 @@
     busy = v;
     const btn = $('#sendBtn');
     btn.classList.toggle('stop', v);
-    btn.textContent = v ? '■' : '➤';
+    btn.textContent = v ? '■' : '↑';
     btn.setAttribute('aria-label', v ? 'Ferma' : 'Invia');
   }
 
@@ -523,6 +566,7 @@
       $('#confirmWarn').hidden = !d.danger;
       $('#confirmYes').className = 'btn' + (d.danger ? ' danger-btn' : '');
       confirmResolve = resolve;
+      $('#toast').hidden = true; // i messaggi temporanei non devono coprire il riquadro di conferma
       $('#confirm').hidden = false;
     });
   }
@@ -649,7 +693,7 @@
     while (list.length && list[0].role !== 'user') list.shift();
     return list.map((m) => ({
       role: m.role,
-      content: m.content,
+      content: m.context ? m.content + '\n\n' + m.context : m.content, // note dal web / repository letto dall'app
       attachments: m.attachments,
       toolCalls: m.toolCalls,
       toolCallId: m.toolCallId,
@@ -731,7 +775,7 @@
                   });
                 }
               },
-              { tools }
+              { tools, full: true }
             );
             addFavorite(a.provider, a.model);
           } catch (err) {
@@ -791,6 +835,97 @@
     }
   }
 
+  function needsWeb(text) {
+    return /\b(cerca|sul web|su internet|notizie|meteo|prezzo|oggi|attual)/i.test(text);
+  }
+
+  async function webNotes(text) {
+    const q = text.replace(/^(per favore\s+)?(cerca( sul web| su internet)?)\s+/i, '').trim().slice(0, 180);
+    if (!q) return '';
+    toast('Cerco sul web…');
+    const parts = [];
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const res = await fetch(
+        'https://api.duckduckgo.com/?format=json&no_html=1&skip_disambig=1&q=' + encodeURIComponent(q),
+        { signal: ctrl.signal }
+      );
+      if (res.ok) {
+        const d = await res.json();
+        if (d.AbstractText) parts.push((d.Heading ? d.Heading + '\n' : '') + d.AbstractText);
+        (d.RelatedTopics || []).slice(0, 4).forEach((t) => {
+          if (t && t.Text) parts.push(t.Text);
+        });
+      }
+    } catch (_) {}
+    try {
+      const res = await fetch(
+        'https://it.wikipedia.org/w/api.php?action=opensearch&limit=2&namespace=0&format=json&origin=*&search=' +
+          encodeURIComponent(q),
+        { signal: ctrl.signal }
+      );
+      if (res.ok) {
+        const d = await res.json();
+        (d[1] || []).forEach((title, i) => {
+          parts.push(title + (d[2] && d[2][i] ? ': ' + d[2][i] : '') + (d[3] && d[3][i] ? '\n' + d[3][i] : ''));
+        });
+      }
+    } catch (_) {}
+    clearTimeout(timer);
+    return parts.join('\n\n').slice(0, 6000);
+  }
+
+  async function shareText(text) {
+    const body = String(text || '').trim();
+    if (!body) return;
+    const Share = nativePlugin('Share');
+    try {
+      if (Share) {
+        await Share.share({ title: 'Mia', text: body.slice(0, 8000), dialogTitle: 'Condividi con…' });
+        return;
+      }
+      if (navigator.share) {
+        await navigator.share({ title: 'Mia', text: body.slice(0, 8000) });
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+    }
+    copyText(body);
+    toast('Copiato. Da qui puoi incollarlo in un’altra app.');
+  }
+
+  async function pushAnswer(text) {
+    const body = String(text || '').trim();
+    if (!body) return;
+    if (!settings.githubToken || !settings.githubRepo || settings.githubRepo.indexOf('/') < 1) {
+      toast('In Impostazioni scegli il token e il repository');
+      openSettings();
+      return;
+    }
+    const slash = settings.githubRepo.indexOf('/');
+    const owner = settings.githubRepo.slice(0, slash);
+    const repo = settings.githubRepo.slice(slash + 1);
+    const path = 'note/mia-' + new Date().toISOString().slice(0, 10) + '-' + Date.now() + '.md';
+    toast('Invio su GitHub…');
+    try {
+      await GH.putFile(settings.githubToken, owner, repo, path, body, 'Risposta da Mia');
+      toast('Salvato in ' + settings.githubRepo);
+    } catch (e) {
+      toast(e.message || 'Push non riuscito');
+    }
+  }
+
+  function asksRepo(text) {
+    return /repo|github|progetto/i.test(text) && /controll|guarda|leggi|analizz|revision|spieg|dimmi|vedi/i.test(text);
+  }
+
+  function repoNamedIn(text) {
+    const m = String(text || '').match(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/);
+    return m ? m[1] : '';
+  }
+
   async function send(text) {
     text = (text || '').trim();
     if ((!text && !pending.length) || busy) return;
@@ -799,8 +934,57 @@
       openSettings();
       return;
     }
+    if (isImageAsk(text) && !pending.length) {
+      $('#input').value = '';
+      autoGrow();
+      await runImage(text);
+      return;
+    }
+    const edit = editCommand(text);
+    if (edit) {
+      $('#input').value = '';
+      autoGrow();
+      await runFileEdit(edit.path, edit.ask, text);
+      return;
+    }
+    let context = '';
+    // Con la modalità agente è il modello a leggere il repository con i suoi strumenti.
+    if (!settings.agentEnabled && asksRepo(text)) {
+      const explicit = /repo|github/i.test(text); // «progetto» da solo è ambiguo: non deve bloccare un messaggio normale
+      const full = (explicit && repoNamedIn(text)) || settings.githubRepo || (($('#ghRepo') && $('#ghRepo').value) || '');
+      const ready = settings.githubToken && full && full.indexOf('/') >= 1;
+      if (!ready && explicit) {
+        toast(settings.githubToken ? 'Scegli il repository in Impostazioni, poi riprova' : 'Serve il token GitHub in Impostazioni');
+        openSettings();
+        return;
+      }
+      if (ready) {
+        toast('Leggo ' + full + '…');
+        try {
+          context =
+            'Questi file li ha scaricati l\'app da GitHub. Sono già qui: non dire che non hai accesso a siti esterni. Di\' cosa fa il progetto e cosa sistemare.\n\n' +
+            (await GH.readRepo(settings.githubToken, full));
+          settings.githubRepo = full;
+          save(LS_SETTINGS, settings);
+        } catch (e) {
+          toast(e.message || 'GitHub non raggiungibile');
+          return;
+        }
+      }
+    }
+    if (!context && needsWeb(text)) {
+      try {
+        const notes = await webNotes(text);
+        if (notes) {
+          context =
+            'Queste note le ha cercate l\'app sul web. Usale se servono. Non dire che non hai accesso a siti esterni.\n\n' +
+            notes;
+        }
+      } catch (_) {}
+    }
     const c = ensureConversation(text || pending.map((a) => a.name).join(', '));
     const msg = { role: 'user', content: text };
+    if (context) msg.context = context;
     if (pending.length) msg.attachments = pending;
     c.messages.push(msg);
     pending = [];
@@ -939,11 +1123,23 @@
     $('#theme').value = settings.theme;
     $('#autoFallback').checked = settings.autoFallback !== false;
     $('#agentEnabled').checked = !!settings.agentEnabled;
-    $('#githubToken').value = settings.githubToken || '';
-    $('#imageModel').value = settings.imageModel || '';
     $('#agentFields').hidden = !settings.agentEnabled;
+    $('#imageModel').value = settings.imageModel || '';
     renderMcpList();
+    const gt = $('#githubToken');
+    if (gt) gt.value = settings.githubToken || '';
+    const sel = $('#ghRepo');
+    if (sel && settings.githubRepo) {
+      if (![...sel.options].some((o) => o.value === settings.githubRepo)) {
+        const o = document.createElement('option');
+        o.value = settings.githubRepo;
+        o.textContent = settings.githubRepo;
+        sel.appendChild(o);
+      }
+      sel.value = settings.githubRepo;
+    }
     $('#settings').hidden = false;
+    document.body.classList.add('sheet-open');
   }
 
   function saveProviderFields() {
@@ -963,13 +1159,17 @@
     settings.theme = $('#theme').value;
     settings.autoFallback = $('#autoFallback').checked;
     settings.agentEnabled = $('#agentEnabled').checked;
-    settings.githubToken = $('#githubToken').value.trim();
     settings.imageModel = $('#imageModel').value.trim() || DEFAULT_SETTINGS.imageModel;
+    const gt = $('#githubToken');
+    if (gt) settings.githubToken = gt.value.trim();
+    const sel = $('#ghRepo');
+    if (sel && sel.value) settings.githubRepo = sel.value;
     if (isConfigured()) addFavorite(settings.provider, profile().model);
     save(LS_SETTINGS, settings);
     applyTheme();
     updateHeader();
     $('#settings').hidden = true;
+    document.body.classList.remove('sheet-open');
   }
 
   // ─── Connettori MCP (impostazioni) ───────────────────────
@@ -1131,6 +1331,7 @@
     const ta = $('#input');
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, window.innerHeight * 0.4) + 'px';
+    $('#composer').classList.toggle('has-text', !!ta.value.trim());
   }
 
   // ─── Eventi ───────────────────────────────────────────────
@@ -1142,8 +1343,24 @@
     });
     $('#input').addEventListener('input', autoGrow);
     $('#micBtn').addEventListener('click', toggleMicrophone);
+    $('#voiceBtn').addEventListener('click', voiceLoop);
+    $('#cameraBtn').addEventListener('click', takePhoto);
+    const ghEdit = $('#ghEdit');
+    if (ghEdit) {
+      ghEdit.addEventListener('click', () => {
+        const path = ($('#ghPath') && $('#ghPath').value.trim()) || '';
+        const ask = ($('#ghEditAsk') && $('#ghEditAsk').value.trim()) || '';
+        if (!path || !ask) return toast('Scrivi il percorso e cosa cambiare');
+        $('#closeSettings').click();
+        runFileEdit(path, ask, 'Modifica il file ' + path + ': ' + ask);
+      });
+    }
     $('#attachBtn').addEventListener('click', () => !busy && $('#fileInput').click());
     $('#fileInput').addEventListener('change', async (e) => {
+      await addFiles(e.target.files);
+      e.target.value = '';
+    });
+    $('#cameraInput').addEventListener('change', async (e) => {
       await addFiles(e.target.files);
       e.target.value = '';
     });
@@ -1221,6 +1438,8 @@
       else if (act.dataset.act === 'retry') retryLast();
       else if (act.dataset.act === 'retry-with') openPicker('retry');
       else if (act.dataset.act === 'read' && c) readAloud(c.messages[index].content);
+      else if (act.dataset.act === 'share' && c) shareText(c.messages[index].content);
+      else if (act.dataset.act === 'push' && c) pushAnswer(c.messages[index].content);
       else if (act.dataset.act === 'edit') editMessage(index);
     });
 
@@ -1292,10 +1511,6 @@
       settings.mcpServers.push({ id: uid(), name: '', url: '', token: '', enabled: true, disabled: [] });
       renderMcpList();
     });
-    $('#toggleGhToken').addEventListener('click', () => {
-      const k = $('#githubToken');
-      k.type = k.type === 'password' ? 'text' : 'password';
-    });
     $('#confirmYes').addEventListener('click', () => answerConfirm(true));
     $('#confirmNo').addEventListener('click', () => answerConfirm(false));
     $('#temperature').addEventListener('input', (e) => {
@@ -1314,6 +1529,16 @@
     });
 
     window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
+
+    function paintNet() {
+      document.documentElement.dataset.offline = navigator.onLine ? '0' : '1';
+    }
+    paintNet();
+    window.addEventListener('online', paintNet);
+    window.addEventListener('offline', () => {
+      paintNet();
+      toast('Connessione assente. I messaggi ripartono quando torni online.');
+    });
 
     // Tasto «indietro» Android
     const App = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
@@ -1343,100 +1568,481 @@
     applyTheme();
     bind();
     renderMessages();
-    if (!isConfigured()) setTimeout(openSettings, 300);
     initSpeechRecognition();
+    watchShares();
   }
 
 
-  // ============================================
-  // VOICE FEATURES: Microfono e Sintesi Vocale
-  // ============================================
-
-  // Speech Recognition (Microfono)
+  // ─── Voce: microfono e lettura ────────────────────────────
   let recognition = null;
   let isListening = false;
+  let speaking = false;
+  let currentUtterance = null;
+  const nativePlugins = {};
+
+  function isNative() {
+    const C = window.Capacitor;
+    if (!C) return !!window.androidBridge;
+    if (typeof C.nativePromise === 'function') return true;
+    if (typeof C.isNativePlatform === 'function') {
+      try {
+        if (C.isNativePlatform()) return true;
+      } catch (_) {}
+    }
+    return !!window.androidBridge;
+  }
+
+  function nativePlugin(name) {
+    const C = window.Capacitor;
+    if (C && C.Plugins && C.Plugins[name]) return C.Plugins[name];
+    if (C && typeof C.nativePromise === 'function') {
+      if (!nativePlugins[name]) {
+        nativePlugins[name] = new Proxy(
+          {},
+          {
+            get(_target, method) {
+              if (method === 'then') return undefined;
+              return (options) => C.nativePromise(name, String(method), options || {});
+            }
+          }
+        );
+      }
+      return nativePlugins[name];
+    }
+    if (!isNative() || !C || typeof C.registerPlugin !== 'function') return null;
+    if (!Object.prototype.hasOwnProperty.call(nativePlugins, name)) {
+      try {
+        nativePlugins[name] = C.registerPlugin(name);
+      } catch (_) {
+        nativePlugins[name] = null;
+      }
+    }
+    return nativePlugins[name];
+  }
+
+  async function openAppSettings() {
+    const S = nativePlugin('NativeSettings');
+    if (!S) return;
+    try {
+      if (S.openAndroid) await S.openAndroid({ option: 'application_details' });
+      else if (S.open) await S.open({ optionAndroid: 'application_details', optionIOS: 'app' });
+    } catch (_) {}
+  }
+
+  function canUseMic() {
+    return !!nativePlugin('SpeechRecognition') || 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+  }
+
+  function plainSpeech(text) {
+    return String(text || '')
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/[#>*_`[\]]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 3500);
+  }
 
   function initSpeechRecognition() {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      return false;
-    }
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return false;
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     recognition = new SpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = false;
     recognition.lang = 'it-IT';
-    
-    recognition.onstart = function() {
+    recognition.onstart = function () {
       isListening = true;
       $('#micBtn').classList.add('listening');
-      toast('Ascoltando...');
+      toast('Ascoltando…');
     };
-    
-    recognition.onend = function() {
+    recognition.onend = function () {
       isListening = false;
       $('#micBtn').classList.remove('listening');
     };
-    
-    recognition.onresult = function(event) {
+    recognition.onresult = function (event) {
       const transcript = event.results[0][0].transcript;
       const input = $('#input');
-      input.value = (input.value || '') + ' ' + transcript;
+      input.value = ((input.value || '').trim() + ' ' + transcript).trim();
       input.focus();
       input.dispatchEvent(new Event('input', { bubbles: true }));
     };
-    
-    recognition.onerror = function(event) {
+    recognition.onerror = function (event) {
       isListening = false;
       $('#micBtn').classList.remove('listening');
-      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+      if (event.error === 'not-allowed') {
+        toast('Microfono bloccato. Attivalo nelle autorizzazioni di Mia AI.');
+        openAppSettings();
+      }
+      else if (event.error === 'service-not-allowed' || event.error === 'language-not-supported') {
+        toast('Manca il riconoscimento vocale di Google');
+      } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
         toast('Errore microfono: ' + event.error);
       }
     };
-    
     return true;
   }
 
-  function toggleMicrophone() {
-    if (!recognition) {
-      if (!initSpeechRecognition()) {
-        toast('Microfono non supportato in questo browser');
+  function micError(e) {
+    const msg = String((e && (e.message || e.errorMessage)) || '');
+    if (!msg || msg === '0' || /cancel|No speech|No match/i.test(msg)) return '';
+    if (/permission/i.test(msg)) return 'Consenti il microfono nelle autorizzazioni di Mia AI';
+    if (/not implemented|not available|unavailable/i.test(msg)) return 'Installa o aggiorna l’app Google, serve per il microfono';
+    if (/network/i.test(msg)) return 'Il microfono ha bisogno di internet';
+    return 'Microfono: ' + msg.slice(0, 80);
+  }
+
+  async function hear() {
+    const SR = nativePlugin('SpeechRecognition');
+    if (!SR) return null;
+    try {
+      await SR.requestPermissions();
+    } catch (_) {}
+    toast('Parla adesso');
+    try {
+      const result = await SR.start({
+        language: 'it-IT',
+        maxResults: 3,
+        partialResults: false,
+        popup: false
+      });
+      return (result && result.matches && result.matches[0]) || '';
+    } catch (e) {
+      try {
+        const result = await SR.start({
+          language: 'it-IT',
+          maxResults: 3,
+          prompt: 'Parla in italiano',
+          partialResults: false,
+          popup: true
+        });
+        return (result && result.matches && result.matches[0]) || '';
+      } catch (e2) {
+        const nice = micError(e2) || micError(e);
+        if (nice) {
+          toast(nice);
+          if (/autorizzazioni/i.test(nice)) openAppSettings();
+        }
+        return '';
+      }
+    }
+  }
+
+  async function toggleMicrophone() {
+    const SR = nativePlugin('SpeechRecognition');
+    if (SR) {
+      if (isListening) {
+        isListening = false;
+        $('#micBtn').classList.remove('listening');
+        try {
+          await SR.stop();
+        } catch (_) {}
         return;
       }
-      $('#micBtn').hidden = false;
+      isListening = true;
+      $('#micBtn').classList.add('listening');
+      const said = await hear();
+      isListening = false;
+      $('#micBtn').classList.remove('listening');
+      if (said) {
+        const input = $('#input');
+        input.value = ((input.value || '').trim() + ' ' + said).trim();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      return;
     }
-    
-    if (isListening) {
-      recognition.stop();
-    } else {
+
+    if (!recognition && !initSpeechRecognition()) {
+      toast('Microfono non supportato su questo telefono');
+      return;
+    }
+    if (isListening) recognition.stop();
+    else {
       try {
         recognition.start();
-      } catch (e) {
+      } catch (_) {
         toast('Impossibile avviare il microfono');
       }
     }
   }
 
-  // Speech Synthesis (Lettura vocale)
-  function readAloud(text) {
-    if (!text) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'it-IT';
-    utterance.rate = 1;
-    utterance.pitch = 1;
-    const voices = window.speechSynthesis.getVoices();
-    const italianVoice = voices.find(v => v.lang.startsWith('it')) || 
-                         voices.find(v => v.lang.startsWith('en'));
-    if (italianVoice) utterance.voice = italianVoice;
-    utterance.onerror = function(event) {
-      console.error('Errore sintesi vocale:', event);
-    };
-    window.speechSynthesis.speak(utterance);
+  function isImageAsk(text) {
+    return /\b(disegna|genera(?:mi)? un['’ ]?immagine|crea un['’ ]?immagine|fammi un['’ ]?immagine)\b/i.test(text);
   }
 
-  // Carica le voci quando disponibili
+  function editCommand(text) {
+    const m = String(text || '').match(/modifica(?:\s+il)?\s+file\s+(\S+)\s*[:\-–]\s*([\s\S]+)/i);
+    if (!m) return null;
+    return { path: m[1], ask: m[2].trim() };
+  }
+
+  async function runImage(text) {
+    const prompt =
+      text.replace(/^(per favore\s+)?(disegna|genera(?:mi)? un['’ ]?immagine(?: di)?|crea un['’ ]?immagine(?: di)?|fammi un['’ ]?immagine(?: di)?)\s*/i, '').trim() ||
+      text;
+    const c = ensureConversation(text);
+    c.messages.push({ role: 'user', content: text });
+    const url =
+      'https://image.pollinations.ai/prompt/' +
+      encodeURIComponent(prompt) +
+      '?width=768&height=768&nologo=true&model=flux';
+    c.messages.push({ role: 'assistant', content: prompt, imageUrl: url, model: 'Pollinations' });
+    c.updated = Date.now();
+    persistConvs();
+    renderMessages();
+    renderConvList();
+  }
+
+  async function runFileEdit(path, ask, originalText) {
+    if (!settings.githubToken || !settings.githubRepo || settings.githubRepo.indexOf('/') < 1) {
+      toast('In Impostazioni scegli il token e il repository');
+      openSettings();
+      return;
+    }
+    const slash = settings.githubRepo.indexOf('/');
+    const owner = settings.githubRepo.slice(0, slash);
+    const repo = settings.githubRepo.slice(slash + 1);
+    toast('Leggo ' + path + '…');
+    let file;
+    try {
+      file = await GH.getFile(settings.githubToken, owner, repo, path);
+    } catch (e) {
+      toast(e.message || 'File non trovato');
+      return;
+    }
+    if (!file || file.type === 'dir' || !file.content) {
+      toast('Quel percorso non è un file di testo');
+      return;
+    }
+    let original = '';
+    try {
+      original = GH.decode(file.content);
+    } catch (_) {
+      toast('File non leggibile');
+      return;
+    }
+    if (original.length > 20000) {
+      // il modello riscrive il file per intero: se lo vedesse troncato, il push cancellerebbe il resto
+      toast('File troppo lungo per una modifica sicura (massimo 20.000 caratteri)');
+      return;
+    }
+    const c = ensureConversation(originalText);
+    c.messages.push({ role: 'user', content: originalText });
+    c.updated = Date.now();
+    persistConvs();
+    setBusy(true);
+    renderMessages();
+    try {
+      const cfg = chatConfig();
+      const nextRaw = await P.chat(
+        Object.assign({}, cfg, {
+          systemPrompt: 'Rispondi soltanto con il file completo aggiornato. Nessuna spiegazione e nessun blocco markdown.'
+        }),
+        [{ role: 'user', content: 'Percorso: ' + path + '\n\nContenuto attuale:\n' + original + '\n\nModifica:\n' + ask }]
+      );
+      let next = String(nextRaw || '').trim().replace(/^```[a-zA-Z0-9]*\n?/, '').replace(/\n?```$/, '');
+      if (!next) throw new Error('Il modello non ha restituito il file');
+      const yes = await askConfirm({
+        title: 'Scrivere «' + path + '» in ' + settings.githubRepo + ' con un push?',
+        details: 'Nuovo contenuto (' + next.length + ' caratteri; prima ' + original.length + '):\n\n' + next.slice(0, 1500) + (next.length > 1500 ? '\n[…]' : '')
+      });
+      if (!yes) {
+        c.messages.push({ role: 'assistant', content: 'Modifica annullata: non ho fatto il push.', model: modelLabel(cfg.provider, cfg.model) });
+        return;
+      }
+      await GH.putFile(settings.githubToken, owner, repo, path, next, 'Modifica da Mia', file.sha);
+      c.messages.push({
+        role: 'assistant',
+        content: 'Ho aggiornato `' + path + '` su ' + settings.githubRepo + ' e ho fatto il push.',
+        model: modelLabel(cfg.provider, cfg.model)
+      });
+    } catch (e) {
+      c.messages.push({ role: 'assistant', content: '⚠️ ' + (e.message || 'Modifica non riuscita'), error: true });
+    } finally {
+      setBusy(false);
+      c.updated = Date.now();
+      persistConvs();
+      renderMessages();
+      renderConvList();
+    }
+  }
+
+  function listenOnce() {
+    const SR = nativePlugin('SpeechRecognition');
+    if (SR) return hear();
+    const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Ctor) return Promise.resolve('');
+    return new Promise((resolve) => {
+      const rec = new Ctor();
+      rec.lang = 'it-IT';
+      rec.interimResults = false;
+      rec.onresult = (event) => resolve(event.results[0][0].transcript || '');
+      rec.onerror = () => resolve('');
+      rec.onend = () => {};
+      try {
+        rec.start();
+      } catch (_) {
+        resolve('');
+      }
+    });
+  }
+
+  let voiceMode = false;
+  async function voiceLoop() {
+    voiceMode = !voiceMode;
+    $('#voiceBtn').classList.toggle('listening', voiceMode);
+    if (!voiceMode) {
+      const SR = nativePlugin('SpeechRecognition');
+      if (SR) {
+        try {
+          await SR.stop();
+        } catch (_) {}
+      }
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      toast('Voce ferma');
+      return;
+    }
+    if (!isConfigured()) {
+      voiceMode = false;
+      $('#voiceBtn').classList.remove('listening');
+      toast('Configura prima il provider');
+      openSettings();
+      return;
+    }
+    toast('Modalità voce. Tocca di nuovo per fermare.');
+    while (voiceMode) {
+      const said = String((await listenOnce()) || '').trim();
+      if (!voiceMode) break;
+      if (!said) {
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+      await send(said);
+      if (!voiceMode) break;
+      const c = current();
+      const last = c && c.messages[c.messages.length - 1];
+      if (last && last.role === 'assistant' && !last.error && last.content) await readAloud(last.content);
+    }
+    $('#voiceBtn').classList.remove('listening');
+  }
+
+  function takePhoto() {
+    if (busy) return;
+    const input = $('#cameraInput');
+    if (input) {
+      input.click();
+      return;
+    }
+    toast('Fotocamera non disponibile');
+  }
+
+  async function watchShares() {
+    const ST = nativePlugin('CapacitorShareTarget');
+    if (!ST || !ST.addListener) return;
+    try {
+      await ST.addListener('shareReceived', async (event) => {
+        const texts = ((event && event.texts) || []).map((t) => String(t || '').trim()).filter(Boolean);
+        if (texts.length) {
+          const input = $('#input');
+          input.value = ((input.value || '').trim() + ' ' + texts.join('\n')).trim();
+          autoGrow();
+          toast('Testo ricevuto da un’altra app');
+        }
+        for (const f of (event && event.files) || []) {
+          if (!f || !f.uri || !/^image\//.test(f.mimeType || '')) continue;
+          try {
+            const res = await fetch(f.uri);
+            const blob = await res.blob();
+            const file = new File([blob], f.name || 'condivisa.jpg', { type: f.mimeType || 'image/jpeg' });
+            await addFiles([file]);
+          } catch (_) {
+            toast('Immagine condivisa non leggibile');
+          }
+        }
+      });
+    } catch (_) {}
+  }
+
+  function speakWeb(plain) {
+    const synth = window.speechSynthesis;
+    if (!synth) {
+      toast('Lettura vocale non disponibile. Installa la voce di Google.');
+      return Promise.resolve();
+    }
+    if (synth.speaking || speaking) {
+      speaking = false;
+      synth.cancel();
+      toast('Lettura ferma');
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      const run = () => {
+        const utterance = new SpeechSynthesisUtterance(plain);
+        currentUtterance = utterance;
+        utterance.lang = 'it-IT';
+        utterance.rate = 1;
+        const voices = synth.getVoices();
+        const voice =
+          voices.find((v) => /^it([-_]|$)/i.test(v.lang)) ||
+          voices.find((v) => /google/i.test(v.name));
+        if (voice) utterance.voice = voice;
+        utterance.onstart = () => {
+          speaking = true;
+        };
+        utterance.onend = () => {
+          speaking = false;
+          resolve();
+        };
+        utterance.onerror = () => {
+          speaking = false;
+          toast('Lettura non riuscita. Controlla la sintesi vocale di Google.');
+          resolve();
+        };
+        try {
+          synth.resume();
+        } catch (_) {}
+        synth.speak(utterance);
+      };
+      synth.cancel();
+      setTimeout(run, 150);
+    });
+  }
+
+  async function readAloud(text) {
+    const plain = plainSpeech(text);
+    if (!plain) return;
+    const TTS = nativePlugin('TextToSpeech');
+    if (TTS) {
+      try {
+        if (speaking) {
+          speaking = false;
+          await TTS.stop();
+          toast('Lettura ferma');
+          return;
+        }
+        speaking = true;
+        toast('Leggo…');
+        await TTS.speak({
+          text: plain,
+          lang: 'it-IT',
+          rate: 1.0,
+          pitch: 1.0,
+          volume: 1.0,
+          category: 'playback'
+        });
+      } catch (e) {
+        const msg = String((e && (e.message || e.errorMessage)) || '');
+        if (/not supported|unavailable|language/i.test(msg)) {
+          toast('Installa la voce italiana della sintesi vocale di Google');
+        } else toast('Lettura non disponibile');
+      } finally {
+        speaking = false;
+      }
+      return;
+    }
+    return speakWeb(plain);
+  }
+
   if (window.speechSynthesis) {
-    window.speechSynthesis.onvoiceschanged = function() { };
+    window.speechSynthesis.onvoiceschanged = function () {};
   }
 
   init();
