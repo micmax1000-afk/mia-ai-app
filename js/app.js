@@ -37,6 +37,10 @@
     searchProvider: 'gemini', // ricerca web: 'gemini' (Google, con la chiave Gemini) | 'ddg' | 'tavily' | 'serper' | 'exa' | '' (disattivata)
     searchKey: '',
     memory: '', // «Memoria»: fatti sull'utente (uno per riga) aggiunti alle istruzioni di sistema
+    memoryUpdated: 0,
+    syncRepo: '', // repository GitHub PRIVATO per la sincronizzazione delle chat (nome-utente/nome-repo)
+    syncAuto: false, // sincronizza da solo all'avvio e quando si lascia l'app
+    deletedChats: {}, // { idChat: istanteEliminazione } — perché le chat eliminate non ricompaiano dagli altri dispositivi
     preferMcpWeb: true, // se un connettore offre ricerca/lettura web, usa quella al posto di quella di Mia
     maxSteps: 15, // giri massimi modello → strumenti → modello per ogni richiesta
     mcpServers: [] // connettori MCP: { id, name, url, token, enabled, disabled: [nomi strumenti] }
@@ -179,6 +183,98 @@
       } catch (_) {}
     }
     toast('Memoria piena: elimina qualche chat.');
+  }
+
+  function markDeleted(ids) {
+    const now = Date.now();
+    settings.deletedChats = Object.assign({}, settings.deletedChats);
+    ids.forEach((id) => (settings.deletedChats[id] = now));
+    save(LS_SETTINGS, settings);
+  }
+
+  // ─── Sincronizzazione chat (repository GitHub privato) ────
+  let syncing = false;
+  let lastSync = 0;
+
+  function syncStatus(msg) {
+    const el = $('#syncStatus');
+    if (el) el.textContent = msg;
+  }
+
+  /** auto = true: avvio/uscita dall'app (silenziosa se non è configurata). */
+  async function syncNow(auto) {
+    if (!window.MiaSync) return;
+    if (!settings.syncRepo || !settings.githubToken) {
+      if (!auto) toast('Imposta token GitHub e repository privato per la sincronizzazione');
+      return;
+    }
+    if (syncing) return;
+    if (busy) {
+      if (!auto) toast('Aspetta la fine della risposta, poi sincronizza');
+      return;
+    }
+    syncing = true;
+    syncStatus('Sincronizzazione in corso…');
+    try {
+      const r = await window.MiaSync.sync({
+        token: settings.githubToken,
+        repo: settings.syncRepo,
+        local: {
+          conversations,
+          deleted: settings.deletedChats || {},
+          memory: { text: settings.memory || '', updated: settings.memoryUpdated || 0 }
+        },
+        clean: cleanConversation
+      });
+      if (busy) throw new Error('Sincronizzazione rimandata: è iniziata una risposta.');
+      // applica il risultato senza sostituire gli oggetti che non cambiano
+      const local = new Map(conversations.map((c) => [c.id, c]));
+      const keep = [];
+      let added = 0;
+      let updated = 0;
+      r.conversations.forEach((c) => {
+        const ex = local.get(c.id);
+        if (r.fromRemote.has(c.id)) {
+          if (ex) {
+            const files = ex.messages.map((m) => m.files);
+            Object.assign(ex, c);
+            ex.messages.forEach((m, i) => files[i] && !m.files && (m.files = files[i]));
+            keep.push(ex);
+            updated++;
+          } else {
+            keep.push(c);
+            added++;
+          }
+        } else keep.push(ex || c);
+      });
+      const gone = conversations.filter((c) => !keep.includes(c));
+      const removed = gone.length;
+      dropFiles(gone);
+      conversations = keep;
+      settings.deletedChats = r.deleted;
+      if (r.memoryFromRemote) {
+        settings.memory = r.memory.text;
+        settings.memoryUpdated = r.memory.updated;
+        $('#memory').value = settings.memory; // il pannello è aperto: altrimenti alla chiusura riscriverebbe il testo vecchio
+      }
+      save(LS_SETTINGS, settings);
+      if (currentId && !current()) currentId = null;
+      persistConvs();
+      renderConvList();
+      renderMessages();
+      lastSync = Date.now();
+      const txt =
+        'Sincronizzato alle ' + new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) +
+        ' · ' + added + ' nuove, ' + updated + ' aggiornate' + (removed > 0 ? ', ' + removed + ' eliminate' : '') + (r.pushed ? ' · inviato' : '');
+      syncStatus(txt);
+      if (!auto) toast('Chat sincronizzate');
+    } catch (e) {
+      const msg = e && e.message ? e.message : 'Sincronizzazione non riuscita';
+      syncStatus('⚠️ ' + msg);
+      if (!auto) toast(msg);
+    } finally {
+      syncing = false;
+    }
   }
 
   /** Elimina dall'archivio i file creati dagli strumenti nelle conversazioni indicate. */
@@ -734,6 +830,7 @@
       getMemory: () => String(settings.memory || ''),
       setMemory: (t) => {
         settings.memory = String(t || '').slice(0, 4000);
+        settings.memoryUpdated = Date.now();
         save(LS_SETTINGS, settings);
       }
     };
@@ -1246,6 +1343,8 @@
     fillProviderFields();
     $('#systemPrompt').value = settings.systemPrompt;
     $('#memory').value = settings.memory || '';
+    $('#syncRepo').value = settings.syncRepo || '';
+    $('#syncAuto').checked = !!settings.syncAuto;
     $('#temperature').value = settings.temperature;
     $('#tempValue').textContent = Number(settings.temperature).toFixed(1);
     $('#theme').value = settings.theme;
@@ -1289,7 +1388,10 @@
   function closeSettings() {
     saveProviderFields();
     settings.systemPrompt = $('#systemPrompt').value;
+    if ($('#memory').value.slice(0, 4000) !== (settings.memory || '')) settings.memoryUpdated = Date.now();
     settings.memory = $('#memory').value.slice(0, 4000);
+    settings.syncRepo = $('#syncRepo').value.trim();
+    settings.syncAuto = $('#syncAuto').checked;
     settings.temperature = Number($('#temperature').value);
     settings.theme = $('#theme').value;
     settings.autoFallback = $('#autoFallback').checked;
@@ -1648,6 +1750,7 @@
           currentId = null;
         }
         dropFiles(conversations.filter((c) => c.id === del.dataset.del));
+        markDeleted([del.dataset.del]);
         conversations = conversations.filter((c) => c.id !== del.dataset.del);
         persistConvs();
         renderConvList();
@@ -1771,10 +1874,23 @@
       e.target.value = '';
       await importChats(f);
     });
+    $('#syncNow').addEventListener('click', () => {
+      settings.syncRepo = $('#syncRepo').value.trim();
+      settings.syncAuto = $('#syncAuto').checked;
+      save(LS_SETTINGS, settings);
+      syncNow(false);
+    });
+    if (settings.syncAuto) setTimeout(() => syncNow(true), 1500);
+    document.addEventListener('visibilitychange', () => {
+      if (!settings.syncAuto) return;
+      if (document.visibilityState === 'hidden') syncNow(true);
+      else if (Date.now() - lastSync > 60000) syncNow(true);
+    });
     $('#clearAll').addEventListener('click', () => {
       if (!confirm('Eliminare TUTTE le conversazioni? Non si può annullare.')) return;
       if (busy) stopAll();
       dropFiles(conversations);
+      markDeleted(conversations.map((c) => c.id));
       conversations = [];
       currentId = null;
       persistConvs();

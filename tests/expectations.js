@@ -200,5 +200,16 @@ module.exports = {
     /memoria nelle istruzioni di sistema = true \| indicata come dati = true/, /add → Ricordato: Vivo a Torino => \[Mi chiamo Marco\. \/ Vivo a Torino\]/,
     /add doppione → Già in memoria/, /remove → Tolte 1 righe/, /remove inesistente → Nessuna riga contiene/, /memoria piena → ERR Memoria piena/,
     /add e remove chiedono conferma = true/, /^ERRORS \[\]/m
+  ],
+  '25-sincronizzazione.js': [
+    /esito: Sincronizzato alle \d\d:\d\d · 0 nuove, 0 aggiornate · inviato\n/, /file creato nel repository = true \| scritture = 1/,
+    /nessun segreto inviato = true \| token usato solo nell'intestazione = true/, /immagini non inviate, testo del PDF sì = true/, /memoria inviata = true/, /in A gli allegati restano al loro posto = true/,
+    /2 nuove, 0 aggiornate/, /chat arrivate = Lasagne \| Viaggio/, /memoria arrivata = Mi chiamo Marco\./, /allegato ricevuto senza immagine ma con testo = true/,
+    /seconda sincronizzazione senza novità: nessuna scrittura = true/, /nel repository: chat = c1 \| eliminata registrata = c2/,
+    /0 nuove, 1 aggiornate, 1 eliminate/, /chat in A = Lasagne \| messaggi di Lasagne = 3/, /l'immagine locale non c'è più\) = true/,
+    /chat più recente della lapide resta = true/, /chat più vecchia della lapide sparisce = true/, /lapidi vecchie di 90 giorni ripulite = true/,
+    /inviato \| tentativi di scrittura = 2/, /file molto grande[^\n]*\n +esito: Sincronizzato/,
+    /è pubblico: le chat non vengono inviate/, /nessuna scrittura = true/, /non può scrivere nel repository/, /GitHub risponde 404/, /non è di Mia: non lo sovrascrivo/,
+    /chat scaricate da sole = Lasagne/, /nessuna chat = true/, /^ERRORS \[\]/m
   ]
 };

@@ -47,6 +47,9 @@ Serve Node 18 o più recente. Il runner prepara da solo la cartella `www/` (`scr
 | 18 | esporta/importa chat (unione, file ostili, Condividi su Android simulato) |
 | 19–21 | immagini: NVIDIA FLUX, campi rifiutati dal servizio, Pollinations e «disegna…» |
 | 22 | Mia Bridge: token, strumenti, percorsi fuori cartella, timeout, sola lettura |
+| 23 | PDF: testo estratto per i modelli senza lettura nativa, Gemini/OpenRouter, scansioni, 120 pagine, file rotto |
+| 24 | ricerca nelle chat e nelle note, Memoria (impostazioni e strumento) |
+| 25 | sincronizzazione con repository privato simulato (due dispositivi, eliminazioni, conflitti, repository pubblico rifiutato) |
 
 ## Aggiungere o cambiare un test
 

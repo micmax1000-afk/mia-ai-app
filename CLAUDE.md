@@ -21,12 +21,13 @@ Lingua: **italiano** (interfaccia, messaggi di errore, commit, README, risposte 
 | `js/tools.js` | **gli strumenti dell'agente** (`def('nome', {...})`): GitHub, file, ricerca web, immagini, JS/Python isolati, note, piano; registrazione dinamica degli strumenti MCP |
 | `js/mcp.js` | client MCP (Streamable HTTP; richieste native su Android) |
 | `js/files.js` | file creati (IndexedDB `miaai_files`), Condividi/Salva (`shareBlob`) |
-| `js/docs.js` | testo da xlsx/docx/pptx/zip (allegati) |
+| `js/docs.js` | testo da xlsx/docx/pptx/zip e **PDF** (`pdfText`, pdf.js caricato solo quando serve) |
+| `js/sync.js` | sincronizzazione chat con un repository GitHub **privato** (`mia-chats.json`, unione per `updated`, lapidi 90 giorni, rifiuta repository pubblici) |
 | `js/github.js`, `js/github-ui.js` | integrazione GitHub del pannello Impostazioni (token, repository, «Modifica e push», esporta chat in Markdown) |
 | `js/markdown.js` | Markdown sicuro (tutto l'HTML è escapato) |
 | `js/pwa.js`, `sw.js` | service worker della versione web (mai nell'app Android) |
 | `js/app-fix.js`, `css/app-fix.css` | correzioni dei pannelli su schermi stretti |
-| `js/vendor/` | JSZip e jsPDF (con licenze), caricati solo quando servono |
+| `js/vendor/` | JSZip, jsPDF e pdf.js (build «legacy», `.mjs`, con licenze), caricati solo quando servono |
 | `bridge/mia-bridge.js` | server MCP da eseguire sul PC (file + `run_command`), token obbligatorio |
 | `scripts/` | `stage-www.js` (copia i file web in `www/`), `patch-android-manifest.py` |
 | `tests/` | test end-to-end (vedi `tests/README.md`) |
@@ -37,6 +38,7 @@ Dati nel dispositivo: `localStorage` → `miaai_v1_settings`, `miaai_v1_conversa
 - `npm run serve` → `http://localhost:8080` (prepara `www/`, che è output di build e non va committato).
 - **Test:** `cd tests && npm install && npx playwright install chromium && npm test` (circa 1 minuto, servizi simulati).
   Ogni funzione nuova ha il suo test in `tests/e2e/` e le righe attese in `tests/expectations.js`.
+- **CI dei test:** `.github/workflows/tests.yml` esegue `tests/` a ogni PR e a ogni push su `main` (non per le sole modifiche `.md`). Da verificare la prima esecuzione sul commit di testa prima di unire.
 - **APK:** `.github/workflows/build-apk.yml` parte a ogni push (anche sui branch). Artifact `mia-ai-debug-apk`, firma fissa (le chat restano installando sopra).
   Il repository è pubblico: la chiave di firma è visibile, va bene per un'app personale, non per il Play Store.
 - **Pagina web:** `.github/workflows/pages.yml` pubblica `www/` su `https://micmax1000-afk.github.io/mia-ai-app/` a ogni unione su `main`.
@@ -61,8 +63,12 @@ Dati nel dispositivo: `localStorage` → `miaai_v1_settings`, `miaai_v1_conversa
 - Rete filtrata da un proxy: alcuni siti non sono raggiungibili (per esempio `cdn.jsdelivr.net`, `github.io`); `build.nvidia.com`, `docs.nvidia.com`, `docs.api.nvidia.com` e `assets.ngc.nvidia.com` sono stati abilitati dal proprietario (pagine dei modelli leggibili anche in `.md`, es. `/black-forest-labs/flux_1-schnell/apireference.md`), mentre gli indirizzi delle API (`integrate.api.nvidia.com`, `ai.api.nvidia.com`) restano bloccati: quello che dipende da loro si prova con simulazioni e va verificato sul telefono. `WebSearch` funziona.
 - Niente CLI `gh`: per GitHub si usano gli strumenti MCP. Chromium e Playwright sono preinstallati (`/opt/pw-browsers`, versione 1.63.0 — la stessa fissata in `tests/package.json`).
 
+- **PDF:** `fileToAttachment` salva `att.text`/`att.pages` (pdf.js). Gemini e OpenRouter ricevono il file; gli altri provider ricevono il testo estratto (`textWithFiles(m, nativePdf)`); PDF senza testo + provider senza lettura nativa → errore chiaro. `pdfText` usa `task.destroy()` (non `doc.destroy()`).
+- **Memoria:** `settings.memory` (una riga per fatto) è aggiunta al prompt di sistema in `chatConfig` come dato; strumento `memory` con conferma per add/remove. `memoryUpdated` serve alla sincronizzazione.
+- **Sincronizzazione:** token e `syncRepo` dalle impostazioni; si sincronizza solo a risposta finita (`busy` falso). Dopo una sincronizzazione il pannello Impostazioni può essere aperto: aggiornare i campi del pannello (`#memory`), altrimenti `closeSettings` riscrive i valori vecchi. Eliminando chat si scrive `settings.deletedChats` (`markDeleted`).
+
 ## Stato e idee aperte
 - GitHub Pages: attivo e pubblicato; da verificare l'apertura da PC (vedi sopra).
 - Verificato dal proprietario sul telefono: chat e provider, Python (anche grafici), strumenti GitHub con token corretto, ricerca web, creazione file (zip, Excel), connettore Parallel, immagini (NVIDIA/Pollinations) con Condividi/Salva, esporta chat in JSON con Condividi.
-- Non ancora verificato: importazione chat, Mia Bridge, Serper/Exa/Tavily con chiavi vere, versione web su PC (apertura della pagina, installazione come app).
-- Idee: sincronizzazione chat tra dispositivi (repository GitHub privato), CI che esegue `tests/` sulle PR, app per Windows/Ubuntu (Electron) se i limiti CORS del browser danno fastidio.
+- Non ancora verificato dal proprietario (provato solo nei test con servizi simulati): lettura PDF con modelli non nativi, ricerca nelle chat, Memoria, sincronizzazione con il repository privato `mia-dati` (la scrittura su un repository **vuoto** con l'API dei contenuti non è provata su GitHub vero), importazione chat, Mia Bridge, Serper/Exa/Tavily con chiavi vere, versione web su PC (apertura della pagina, installazione come app).
+- Idee: app per Windows/Ubuntu (Electron) se i limiti CORS del browser danno fastidio.
