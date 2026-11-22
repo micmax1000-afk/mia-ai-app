@@ -33,7 +33,7 @@
     githubToken: '',
     githubRepo: '',
     imageModel: 'gemini-2.5-flash-image', // modello Gemini per generate_image
-    imageProvider: 'auto', // generate_image: 'auto' (prima NVIDIA FLUX, poi Gemini) | 'nvidia' | 'gemini'
+    imageProvider: 'auto', // generate_image: 'auto' (NVIDIA FLUX, poi Gemini, poi Pollinations) | 'nvidia' | 'gemini' | 'pollinations'
     searchProvider: 'gemini', // ricerca web: 'gemini' (Google, con la chiave Gemini) | 'ddg' | 'tavily' | 'serper' | 'exa' | '' (disattivata)
     searchKey: '',
     preferMcpWeb: true, // se un connettore offre ricerca/lettura web, usa quella al posto di quella di Mia
@@ -413,7 +413,14 @@
     }
     if (file.type === 'application/pdf' || /\.pdf$/i.test(name)) {
       if (file.size > MAX_BINARY) throw new Error('PDF troppo grande (max 8 MB): ' + name);
-      return { kind: 'pdf', name, mime: 'application/pdf', data: (await readAs(file, 'dataurl')).split(',')[1] };
+      const att = { kind: 'pdf', name, mime: 'application/pdf', data: (await readAs(file, 'dataurl')).split(',')[1] };
+      // testo estratto sul dispositivo: serve ai modelli che non leggono i PDF da soli (se fallisce, resta il solo PDF per Gemini/OpenRouter)
+      try {
+        const r = await window.MiaDocs.pdfText(await file.arrayBuffer());
+        att.pages = r.pages;
+        if (r.text) att.text = r.text;
+      } catch (_) {}
+      return att;
     }
     if (window.MiaDocs && window.MiaDocs.supports(name)) {
       const d = await window.MiaDocs.extract(file);
@@ -1978,7 +1985,8 @@
       } catch (_) {}
       if (ctl.signal.aborted) throw abortError();
       const slug = raw.toLowerCase().replace(/[^a-z0-9àèéìòù]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'immagine';
-      const res = await Tools.run('generate_image', { prompt, filename: slug }, Object.assign(toolContext(ctl.signal), { allowLink: true }));
+      const aspect = /orizzontal|panoram|paesagg|16\s*:\s*9|\bwide\b/i.test(raw) ? 'landscape' : /verticale|ritratto|9\s*:\s*16|locandina|\bposter\b/i.test(raw) ? 'portrait' : 'square';
+      const res = await Tools.run('generate_image', { prompt, filename: slug, aspect }, Object.assign(toolContext(ctl.signal), { allowLink: true }));
       const who = ((/(?:Creata con|ho usato) ([^.]+)\./.exec(res.text) || [])[1] || 'AI').trim();
       const msg = { role: 'assistant', content: 'Descrizione usata: ' + prompt, model: 'Immagine · ' + who };
       if (res.imageUrl) msg.imageUrl = res.imageUrl;

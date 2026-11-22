@@ -151,7 +151,7 @@ module.exports = {
     /file scritto in cache = \["write","mia-ai-chat-.*","CACHE"/, /"files":\["file:\/\/\/cache\/mia-ai-chat-.*\.json"\]/
   ],
   '19-immagini-nvidia.js': [
-    /artifacts\[0\]\.base64 +OK .*image\/png/, /"seed":0,"steps":4\} \| auth: Bearer nvapi-X/, /campo image +OK/,
+    /artifacts\[0\]\.base64 +OK .*image\/png/, /"width":1024,"height":1024,"steps":4\} \| auth: Bearer nvapi-X/, /campo image +OK/,
     /data\[0\]\.b64_json \(\+prefisso\) +OK/, /JPEG riconosciuto dai byte +OK .*image\/jpeg/, /422 → richiesta minima +OK/,
     /filtered +ERR NVIDIA FLUX: immagine non generata \(CONTENT_FILTERED\)/, /402 +ERR .*crediti gratuiti NVIDIA/, /429 +ERR .*Troppe richieste/,
     /auto: NVIDIA ok +OK[^\n]*\n +chiamate a Gemini: 0/, /auto: NVIDIA 402 → Gemini +OK[^\n]*\n +chiamate a Gemini: 1/,
@@ -160,9 +160,15 @@ module.exports = {
     /starcoder2-15b ok/, /nvclip ok/, /^ERRORS \[\]/m
   ],
   '20-nvidia-campi-rifiutati.js': [
-    /tutti i campi ammessi +OK/, /seed rifiutato \(caso dello screenshot\) +OK[^\n]*\n +richieste: 2 \| ultima: \{"prompt":"a red fox","width":1024,"height":1024,"steps":4\}/,
-    /seed, width e height rifiutati +OK/, /ammesso solo il prompt +OK[^\n]*\n +richieste: 2 \| ultima: \{"prompt":"a red fox"\}/,
-    /prompt troppo lungo \(non risolvibile\) +ERR NVIDIA FLUX: body\.prompt: String should have at most 20 characters/
+    /schema ufficiale di NVIDIA +OK[^\n]*\n +richieste: 1 \| ultima: \{"prompt":"a red fox","width":1024,"height":1024,"steps":4\}/,
+    /width e height rifiutati +OK[^\n]*\n +richieste: 2 \| ultima: \{"prompt":"a red fox","steps":4\}/,
+    /ammesso solo il prompt +OK[^\n]*\n +richieste: 2 \| ultima: \{"prompt":"a red fox"\}/,
+    /prompt troppo lungo \(non risolvibile\) +ERR NVIDIA FLUX: body\.prompt: String should have at most 20 characters/,
+    /formato landscape +OK \| corpo: \{"prompt":"a fox","width":1344,"height":768,"steps":4\}/,
+    /formato portrait +OK \| corpo: \{"prompt":"a fox","width":768,"height":1344,"steps":4\}/,
+    /formato square +OK \| corpo: \{"prompt":"a fox","width":1024,"height":1024,"steps":4\}/,
+    /formato undefined +OK \| corpo: \{"prompt":"a fox","width":1024,"height":1024,"steps":4\}/,
+    /finishReason ERROR → NVIDIA FLUX: immagine non generata \(ERROR\): errore del servizio/
   ],
   '21-immagini-pollinations.js': [
     /Pollinations esplicito +OK .*image\/jpeg/, /dimensioni: 1024x1024/, /auto: senza chiavi → Pollinations +OK/,
@@ -171,6 +177,7 @@ module.exports = {
     /senza virgolette = true/, /file in chat: 📎 un-gatto-che-dorme\.jpg .* anteprima = true \| pulsante = Condividi \/ Salva/,
     /Condividi\/Salva \(browser\) → scarica: un-gatto-che-dorme\.jpg/, /dopo il ricaricamento il file c'è ancora = true/,
     /descrizione inviata: una casa rossa/, /messaggio «interrotto» mostrato = true \| nessun file = true/,
+    /«disegna un tramonto panoramico orizzontale» → 1344x768 \(atteso\)/, /«disegna un ritratto verticale di un gufo» → 768x1344 \(atteso\)/, /«disegna una mela» → 1024x1024 \(atteso\)/,
     /immagine mostrata da collegamento = true \| caricata davvero = true/, /errore mostrato: ⚠️ NVIDIA FLUX: Out of credits/, /^ERRORS \[\]/m
   ],
   '22-mia-bridge.js': [
@@ -178,5 +185,12 @@ module.exports = {
     /edit_file +→ Modificato/, /uno\|DUE\|tre/, /run exit 3 +→ .*codice di uscita 3/, /run timeout +→ .*tempo scaduto/,
     /\.\.\/ +→ \[ERRORE\].*fuori dalla cartella/, /assoluto +→ \[ERRORE\].*fuori dalla cartella/, /symlink +→ \[ERRORE\].*fuori dalla cartella/,
     /esiste fuori\? false/, /cwd fuori +→ \[ERRORE\]/, /sola lettura +→ list_dir, read_file/
+  ],
+  '23-pdf-allegati.js': [
+    /testo estratto inviato = true \| pagine = true \| contenuto = true \| nessun file binario = true/, /chip dell'allegato nel messaggio = true/,
+    /PDF inviato come dati = true \| testo non duplicato = true/, /file nativo = true \| testo non duplicato = true/,
+    /indica il numero di pagine reale = true \| arriva a pagina 100 = true \| non oltre = true \| avviso di testo troncato = true/,
+    /errore chiaro = ⚠️ Il PDF «scansione\.pdf» non contiene testo selezionabile/, /con Gemini invece va \(legge le immagini\) = true/,
+    /l'allegato si crea comunque e dà l'errore chiaro = true/, /errore chiaro con NVIDIA = true/, /il testo viene usato anche con Gemini = true/, /^ERRORS \[\]/m
   ]
 };

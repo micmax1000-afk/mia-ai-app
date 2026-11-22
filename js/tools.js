@@ -798,9 +798,11 @@
     return { data: img.data, mime: img.mime, note: text ? 'Nota del modello: ' + oneLine(text, 300) : '', who: 'Gemini' };
   }
 
-  // FLUX.1 schnell sul servizio ospitato da NVIDIA. Formato della risposta NON verificato sulla documentazione:
-  // si accettano più forme e, se i campi di dimensione vengono rifiutati (422), si riprova con la richiesta minima.
-  async function nvidiaImage(prompt, ctx) {
+  // FLUX.1 schnell sul servizio ospitato da NVIDIA. Schema ufficiale (build.nvidia.com → API Reference): la richiesta accetta SOLO
+  // prompt (richiesto, max 10000), width e height (768…1344 a passi di 64), steps (1-4), cfg_scale, mode, samples; non esiste «seed»
+  // e ogni altro campo dà 422. Risposta: { artifacts: [{ base64 (JPEG), finishReason: SUCCESS | ERROR | CONTENT_FILTERED }] }.
+  // Per sicurezza si accettano anche altre forme di risposta e si tolgono da soli i campi che il servizio dovesse rifiutare.
+  async function nvidiaImage(prompt, ctx, size) {
     const url = 'https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-schnell';
     const post = async (body) => {
       const res = await fetch(url, {
@@ -817,7 +819,7 @@
     };
     // Il servizio convalida la richiesta e rifiuta i campi che non conosce (422 «extra_forbidden»): si leggono dall'errore
     // i campi opzionali che non vanno bene e si riprova senza, fino a 5 volte. Il testo («prompt») non si tocca mai.
-    const body = { prompt, width: 1024, height: 1024, seed: 0, steps: 4 };
+    const body = { prompt: prompt.slice(0, 10000), width: size[0], height: size[1], steps: 4 };
     let res;
     let data;
     for (let i = 0; i < 5; i++) {
@@ -851,7 +853,11 @@
     const d = data || {};
     const first = (Array.isArray(d.artifacts) && d.artifacts[0]) || (Array.isArray(d.images) && d.images[0]) || (Array.isArray(d.data) && d.data[0]) || d;
     const why = first && typeof first === 'object' && (first.finishReason || first.finish_reason);
-    if (why && !/^(success|stop)$/i.test(String(why))) throw new Error('NVIDIA FLUX: immagine non generata (' + why + '): il testo potrebbe essere stato bloccato dai filtri.');
+    if (why && !/^(success|stop)$/i.test(String(why)))
+      throw new Error(
+        'NVIDIA FLUX: immagine non generata (' + why + ')' +
+          (/FILTER/i.test(String(why)) ? ': il testo potrebbe essere stato bloccato dai filtri del servizio.' : ': errore del servizio, riprova.')
+      );
     let b64 = typeof first === 'string' ? first : first.base64 || first.b64_json || first.image || first.b64 || d.image || d.base64 || '';
     if (typeof b64 === 'string') b64 = b64.replace(/^data:image\/[a-z]+;base64,/i, '');
     if (!b64 || typeof b64 !== 'string') throw new Error('NVIDIA FLUX: risposta senza immagine (campi ricevuti: ' + Object.keys(d).join(', ').slice(0, 120) + ').');
@@ -860,11 +866,11 @@
 
   // Pollinations: gratuito e senza chiave (progetto di comunità, nessuna garanzia di disponibilità).
   // Dal browser l'indirizzo può non permettere la lettura (CORS): con ctx.allowLink si restituisce allora il solo link, che l'<img> sa mostrare.
-  async function pollinationsImage(prompt, ctx) {
+  async function pollinationsImage(prompt, ctx, size) {
     const url =
       'https://image.pollinations.ai/prompt/' +
       encodeURIComponent(prompt.slice(0, 900)) +
-      '?width=1024&height=1024&nologo=true&model=flux&seed=' +
+      '?width=' + size[0] + '&height=' + size[1] + '&nologo=true&model=flux&seed=' +
       Math.floor(Math.random() * 1e9);
     let res;
     try {
@@ -891,13 +897,16 @@
       type: 'object',
       properties: {
         prompt: { type: 'string', description: 'Descrizione dettagliata dell\'immagine da creare (stile, soggetto, colori, inquadratura).' },
-        filename: { type: 'string', description: 'Nome del file senza estensione (facoltativo).' }
+        filename: { type: 'string', description: 'Nome del file senza estensione (facoltativo).' },
+        aspect: { type: 'string', enum: ['square', 'landscape', 'portrait'], description: 'Formato: square (1024x1024, predefinito), landscape (orizzontale 1344x768) o portrait (verticale 768x1344).' }
       },
       required: ['prompt']
     },
     title: (a) => 'Genera un\'immagine: «' + oneLine(a.prompt, 80) + '»',
     async run(args, ctx) {
       const prompt = need(args, 'prompt');
+      const SIZES = { square: [1024, 1024], landscape: [1344, 768], portrait: [768, 1344] }; // risoluzioni supportate da FLUX (NVIDIA)
+      const size = SIZES[args.aspect] || SIZES.square;
       const choice = ctx.imageProvider || 'auto';
       const order = ['nvidia', 'gemini', 'pollinations'].includes(choice) ? [choice] : ['nvidia', 'gemini', 'pollinations'];
       const usable = order.filter((k) => (k === 'nvidia' ? ctx.nvidiaKey : k === 'gemini' ? ctx.geminiKey : true));
@@ -908,7 +917,7 @@
       const failures = [];
       for (const k of usable) {
         try {
-          img = await (k === 'nvidia' ? nvidiaImage : k === 'gemini' ? geminiImage : pollinationsImage)(prompt, ctx);
+          img = await (k === 'nvidia' ? nvidiaImage : k === 'gemini' ? geminiImage : pollinationsImage)(prompt, ctx, size);
           break;
         } catch (e) {
           if (e && e.name === 'AbortError') throw e;
