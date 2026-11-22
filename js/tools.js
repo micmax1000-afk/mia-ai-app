@@ -1657,10 +1657,10 @@
   });
 
   // ─── Ricerca web ───────────────────────────────────────────
-  // 23 — web_search (serve una chiave Brave Search o Tavily)
+  // 23 — web_search (Google/Gemini, DuckDuckGo, Tavily, Serper o Exa)
   def('web_search', {
     description:
-      'Cerca sul web (Google, DuckDuckGo, Brave o Tavily secondo le impostazioni) e restituisce una risposta o titoli, indirizzi ed estratti, con le fonti. Usalo per notizie, fatti recenti, documentazione, prezzi. ' +
+      'Cerca sul web (Google, DuckDuckGo, Tavily, Serper o Exa secondo le impostazioni) e restituisce una risposta o titoli, indirizzi ed estratti, con le fonti. Usalo per notizie, fatti recenti, documentazione, prezzi. ' +
       'Poi puoi leggere una pagina intera con read_webpage.',
     parameters: {
       type: 'object',
@@ -1676,7 +1676,7 @@
       const n = Math.min(10, Math.max(1, Math.floor(Number(args.limit)) || 6));
       const provider = ctx.searchProvider;
       if (!provider) throw new Error('La ricerca web è disattivata: in Impostazioni → Ricerca web scegli un servizio.');
-      if (provider === 'gemini' && !ctx.geminiKey) throw new Error('Per la ricerca di Google serve la chiave Gemini: inseriscila in Impostazioni (provider Google Gemini), oppure scegli Brave o Tavily.');
+      if (provider === 'gemini' && !ctx.geminiKey) throw new Error('Per la ricerca di Google serve la chiave Gemini: inseriscila in Impostazioni (provider Google Gemini), oppure scegli un altro servizio.');
       if (!['gemini', 'ddg'].includes(provider) && !ctx.searchKey) throw new Error('Manca la chiave della ricerca web: in Impostazioni → Ricerca web incollala.');
       const strip = (s) => oneLine(str(s).replace(/<[^>]+>/g, ''), 300);
       const fail = async (res, who) => {
@@ -1709,8 +1709,8 @@
           try {
             m = ((await res.json()).error || {}).message || '';
           } catch (_) {}
-          if (res.status === 429 || /quota|rate/i.test(m)) throw new Error('Ricerca Google: limite del piano raggiunto (le ricerche con Google hanno una quota a parte). Riprova più tardi o scegli Brave/Tavily. [HTTP ' + res.status + ']');
-          if (res.status === 400 || res.status === 403 || res.status === 404) throw new Error('Ricerca Google non disponibile con questa chiave o modello: ' + oneLine(m, 160) + ' — scegli Brave o Tavily. [HTTP ' + res.status + ']');
+          if (res.status === 429 || /quota|rate/i.test(m)) throw new Error('Ricerca Google: limite del piano raggiunto (le ricerche con Google hanno una quota a parte). Riprova più tardi o scegli un altro servizio. [HTTP ' + res.status + ']');
+          if (res.status === 400 || res.status === 403 || res.status === 404) throw new Error('Ricerca Google non disponibile con questa chiave o modello: ' + oneLine(m, 160) + ' — scegli un altro servizio. [HTTP ' + res.status + ']');
           throw new Error('Ricerca Google: errore ' + oneLine(m, 160) + ' [HTTP ' + res.status + ']');
         }
         const d = await res.json();
@@ -1780,16 +1780,37 @@
         if (!list.length) return 'Nessun risultato.';
         return (d.answer ? 'Sintesi: ' + oneLine(d.answer, 600) + '\n\n' : '') + list.map((r, i) => i + 1 + '. ' + oneLine(r.title, 120) + '\n   ' + r.url + '\n   ' + strip(r.content)).join('\n');
       }
-      if (provider === 'brave') {
-        const res = await fetch('https://api.search.brave.com/res/v1/web/search?q=' + encodeURIComponent(q) + '&count=' + n, {
-          headers: { Accept: 'application/json', 'X-Subscription-Token': ctx.searchKey },
+      if (provider === 'serper') {
+        const res = await fetch('https://google.serper.dev/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-KEY': ctx.searchKey },
+          body: JSON.stringify({ q, num: n, gl: 'it', hl: 'it' }),
           signal: ctx.signal
         });
-        if (!res.ok) await fail(res, 'Brave Search');
+        if (!res.ok) await fail(res, 'Serper');
         const d = await res.json();
-        const list = (d.web && d.web.results) || [];
+        const list = d.organic || [];
+        const box = d.answerBox && (d.answerBox.answer || d.answerBox.snippet || d.answerBox.title);
+        const kg = d.knowledgeGraph && d.knowledgeGraph.description ? (d.knowledgeGraph.title ? d.knowledgeGraph.title + ': ' : '') + d.knowledgeGraph.description : '';
+        if (!list.length && !box && !kg) return 'Nessun risultato.';
+        return (
+          (box ? 'Risposta diretta: ' + oneLine(box, 400) + '\n\n' : '') +
+          (kg ? oneLine(kg, 400) + '\n\n' : '') +
+          list.slice(0, n).map((r, i) => i + 1 + '. ' + oneLine(r.title, 120) + '\n   ' + r.link + '\n   ' + strip(r.snippet)).join('\n')
+        ).trim();
+      }
+      if (provider === 'exa') {
+        const res = await fetch('https://api.exa.ai/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': ctx.searchKey },
+          body: JSON.stringify({ query: q, numResults: n, contents: { text: { maxCharacters: 400 } } }),
+          signal: ctx.signal
+        });
+        if (!res.ok) await fail(res, 'Exa');
+        const d = await res.json();
+        const list = d.results || [];
         if (!list.length) return 'Nessun risultato.';
-        return list.map((r, i) => i + 1 + '. ' + oneLine(strip(r.title), 120) + '\n   ' + r.url + '\n   ' + strip(r.description)).join('\n');
+        return list.map((r, i) => i + 1 + '. ' + oneLine(r.title || r.url, 120) + '\n   ' + r.url + (r.publishedDate ? ' (' + String(r.publishedDate).slice(0, 10) + ')' : '') + '\n   ' + strip(r.text)).join('\n');
       }
       throw new Error('Servizio di ricerca sconosciuto: ' + provider);
     }

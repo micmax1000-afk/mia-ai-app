@@ -175,8 +175,9 @@
             <select id="searchProvider">
               <option value="gemini">Google, tramite Gemini (usa la chiave Gemini)</option>
               <option value="ddg">DuckDuckGo (non ufficiale, senza chiave)</option>
-              <option value="brave">Brave Search</option>
-              <option value="tavily">Tavily</option>
+              <option value="tavily">Tavily (piano gratuito con chiave)</option>
+              <option value="serper">Serper (piano gratuito con chiave)</option>
+              <option value="exa">Exa (piano gratuito con chiave)</option>
               <option value="">Disattivata</option>
             </select>
           </label>
@@ -184,7 +185,7 @@
             <span>Chiave della ricerca web</span>
             <input id="searchKey" type="password" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Chiave API">
           </label>
-          <p class="hint">Con «Google, tramite Gemini» non serve altro che la chiave Gemini già inserita (la quota gratuita delle ricerche può essere limitata o non disponibile sul tuo piano). «DuckDuckGo» non ha chiave né API ufficiale: legge la sua pagina web, quindi può smettere di funzionare o chiedere una verifica anti-robot (nel browser è bloccato, nell'app Android dovrebbe funzionare). Per <a href="https://brave.com/search/api/" target="_blank" rel="noopener">Brave Search</a> o <a href="https://tavily.com" target="_blank" rel="noopener">Tavily</a> serve una chiave del servizio. La domanda viene inviata al servizio scelto.</p>
+          <p class="hint">Con «Google, tramite Gemini» non serve altro che la chiave Gemini già inserita (la quota gratuita delle ricerche può essere limitata o non disponibile sul tuo piano). «DuckDuckGo» non ha chiave né API ufficiale: legge la sua pagina web, quindi può smettere di funzionare o chiedere una verifica anti-robot (nel browser è bloccato, nell'app Android dovrebbe funzionare). Per <a href="https://tavily.com" target="_blank" rel="noopener">Tavily</a>, <a href="https://serper.dev" target="_blank" rel="noopener">Serper</a> ed <a href="https://exa.ai" target="_blank" rel="noopener">Exa</a> serve una chiave del servizio: i limiti gratuiti li decide ciascuno e cambiano nel tempo, controllali sul sito. La domanda viene inviata al servizio scelto.</p>
           <label class="field">
             <span>Passaggi massimi per richiesta</span>
             <input id="maxSteps" type="number" inputmode="numeric" min="3" max="40" step="1">

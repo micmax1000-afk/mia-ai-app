@@ -33,7 +33,7 @@
     githubToken: '',
     githubRepo: '',
     imageModel: 'gemini-2.5-flash-image', // modello Gemini per generate_image
-    searchProvider: 'gemini', // ricerca web: 'gemini' (Google, con la chiave Gemini) | 'brave' | 'tavily' | '' (disattivata)
+    searchProvider: 'gemini', // ricerca web: 'gemini' (Google, con la chiave Gemini) | 'ddg' | 'tavily' | 'serper' | 'exa' | '' (disattivata)
     searchKey: '',
     maxSteps: 15, // giri massimi modello → strumenti → modello per ogni richiesta
     mcpServers: [] // connettori MCP: { id, name, url, token, enabled, disabled: [nomi strumenti] }
@@ -58,6 +58,7 @@
   let settings = Object.assign({}, DEFAULT_SETTINGS, load(LS_SETTINGS, {}));
   if (!Array.isArray(settings.favorites)) settings.favorites = [];
   if (!Array.isArray(settings.mcpServers)) settings.mcpServers = [];
+  if (settings.searchProvider === 'brave') settings.searchProvider = 'gemini'; // Brave Search non è più tra le scelte
   if (typeof settings.githubRepo !== 'string') settings.githubRepo = '';
   let conversations = load(LS_CONVS, []);
   let currentId = load(LS_CURRENT, null);
@@ -1205,9 +1206,9 @@
     document.body.classList.remove('sheet-open');
   }
 
-  /** La chiave della ricerca serve solo per Brave e Tavily (Google usa la chiave Gemini). */
+  /** La chiave della ricerca serve solo per Tavily, Serper ed Exa (Google usa la chiave Gemini, DuckDuckGo nessuna). */
   function syncSearchFields() {
-    const needsKey = ['brave', 'tavily'].includes($('#searchProvider').value);
+    const needsKey = ['tavily', 'serper', 'exa'].includes($('#searchProvider').value);
     $('#searchKeyField').hidden = !needsKey;
   }
 
