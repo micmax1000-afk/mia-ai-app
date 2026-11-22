@@ -48,7 +48,7 @@
       </div>
     </div>
     <input type="file" id="fileInput" multiple hidden
-      accept="image/*,application/pdf,.pdf,text/*,.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.py,.java,.kt,.c,.cpp,.go,.rs,.php,.sh,.sql,.yaml,.yml,.log,.srt">
+      accept="image/*,application/pdf,.pdf,.xlsx,.docx,.pptx,.zip,text/*,.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.py,.java,.kt,.c,.cpp,.go,.rs,.php,.sh,.sql,.yaml,.yml,.log,.srt">
     <input type="file" id="cameraInput" class="file-ghost" accept="image/*" capture="environment">
   </form>
 </div>
@@ -141,7 +141,7 @@
           <input id="githubToken" type="password" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="ghp_…">
           <button type="button" class="btn small ghost" id="testGithub">Testa</button>
         </div>
-        <p class="hint">Permesso <code>repo</code>. Resta solo su questo dispositivo.</p>
+        <p class="hint">Resta solo su questo dispositivo. Token «classic»: permesso <code>repo</code>. Token «fine-grained»: Contents, Issues, Pull requests, Actions, Metadata in lettura/scrittura (per creare repository serve il «classic»).</p>
         <div class="gh-panel" id="ghPanel">
           <div class="row">
             <select id="ghRepo"><option value="">I miei repository…</option></select>
@@ -157,6 +157,29 @@
           <p class="hint" id="ghStatus"></p>
         </div>
       </label>
+
+      <div class="agent-box">
+        <label class="field check-field">
+          <input type="checkbox" id="agentEnabled">
+          <span><b>Modalità agente</b> — Mia può usare strumenti: GitHub (repository, file, branch, issue), pagine web, note, creare file (testo, zip, PDF, Excel, immagini) ed eseguire codice JavaScript e Python</span>
+        </label>
+        <div id="agentFields">
+          <p class="hint">Usa il token GitHub qui sopra. Per crearne uno fine-grained: <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens</a>.</p>
+          <label class="field">
+            <span>Modello immagini (Gemini)</span>
+            <input id="imageModel" spellcheck="false" autocapitalize="off" placeholder="gemini-2.5-flash-image">
+          </label>
+          <p class="hint">Per «genera immagine» usa la chiave del provider Google Gemini. Il piano gratuito può non includere le immagini: se dà errore, controlla il nome del modello o i limiti del tuo account.</p>
+          <div class="mcp-box">
+            <strong>Connettori (MCP)</strong>
+            <p class="hint">Collega servizi esterni che offrono un server MCP «HTTP» (indirizzo https://…). Mia ne scopre gli strumenti e li usa; ogni azione che non è di sola lettura chiede conferma. Nel browser il server deve accettare richieste CORS; nell'APK Android di solito non serve.</p>
+            <div id="mcpList"></div>
+            <button type="button" class="btn small ghost" id="mcpAdd">＋ Aggiungi connettore</button>
+          </div>
+          <p class="hint">Le azioni che modificano qualcosa (creare, scrivere, eliminare, commentare) chiedono sempre il tuo permesso. Le note sono salvate sul telefono.</p>
+          <p class="hint">«Leggi pagina web» prova l'indirizzo direttamente; se il sito lo blocca passa dal servizio r.jina.ai, che vede l'indirizzo richiesto.</p>
+        </div>
+      </div>
 
       <div class="danger">
         <button type="button" class="btn ghost" id="exportBtn">Esporta chat (JSON)</button>
@@ -181,10 +204,32 @@
   </div>
 </div>
 
+<!-- Conferma azione dello strumento -->
+<div class="sheet" id="confirm" hidden role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+  <div class="sheet-card">
+    <div class="sheet-head">
+      <strong>Mia vuole eseguire un'azione</strong>
+    </div>
+    <div class="sheet-body">
+      <p class="confirm-title" id="confirmTitle"></p>
+      <pre class="confirm-details" id="confirmDetails" hidden></pre>
+      <p class="hint" id="confirmWarn" hidden>⚠️ Azione difficile da annullare.</p>
+      <div class="row confirm-actions">
+        <button type="button" class="btn ghost" id="confirmNo">Rifiuta</button>
+        <button type="button" class="btn" id="confirmYes">Consenti</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast" hidden></div>
 
 <script src="js/markdown.js"></script>
 <script src="js/providers.js"></script>
+<script src="js/files.js"></script>
+<script src="js/mcp.js"></script>
+<script src="js/tools.js"></script>
+<script src="js/docs.js"></script>
 <script src="js/github.js"></script>
 <script src="js/github-ui.js"></script>
 <script src="js/app.js"></script>

@@ -57,7 +57,7 @@
       let md = '# ' + (c.title || 'Chat') + '\n\n';
       md += '_Esportata da Mia il ' + new Date().toLocaleString('it-IT') + '_\n\n';
       c.messages.forEach((m) => {
-        if (m.error) return;
+        if (m.error || m.role === 'tool' || !(m.content || '').trim()) return; // salta i risultati degli strumenti e i passaggi senza testo
         md += (m.role === 'user' ? '**Tu**' : '**Mia**') + '\n\n' + (m.content || '') + '\n\n';
       });
       const slug = (c.title || 'chat').replace(/[^a-z0-9\-_]+/gi, '-').replace(/^-|-$/g, '').slice(0, 48) || 'chat';

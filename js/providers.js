@@ -59,6 +59,8 @@
     const m = String((e && e.message) || e || '');
     const who = providerLabel || 'Provider';
     if (e && e.attachmentError) return m;
+    if (/tool|function.?call/i.test(m) && /support|endpoint|enabled|not (available|allowed)|invalid/i.test(m))
+      return who + ': questo modello non supporta gli strumenti (modalità agente). Scegline un altro (es. Gemini) o disattiva la modalità agente in Impostazioni.';
     if (/image|vision|multimodal|image_url|inline_?data|mime|pdf|file/i.test(m) && /support|invalid|not|unsupported|allowed/i.test(m))
       return who + ': questo modello non accetta questo tipo di allegato. Usa «Prova con…» e scegli un modello che legge immagini/PDF (es. Gemini).';
     if (/402|insufficient|credit|payment required/i.test(m))
@@ -115,7 +117,7 @@
     }
   }
 
-  // ─── Allegati ─────────────────────────────────────────────────────────────────────
+  // ─── Allegati ──────────────────────────────
   // attachment: { kind: 'image'|'pdf'|'text', name, mime, data (base64) | text, dropped? }
   function attachmentError(msg) {
     const e = new Error(msg);
@@ -137,20 +139,74 @@
     return (m.attachments || []).filter((a) => (a.kind === 'image' || a.kind === 'pdf') && a.data && !a.dropped);
   }
 
-  // ─── Gemini ───────────────────────────────────────────────────────────────────────
-  async function streamGemini(cfg, messages, onText, signal) {
-    const contents = messages
+  // ─── Gemini ──────────────────────────────
+  function newCallId() {
+    return 'call_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  function parseArgs(raw) {
+    if (raw && typeof raw === 'object') return { args: raw };
+    try {
+      const v = JSON.parse(raw || '{}');
+      return { args: v && typeof v === 'object' && !Array.isArray(v) ? v : {} };
+    } catch (_) {
+      return { args: {}, argsError: true };
+    }
+  }
+
+  /** Converte la cronologia in «contents» Gemini (inclusi richieste e risultati degli strumenti). */
+  function geminiContents(cfg, messages) {
+    const out = [];
+    const isResponse = (c) => c.parts.every((p) => p.functionResponse);
+    messages
       .filter((m) => m.role !== 'system')
-      .map((m) => {
+      .forEach((m) => {
+        if (m.role === 'tool') {
+          const part = {
+            functionResponse: { name: m.name, response: m.ok === false ? { error: m.content } : { result: m.content } }
+          };
+          const last = out[out.length - 1];
+          if (last && last.role === 'user' && isResponse(last)) last.parts.push(part);
+          else out.push({ role: 'user', parts: [part] });
+          return;
+        }
+        if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length) {
+          const parts = [];
+          if (m.content && m.content.trim()) parts.push({ text: m.content });
+          m.toolCalls.forEach((tc) => {
+            const part = { functionCall: { name: tc.name, args: tc.args || {} } };
+            // Gemini 3 richiede la «firma di pensiero»: se la chiamata viene da un altro modello si salta il controllo
+            if (tc.sig) part.thoughtSignature = tc.sig;
+            else if (/gemini-3/i.test(cfg.model)) part.thoughtSignature = 'skip_thought_signature_validator';
+            parts.push(part);
+          });
+          out.push({ role: 'model', parts });
+          return;
+        }
         const parts = [{ text: textWithFiles(m) }];
         binaries(m).forEach((a) => parts.push({ inlineData: { mimeType: a.mime, data: a.data } }));
-        return { role: m.role === 'user' ? 'user' : 'model', parts };
+        out.push({ role: m.role === 'user' ? 'user' : 'model', parts });
       });
+    return out;
+  }
+
+  async function streamGemini(cfg, messages, onText, signal, tools) {
     const body = {
-      contents,
+      contents: geminiContents(cfg, messages),
       generationConfig: { temperature: cfg.temperature, maxOutputTokens: 8192 }
     };
     if (cfg.systemPrompt) body.systemInstruction = { parts: [{ text: cfg.systemPrompt }] };
+    if (tools && tools.length)
+      body.tools = [
+        {
+          functionDeclarations: tools.map((t) => {
+            const d = { name: t.name, description: t.description };
+            // Gemini rifiuta «parameters» con proprietà vuote: per gli strumenti senza argomenti si omette
+            if (t.parameters && t.parameters.properties && Object.keys(t.parameters.properties).length) d.parameters = t.parameters;
+            return d;
+          })
+        }
+      ];
 
     const url =
       trimSlash(cfg.baseUrl) + '/models/' + encodeURIComponent(cfg.model) + ':streamGenerateContent?alt=sse';
@@ -163,13 +219,16 @@
     if (!res.ok) throw await readError(res, 'Gemini');
 
     let full = '';
+    const toolCalls = [];
     await readSSE(res, (payload) => {
       try {
         const json = JSON.parse(payload);
         if (json.error) throw new Error(json.error.message || 'Errore Gemini');
         const parts = (json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts) || [];
         for (const p of parts) {
-          if (p.text && !p.thought) {
+          if (p.functionCall) {
+            toolCalls.push({ id: newCallId(), name: p.functionCall.name, args: p.functionCall.args || {}, sig: p.thoughtSignature });
+          } else if (p.text && !p.thought) {
             full += p.text;
             onText(full);
           }
@@ -179,7 +238,7 @@
         throw e;
       }
     });
-    return full;
+    return { text: full, toolCalls };
   }
 
   async function listGeminiModels(cfg) {
@@ -199,7 +258,7 @@
       }));
   }
 
-  // ─── Compatibile OpenAI ──────────────────────────────────────────────────────────
+  // ─── Compatibile OpenAI ──────────────────────────────
   function openaiHeaders(cfg) {
     const h = { 'Content-Type': 'application/json' };
     if (cfg.apiKey) h.Authorization = 'Bearer ' + cfg.apiKey;
@@ -207,11 +266,25 @@
     return h;
   }
 
-  async function streamOpenAI(cfg, messages, onText, signal) {
+  async function streamOpenAI(cfg, messages, onText, signal, tools) {
     const msgs = [];
     if (cfg.systemPrompt) msgs.push({ role: 'system', content: cfg.systemPrompt });
     const isOpenRouter = /openrouter\.ai/.test(cfg.baseUrl);
     messages.forEach((m) => {
+      if (m.role === 'tool') {
+        return msgs.push({ role: 'tool', tool_call_id: m.toolCallId, content: m.content });
+      }
+      if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length) {
+        return msgs.push({
+          role: 'assistant',
+          content: m.content || null,
+          tool_calls: m.toolCalls.map((tc) => ({
+            id: tc.id,
+            type: 'function',
+            function: { name: tc.name, arguments: JSON.stringify(tc.args || {}) }
+          }))
+        });
+      }
       const bins = binaries(m);
       if (!bins.length) return msgs.push({ role: m.role, content: textWithFiles(m) });
       const content = [{ type: 'text', text: textWithFiles(m) }];
@@ -224,39 +297,66 @@
       msgs.push({ role: m.role, content });
     });
 
+    const reqBody = { model: cfg.model, messages: msgs, temperature: cfg.temperature, stream: true };
+    if (tools && tools.length) {
+      reqBody.tools = tools.map((t) => ({ type: 'function', function: t }));
+      reqBody.tool_choice = 'auto';
+    }
     const res = await fetch(trimSlash(cfg.baseUrl) + '/chat/completions', {
       method: 'POST',
       headers: openaiHeaders(cfg),
-      body: JSON.stringify({ model: cfg.model, messages: msgs, temperature: cfg.temperature, stream: true }),
+      body: JSON.stringify(reqBody),
       signal
     });
     if (!res.ok) throw await readError(res, 'API');
+
+    const finishCalls = (acc) =>
+      acc
+        .filter((c) => c && c.name)
+        .map((c) => Object.assign({ id: c.id || newCallId(), name: c.name }, parseArgs(c.args)));
 
     // Alcuni server ignorano stream:true e rispondono con JSON normale
     const ctype = res.headers.get('content-type') || '';
     if (ctype.includes('application/json')) {
       const d = await res.json();
-      const text = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '';
-      onText(text);
-      return text;
+      const msg = (d.choices && d.choices[0] && d.choices[0].message) || {};
+      const text = msg.content || '';
+      if (text) onText(text);
+      const calls = (msg.tool_calls || []).map((c) => ({
+        id: c.id,
+        name: c.function && c.function.name,
+        args: c.function && c.function.arguments
+      }));
+      return { text, toolCalls: finishCalls(calls) };
     }
 
     let full = '';
+    const acc = []; // chiamate a strumenti ricevute a pezzi
     await readSSE(res, (payload) => {
       try {
         const json = JSON.parse(payload);
         if (json.error) throw new Error(json.error.message || 'Errore API');
         const delta = json.choices && json.choices[0] && json.choices[0].delta;
-        if (delta && delta.content) {
+        if (!delta) return;
+        if (delta.content) {
           full += delta.content;
           onText(full);
         }
+        (delta.tool_calls || []).forEach((tc, n) => {
+          const i = tc.index != null ? tc.index : n;
+          const slot = acc[i] || (acc[i] = { id: '', name: '', args: '' });
+          if (tc.id) slot.id = tc.id;
+          if (tc.function) {
+            if (tc.function.name) slot.name += tc.function.name;
+            if (tc.function.arguments) slot.args += tc.function.arguments;
+          }
+        });
       } catch (e) {
         if (e instanceof SyntaxError) return;
         throw e;
       }
     });
-    return full;
+    return { text: full, toolCalls: finishCalls(acc) };
   }
 
   async function listOpenAIModels(cfg) {
@@ -283,13 +383,15 @@
       .filter((m) => m.id && m.chat);
   }
 
-  // ─── API pubblica ──────────────────────────────────────────────────────────────────
+  // ─── API pubblica ──────────────────────────────
   /**
    * cfg: { provider, baseUrl, apiKey, model, systemPrompt, temperature }
-   * messages: [{ role: 'user'|'assistant', content }]
+   * messages: [{ role: 'user'|'assistant'|'tool', content, toolCalls?, toolCallId?, name? }]
    * onText(fullTextSoFar) chiamata a ogni pezzo ricevuto.
+   * opts.tools: schemi degli strumenti ({ name, description, parameters }) per la modalità agente.
+   * Restituisce il testo; con opts.full = true restituisce { text, toolCalls: [{ id, name, args }] }.
    */
-  async function chat(cfg, messages, onText) {
+  async function chat(cfg, messages, onText, opts) {
     const preset = PRESETS[cfg.provider] || PRESETS.custom;
     if (preset.needsKey && !cfg.apiKey) throw new Error('Inserisci la chiave API in Impostazioni.');
     if (!cfg.model) throw new Error('Scegli un modello in Impostazioni.');
@@ -299,9 +401,11 @@
     try {
       const fn = preset.type === 'gemini' ? streamGemini : streamOpenAI;
       const cb = onText || function () {};
-      const text = cleanText(await fn(cfg, messages, (full) => cb(cleanText(full)), signal));
-      if (!text.trim()) throw new Error('Risposta vuota dal modello.');
-      return text;
+      const out = await fn(cfg, messages, (full) => cb(cleanText(full)), signal, opts && opts.tools);
+      const text = cleanText(out.text);
+      if (!text.trim() && !out.toolCalls.length) throw new Error('Risposta vuota dal modello.');
+      // Senza opts.full restituisce solo il testo (come prima): così funzionano anche le chiamate che si aspettano una stringa.
+      return opts && opts.full ? { text, toolCalls: out.toolCalls } : text;
     } finally {
       if (controller && controller.signal === signal) controller = null;
     }
