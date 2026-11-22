@@ -51,7 +51,7 @@ Il token resta solo nel `localStorage` del dispositivo.
 
 ### Modalità agente (strumenti)
 
-In **Impostazioni → Modalità agente** Mia può usare 21 strumenti (più quelli dei connettori), non solo rispondere a parole:
+In **Impostazioni → Modalità agente** Mia può usare 24 strumenti (più quelli dei connettori), non solo rispondere a parole:
 
 | Strumento | Cosa fa | Conferma |
 |--|--|--|
@@ -65,6 +65,9 @@ In **Impostazioni → Modalità agente** Mia può usare 21 strumenti (più quell
 | `github_issues` | elenca/legge issue; crea issue o commenta | solo crea/commenta |
 | `read_webpage` | legge il testo di una pagina web | no |
 | `notes` | note salvate sul telefono | solo elimina |
+| `github_edit_file` | modifica un file con «trova e sostituisci» esatto (non lo riscrive per intero), con commit | **sì** |
+| `web_search` | ricerca web con fonti: Google tramite Gemini (predefinita, usa la chiave Gemini), Brave Search o Tavily | no |
+| `update_plan` | scrive e aggiorna l'elenco dei passi di un lavoro lungo, visibile in chat | no |
 | `github_search_code` | cerca testo/codice nei repository | no |
 | `github_pull_requests` | elenca/legge PR (con diff); crea, commenta, unisce | solo crea/commenta/**unisce** |
 | `github_actions` | esecuzioni di test e build, log degli errori; avvia o rilancia workflow | solo avvia/rilancia |
@@ -92,7 +95,9 @@ In **Impostazioni → Modalità agente** Mia può usare 21 strumenti (più quell
 - Ogni azione che modifica qualcosa mostra una finestra «Consenti / Rifiuta». Non esiste uno strumento per eliminare repository.
 - Il modello deve supportare le chiamate a funzioni: Gemini sì; sui modelli gratuiti di OpenRouter/Groq dipende dal modello.
 - `read_webpage` prova l'indirizzo direttamente; se il sito blocca la richiesta usa il servizio r.jina.ai.
-- Ogni richiesta può fare al massimo 8 giri di strumenti; il pulsante ■ ferma tutto.
+- Ogni richiesta può fare al massimo 15 giri di strumenti (regolabile da 3 a 40 in Impostazioni); il pulsante ■ ferma tutto.
+- Nei lavori lunghi i risultati più vecchi degli strumenti vengono accorciati nel contesto, e l'ultima richiesta dell'utente resta sempre inclusa.
+- La ricerca web invia la domanda al servizio scelto (Google/Gemini, Brave o Tavily). Con Google usa il «grounding» di Gemini: la quota gratuita delle ricerche dipende dal tuo piano.
 
 ### Connettori (MCP)
 
@@ -104,6 +109,23 @@ Premi **Prova**: Mia legge gli strumenti del server e puoi disattivare quelli ch
 - Quelli che il server non dichiara «di sola lettura» chiedono sempre conferma. I contenuti restituiti sono trattati come dati, non come istruzioni.
 - Nel browser il server deve accettare richieste CORS; nell'APK Android le richieste passano dal plugin HTTP nativo di Capacitor.
 - Non sono supportati i server MCP con solo il vecchio trasporto «SSE» né i login OAuth: serve un token che incolli tu.
+
+### Collegare il tuo computer (Mia Bridge)
+
+`bridge/mia-bridge.js` è un piccolo server MCP, senza dipendenze (serve Node 18+), da eseguire sul **tuo computer**. Dà a Mia gli strumenti
+`list_dir`, `read_file`, `write_file`, `edit_file` e `run_command` su una cartella di lavoro: così può eseguire test, usare git, compilare.
+
+```bash
+node bridge/mia-bridge.js --root ~/progetti/mio-progetto
+# opzioni: --token <testo>  --port 8787  --host 0.0.0.0  --readonly
+```
+
+Il programma stampa token e indirizzo. In Mia: Impostazioni → Modalità agente → Connettori → «Aggiungi», incolla indirizzo (`http://…:8787/mcp`) e token, poi **Prova**.
+
+- **Raggiungibilità:** di base ascolta solo su `localhost`. Per il telefono sulla stessa Wi-Fi avvia con `--host 0.0.0.0` e usa l'indirizzo IP del computer; da fuori casa serve un tunnel con accesso protetto (per esempio Tailscale). Non esporre la porta a internet.
+- **Sicurezza:** il token è obbligatorio e confrontato in tempo costante; con `--host` di rete deve avere almeno 16 caratteri. `read_file`, `write_file`, `edit_file` e `list_dir` non escono dalla cartella di lavoro (nemmeno con `..` o collegamenti simbolici).
+  **`run_command` invece è una shell vera, con i tuoi permessi, e non è confinata nella cartella**: l'app chiede conferma a ogni comando, ma chi ha il token può eseguirne quanti vuole. Usa `--readonly` per disattivare comandi, scritture e modifiche.
+- Ogni chiamata viene scritta nel terminale del server.
 
 ### Allegati Office e zip
 
@@ -148,6 +170,7 @@ npm run build:apk      # serve JDK 21 + Android SDK
 - `js/providers.js` — chiamate a Gemini e alle API compatibili OpenAI (streaming SSE)
 - `js/github.js` — integrazione GitHub (token + commit file)
 - `js/tools.js` — strumenti della modalità agente (GitHub, web, note, file)
+- `bridge/mia-bridge.js` — server MCP per collegare il computer
 - `js/mcp.js` — client MCP; `js/docs.js` — testo da xlsx/docx/pptx/zip
 - `js/files.js` — archivio dei file creati e condivisione
 - `js/vendor/` — librerie incluse: JSZip (zip/xlsx) e jsPDF (pdf), caricate solo quando servono

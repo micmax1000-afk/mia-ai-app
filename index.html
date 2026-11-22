@@ -170,9 +170,28 @@
             <input id="imageModel" spellcheck="false" autocapitalize="off" placeholder="gemini-2.5-flash-image">
           </label>
           <p class="hint">Per «genera immagine» usa la chiave del provider Google Gemini. Il piano gratuito può non includere le immagini: se dà errore, controlla il nome del modello o i limiti del tuo account.</p>
+          <label class="field">
+            <span>Ricerca web</span>
+            <select id="searchProvider">
+              <option value="gemini">Google, tramite Gemini (usa la chiave Gemini)</option>
+              <option value="brave">Brave Search</option>
+              <option value="tavily">Tavily</option>
+              <option value="">Disattivata</option>
+            </select>
+          </label>
+          <label class="field" id="searchKeyField">
+            <span>Chiave della ricerca web</span>
+            <input id="searchKey" type="password" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Chiave API">
+          </label>
+          <p class="hint">Con «Google, tramite Gemini» non serve altro che la chiave Gemini già inserita (la quota gratuita delle ricerche può essere limitata o non disponibile sul tuo piano). Per <a href="https://brave.com/search/api/" target="_blank" rel="noopener">Brave Search</a> o <a href="https://tavily.com" target="_blank" rel="noopener">Tavily</a> serve una chiave del servizio. La domanda viene inviata al servizio scelto.</p>
+          <label class="field">
+            <span>Passaggi massimi per richiesta</span>
+            <input id="maxSteps" type="number" inputmode="numeric" min="3" max="40" step="1">
+          </label>
+          <p class="hint">Quanti giri di strumenti può fare Mia prima di fermarsi (3-40). Più alto = lavori più lunghi, ma più richieste al modello.</p>
           <div class="mcp-box">
             <strong>Connettori (MCP)</strong>
-            <p class="hint">Collega servizi esterni che offrono un server MCP «HTTP» (indirizzo https://…). Mia ne scopre gli strumenti e li usa; ogni azione che non è di sola lettura chiede conferma. Nel browser il server deve accettare richieste CORS; nell'APK Android di solito non serve.</p>
+            <p class="hint">Collega servizi esterni che offrono un server MCP «HTTP» (indirizzo https://…). Mia ne scopre gli strumenti e li usa; ogni azione che non è di sola lettura chiede conferma. Puoi anche collegare il tuo computer con «Mia Bridge» (vedi README). Nel browser il server deve accettare richieste CORS; nell'APK Android di solito non serve.</p>
             <div id="mcpList"></div>
             <button type="button" class="btn small ghost" id="mcpAdd">＋ Aggiungi connettore</button>
           </div>
