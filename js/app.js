@@ -33,6 +33,7 @@
     githubToken: '',
     githubRepo: '',
     imageModel: 'gemini-2.5-flash-image', // modello Gemini per generate_image
+    nvidiaImageModel: 'flux.1-schnell', // modello NVIDIA per le immagini: 'flux.1-schnell' | 'flux.1-dev'
     imageProvider: 'auto', // generate_image: 'auto' (NVIDIA FLUX, poi Gemini, poi Pollinations) | 'nvidia' | 'gemini' | 'pollinations'
     searchProvider: 'gemini', // ricerca web: 'gemini' (Google, con la chiave Gemini) | 'ddg' | 'tavily' | 'serper' | 'exa' | '' (disattivata)
     searchKey: '',
@@ -403,6 +404,33 @@
     return wrap;
   }
 
+  const OCR_PAGES = 10;
+
+  /** PDF senza testo selezionabile: propone l'OCR di NVIDIA (le pagine vanno a un servizio di prova di terzi, quindi si chiede prima). */
+  async function ocrScan(file, att) {
+    const key = profile('nvidia').apiKey;
+    if (!key || !window.MiaDocs || !window.MiaTools) return;
+    const n = Math.min(att.pages || 1, OCR_PAGES);
+    if (
+      !confirm(
+        'Il PDF «' + att.name + '» sembra una scansione (senza testo).\n\nVuoi riconoscere il testo con l\'OCR di NVIDIA (prime ' + n +
+          ' pagine)? Le pagine vengono inviate a NVIDIA, servizio di PROVA: non farlo con documenti personali, sanitari, finanziari o riservati. ' +
+          'I modelli Gemini e OpenRouter leggono già le scansioni da soli.'
+      )
+    )
+      return;
+    toast('Riconoscimento del testo in corso…');
+    try {
+      const imgs = await window.MiaDocs.pdfPageImages(await file.arrayBuffer(), OCR_PAGES);
+      const r = await window.MiaTools.ocrImages(imgs, { nvidiaKey: key });
+      att.text = r.text;
+      att.ocr = true;
+      toast('Testo riconosciuto' + (r.failed ? ' (' + r.failed + ' pagine non lette)' : '') + (att.pages > OCR_PAGES ? ' — solo le prime ' + OCR_PAGES + ' pagine' : ''));
+    } catch (e) {
+      toast((e && e.message) || 'OCR non riuscito');
+    }
+  }
+
   function messageEl(msg, index) {
     if (msg.role === 'tool') return toolEl(msg, index);
     if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length && !(msg.content || '').trim()) return null;
@@ -551,6 +579,8 @@
         att.pages = r.pages;
         if (r.text) att.text = r.text;
       } catch (_) {}
+      // scansione (nessun testo): con una chiave NVIDIA si può riconoscere il testo con l'OCR, ma solo se l'utente accetta
+      if (!att.text) await ocrScan(file, att);
       return att;
     }
     if (window.MiaDocs && window.MiaDocs.supports(name)) {
@@ -822,6 +852,7 @@
       geminiBase: gem.baseUrl,
       imageModel: settings.imageModel,
       imageProvider: settings.imageProvider,
+      nvidiaImageModel: settings.nvidiaImageModel,
       nvidiaKey: profile('nvidia').apiKey,
       searchProvider: settings.searchProvider,
       searchKey: settings.searchKey,
@@ -1353,6 +1384,7 @@
     $('#agentFields').hidden = !settings.agentEnabled;
     $('#imageModel').value = settings.imageModel || '';
     $('#imageProvider').value = settings.imageProvider || 'auto';
+    $('#nvidiaImageModel').value = settings.nvidiaImageModel || 'flux.1-schnell';
     $('#searchProvider').value = settings.searchProvider == null ? 'gemini' : settings.searchProvider;
     syncSearchFields();
     $('#searchKey').value = settings.searchKey || '';
@@ -1398,6 +1430,7 @@
     settings.agentEnabled = $('#agentEnabled').checked;
     settings.imageModel = $('#imageModel').value.trim() || DEFAULT_SETTINGS.imageModel;
     settings.imageProvider = $('#imageProvider').value || 'auto';
+    settings.nvidiaImageModel = $('#nvidiaImageModel').value || 'flux.1-schnell';
     settings.searchProvider = $('#searchProvider').value;
     settings.searchKey = $('#searchKey').value.trim();
     settings.preferMcpWeb = $('#preferMcpWeb').checked;
@@ -1606,6 +1639,8 @@
             if (typeof a.data === 'string') x.data = a.data;
             if (typeof a.thumb === 'string') x.thumb = a.thumb;
             if (typeof a.text === 'string') x.text = str(a.text, 300000);
+            if (a.ocr) x.ocr = true;
+            if (finiteNum(a.pages)) x.pages = a.pages;
             if (a.dropped) x.dropped = true;
             return x;
           });

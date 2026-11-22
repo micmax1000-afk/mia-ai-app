@@ -49,6 +49,7 @@ Serve Node 18 o più recente. Il runner prepara da solo la cartella `www/` (`scr
 | 22 | Mia Bridge: token, strumenti, percorsi fuori cartella, timeout, sola lettura |
 | 23 | PDF: testo estratto per i modelli senza lettura nativa, Gemini/OpenRouter, scansioni, 120 pagine, file rotto |
 | 24 | ricerca nelle chat e nelle note, Memoria (impostazioni e strumento) |
+| 26 | OCR NVIDIA delle scansioni (consenso, forme di risposta, limite di pagine, errori) e scelta FLUX.1 schnell/dev |
 | 25 | sincronizzazione con repository privato simulato (due dispositivi, eliminazioni, conflitti, repository pubblico rifiutato) |
 
 ## Aggiungere o cambiare un test

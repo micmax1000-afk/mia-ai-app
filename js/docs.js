@@ -65,6 +65,43 @@
     }
   }
 
+  /** Pagine di un PDF come immagini JPEG (data URL), ciascuna sotto `maxChars` caratteri (limite dell'OCR di NVIDIA: 180000). */
+  async function pdfPageImages(buffer, maxPages, maxChars) {
+    const lib = await loadPdfJs();
+    const task = lib.getDocument({ data: new Uint8Array(buffer.slice(0)), isEvalSupported: false });
+    const doc = await task.promise;
+    const out = [];
+    try {
+      const limit = Math.min(doc.numPages, maxPages || 10);
+      for (let i = 1; i <= limit; i++) {
+        const page = await doc.getPage(i);
+        const base = page.getViewport({ scale: 1 });
+        let side = 1600; // lato lungo in pixel; si riduce finché il JPEG sta nel limite
+        let url = '';
+        for (let tries = 0; tries < 6; tries++) {
+          const scale = side / Math.max(base.width, base.height);
+          const viewport = page.getViewport({ scale });
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.ceil(viewport.width);
+          canvas.height = Math.ceil(viewport.height);
+          const g = canvas.getContext('2d');
+          g.fillStyle = '#fff';
+          g.fillRect(0, 0, canvas.width, canvas.height);
+          await page.render({ canvasContext: g, canvas, viewport }).promise;
+          url = canvas.toDataURL('image/jpeg', 0.8);
+          if (url.length - 23 < (maxChars || 170000)) break;
+          side = Math.round(side * 0.75);
+        }
+        out.push({ page: i, dataUrl: url, pages: doc.numPages });
+      }
+    } finally {
+      try {
+        await task.destroy();
+      } catch (_) {}
+    }
+    return out;
+  }
+
   // ─── xlsx ──────────────────────────────────────────────────
   function colIndex(ref) {
     const m = /^([A-Z]+)/i.exec(ref || '');
@@ -248,5 +285,5 @@
     return { text: clip(text || '(nessun testo trovato)') };
   }
 
-  global.MiaDocs = { supports, extract, pdfText };
+  global.MiaDocs = { supports, extract, pdfText, pdfPageImages };
 })(window);

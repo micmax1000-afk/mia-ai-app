@@ -176,9 +176,16 @@
             <span>Creazione di immagini</span>
             <select id="imageProvider">
               <option value="auto">Automatica (NVIDIA, poi Gemini, poi Pollinations)</option>
-              <option value="nvidia">NVIDIA FLUX.1 schnell (chiave NVIDIA)</option>
+              <option value="nvidia">NVIDIA FLUX (chiave NVIDIA)</option>
               <option value="gemini">Gemini (chiave Gemini)</option>
               <option value="pollinations">Pollinations (gratuito, senza chiave)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Modello immagini di NVIDIA</span>
+            <select id="nvidiaImageModel">
+              <option value="flux.1-schnell">FLUX.1 schnell (veloce)</option>
+              <option value="flux.1-dev">FLUX.1 dev (più dettagliato, più lento)</option>
             </select>
           </label>
           <label class="field">
