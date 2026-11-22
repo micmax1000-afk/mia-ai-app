@@ -858,9 +858,34 @@
     return { data: b64, mime: sniffImage(b64), note: '', who: 'NVIDIA FLUX.1 schnell' };
   }
 
+  // Pollinations: gratuito e senza chiave (progetto di comunità, nessuna garanzia di disponibilità).
+  // Dal browser l'indirizzo può non permettere la lettura (CORS): con ctx.allowLink si restituisce allora il solo link, che l'<img> sa mostrare.
+  async function pollinationsImage(prompt, ctx) {
+    const url =
+      'https://image.pollinations.ai/prompt/' +
+      encodeURIComponent(prompt.slice(0, 900)) +
+      '?width=1024&height=1024&nologo=true&model=flux&seed=' +
+      Math.floor(Math.random() * 1e9);
+    let res;
+    try {
+      res = await fetch(url, { signal: ctx.signal });
+    } catch (e) {
+      if (e && e.name === 'AbortError') throw e;
+      if (ctx.allowLink) return { url, mime: 'image/jpeg', note: 'Immagine mostrata come collegamento (non salvabile da qui).', who: 'Pollinations' };
+      throw new Error('Pollinations non raggiungibile da qui (rete, o regole CORS del browser).');
+    }
+    if (!res.ok) {
+      if (res.status === 429) throw new Error('Pollinations: troppe richieste, riprova tra qualche secondo [HTTP 429]');
+      throw new Error('Pollinations: errore [HTTP ' + res.status + ']');
+    }
+    const blob = await res.blob();
+    if (!/^image\//.test(blob.type) || blob.size < 200) throw new Error('Pollinations non ha restituito un\'immagine.');
+    return { blob, mime: blob.type, note: '', who: 'Pollinations (FLUX)' };
+  }
+
   def('generate_image', {
     description:
-      'Genera con l\'intelligenza artificiale una foto o un\'illustrazione a partire da una descrizione (NVIDIA FLUX.1 schnell o Gemini, secondo le impostazioni). ' +
+      'Genera con l\'intelligenza artificiale una foto o un\'illustrazione a partire da una descrizione (NVIDIA FLUX.1 schnell, Gemini o Pollinations, secondo le impostazioni). ' +
       'Scrivi la descrizione in inglese per risultati migliori. Per loghi, schemi e grafici precisi è meglio create_svg.',
     parameters: {
       type: 'object',
@@ -874,22 +899,16 @@
     async run(args, ctx) {
       const prompt = need(args, 'prompt');
       const choice = ctx.imageProvider || 'auto';
-      const order = choice === 'nvidia' ? ['nvidia'] : choice === 'gemini' ? ['gemini'] : ['nvidia', 'gemini'];
-      const usable = order.filter((k) => (k === 'nvidia' ? ctx.nvidiaKey : ctx.geminiKey));
+      const order = ['nvidia', 'gemini', 'pollinations'].includes(choice) ? [choice] : ['nvidia', 'gemini', 'pollinations'];
+      const usable = order.filter((k) => (k === 'nvidia' ? ctx.nvidiaKey : k === 'gemini' ? ctx.geminiKey : true));
       if (!usable.length) {
-        throw new Error(
-          choice === 'nvidia'
-            ? 'Serve la chiave NVIDIA: inseriscila in Impostazioni (provider NVIDIA).'
-            : choice === 'gemini'
-            ? 'Serve la chiave Gemini: inseriscila in Impostazioni (provider Google Gemini).'
-            : 'Per generare immagini serve la chiave NVIDIA (FLUX) o quella Gemini: inseriscine una in Impostazioni.'
-        );
+        throw new Error(choice === 'nvidia' ? 'Serve la chiave NVIDIA: inseriscila in Impostazioni (provider NVIDIA).' : 'Serve la chiave Gemini: inseriscila in Impostazioni (provider Google Gemini).');
       }
       let img = null;
       const failures = [];
       for (const k of usable) {
         try {
-          img = await (k === 'nvidia' ? nvidiaImage : geminiImage)(prompt, ctx);
+          img = await (k === 'nvidia' ? nvidiaImage : k === 'gemini' ? geminiImage : pollinationsImage)(prompt, ctx);
           break;
         } catch (e) {
           if (e && e.name === 'AbortError') throw e;
@@ -897,10 +916,12 @@
         }
       }
       if (!img) throw new Error(failures.join(' | '));
+      const first = failures.length ? 'Il primo servizio ha fallito (' + oneLine(failures[0], 120) + '): ho usato ' + img.who + '.' : 'Creata con ' + img.who + '.';
+      if (img.url) return { text: 'Immagine generata con ' + img.who + ' (solo collegamento). ' + first, files: [], imageUrl: img.url };
       const ext = /jpe?g/i.test(img.mime) ? 'jpg' : /webp/i.test(img.mime) ? 'webp' : 'png';
       const name = safeName(str(args.filename).trim() || 'immagine-' + new Date().toISOString().slice(0, 16).replace(/[-:T]/g, ''), ext);
-      const note = [img.note, failures.length ? 'Il primo servizio ha fallito (' + oneLine(failures[0], 120) + '): ho usato ' + img.who + '.' : 'Creata con ' + img.who + '.'].filter(Boolean).join(' ');
-      return fileResult('Immagine generata', [{ name, mime: img.mime, blob: base64ToBlob(img.data, img.mime) }], note);
+      const blob = img.blob || base64ToBlob(img.data, img.mime);
+      return fileResult('Immagine generata', [{ name, mime: img.mime, blob }], [img.note, first].filter(Boolean).join(' '));
     }
   });
 
@@ -2118,7 +2139,7 @@
     if (!t) throw new Error('Strumento sconosciuto: ' + name);
     if (ctx && ctx.signal && ctx.signal.aborted) throw abortError();
     const out = await t.run(args || {}, ctx || {});
-    if (out && typeof out === 'object' && typeof out.text === 'string') return { text: clip(out.text), files: out.files || [] };
+    if (out && typeof out === 'object' && typeof out.text === 'string') return { text: clip(out.text), files: out.files || [], imageUrl: out.imageUrl };
     return { text: clip(out), files: [] };
   }
 

@@ -294,6 +294,7 @@
       bubble.appendChild(img);
     }
     if (msg.content || msg.role !== 'user') wrap.appendChild(bubble);
+    if (msg.role === 'assistant') (msg.files || []).forEach((f, k) => wrap.appendChild(fileCardEl(f, k)));
 
     const actions = document.createElement('div');
     actions.className = 'msg-actions';
@@ -636,6 +637,23 @@
     return e;
   }
 
+  /** Chiavi e impostazioni che gli strumenti possono usare. */
+  function toolContext(signal) {
+    const gem = profile('gemini');
+    return {
+      token: settings.githubToken,
+      signal,
+      geminiKey: gem.apiKey,
+      geminiBase: gem.baseUrl,
+      imageModel: settings.imageModel,
+      imageProvider: settings.imageProvider,
+      nvidiaKey: profile('nvidia').apiKey,
+      searchProvider: settings.searchProvider,
+      searchKey: settings.searchKey,
+      searchModel: gem.model
+    };
+  }
+
   /** Esegue una chiamata a uno strumento (chiedendo conferma se modifica qualcosa). */
   async function runOneTool(tc, ctl) {
     const tool = Tools.get(tc.name);
@@ -647,19 +665,7 @@
       if (!yes) return { ok: false, denied: true, content: 'L\'utente ha rifiutato questa azione. Non riprovare: chiedi cosa preferisce.' };
     }
     try {
-      const gem = profile('gemini');
-      const out = await Tools.run(tc.name, tc.args, {
-        token: settings.githubToken,
-        signal: ctl.signal,
-        geminiKey: gem.apiKey,
-        geminiBase: gem.baseUrl,
-        imageModel: settings.imageModel,
-        imageProvider: settings.imageProvider,
-        nvidiaKey: profile('nvidia').apiKey,
-        searchProvider: settings.searchProvider,
-        searchKey: settings.searchKey,
-        searchModel: gem.model
-      });
+      const out = await Tools.run(tc.name, tc.args, toolContext(ctl.signal));
       return { ok: true, content: out.text, files: out.files };
     } catch (e) {
       if (e && e.name === 'AbortError') return { ok: false, content: 'Interrotto dall\'utente.' };
@@ -1935,21 +1941,68 @@
     return { path: m[1], ask: m[2].trim() };
   }
 
+  /**
+   * «Disegna…»: il modello riscrive la richiesta in una descrizione inglese dettagliata, poi si usa lo stesso generatore
+   * dell'agente (Automatica: NVIDIA, Gemini, Pollinations) e l'immagine viene salvata come file con Condividi/Salva.
+   */
   async function runImage(text) {
-    const prompt =
+    const raw =
       text.replace(/^(per favore\s+)?(disegna|genera(?:mi)? un['’ ]?immagine(?: di)?|crea un['’ ]?immagine(?: di)?|fammi un['’ ]?immagine(?: di)?)\s*/i, '').trim() ||
       text;
     const c = ensureConversation(text);
     c.messages.push({ role: 'user', content: text });
-    const url =
-      'https://image.pollinations.ai/prompt/' +
-      encodeURIComponent(prompt) +
-      '?width=768&height=768&nologo=true&model=flux';
-    c.messages.push({ role: 'assistant', content: prompt, imageUrl: url, model: 'Pollinations' });
     c.updated = Date.now();
     persistConvs();
+    setBusy(true);
     renderMessages();
-    renderConvList();
+    addStreamBubble();
+    const ctl = (toolCtl = new AbortController());
+    try {
+      let prompt = raw;
+      try {
+        const cfg = Object.assign({}, chatConfig(), {
+          systemPrompt:
+            'You write prompts for an AI image generator. Rewrite the user\'s request as one detailed English image prompt (subject, style, lighting, composition), 25 to 60 words. Reply with the prompt only: no quotes, no comments.'
+        });
+        const out = await Promise.race([
+          P.chat(cfg, [{ role: 'user', content: raw }]),
+          new Promise((_, rej) =>
+            setTimeout(() => {
+              P.abort();
+              rej(new Error('timeout'));
+            }, 20000)
+          )
+        ]);
+        const t = String(out || '').trim().replace(/^["'`]+|["'`]+$/g, '').slice(0, 900);
+        if (t.length >= 8) prompt = t; // se il modello non risponde, si usa il testo originale
+      } catch (_) {}
+      if (ctl.signal.aborted) throw abortError();
+      const slug = raw.toLowerCase().replace(/[^a-z0-9àèéìòù]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'immagine';
+      const res = await Tools.run('generate_image', { prompt, filename: slug }, Object.assign(toolContext(ctl.signal), { allowLink: true }));
+      const who = ((/(?:Creata con|ho usato) ([^.]+)\./.exec(res.text) || [])[1] || 'AI').trim();
+      const msg = { role: 'assistant', content: 'Descrizione usata: ' + prompt, model: 'Immagine · ' + who };
+      if (res.imageUrl) msg.imageUrl = res.imageUrl;
+      const metas = [];
+      for (const f of res.files || []) {
+        const id = uid();
+        try {
+          await Files.put(id, f.blob);
+          metas.push({ id, name: f.name, mime: f.mime, size: f.blob.size });
+        } catch (_) {}
+      }
+      if (metas.length) msg.files = metas;
+      c.messages.push(msg);
+    } catch (e) {
+      if (e && e.name === 'AbortError') c.messages.push({ role: 'assistant', content: '_(interrotto)_', model: 'Immagine' });
+      else c.messages.push({ role: 'assistant', content: '⚠️ ' + ((e && e.message) || 'Immagine non riuscita'), error: true });
+    } finally {
+      if (toolCtl === ctl) toolCtl = null;
+      c.updated = Date.now();
+      persistConvs();
+      setBusy(false);
+      renderMessages();
+      renderConvList();
+    }
   }
 
   async function runFileEdit(path, ask, originalText) {
