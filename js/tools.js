@@ -858,7 +858,9 @@
   // e ogni altro campo dà 422. Risposta: { artifacts: [{ base64 (JPEG), finishReason: SUCCESS | ERROR | CONTENT_FILTERED }] }.
   // Per sicurezza si accettano anche altre forme di risposta e si tolgono da soli i campi che il servizio dovesse rifiutare.
   async function nvidiaImage(prompt, ctx, size) {
-    const url = 'https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-schnell';
+    // modelli scelti nelle Impostazioni: schnell (veloce, 1-4 passi) o dev (più dettagliato, 5-100 passi). Stesso schema di richiesta.
+    const dev = ctx.nvidiaImageModel === 'flux.1-dev';
+    const url = 'https://ai.api.nvidia.com/v1/genai/black-forest-labs/' + (dev ? 'flux.1-dev' : 'flux.1-schnell');
     const post = async (body) => {
       const res = await fetch(url, {
         method: 'POST',
@@ -874,7 +876,8 @@
     };
     // Il servizio convalida la richiesta e rifiuta i campi che non conosce (422 «extra_forbidden»): si leggono dall'errore
     // i campi opzionali che non vanno bene e si riprova senza, fino a 5 volte. Il testo («prompt») non si tocca mai.
-    const body = { prompt: prompt.slice(0, 10000), width: size[0], height: size[1], steps: 4 };
+    // FLUX.1-dev: la pagina ufficiale elenca 768…1344 ma nel testo scrive «solo 1024»: se il formato non va, il ciclo qui sotto toglie width/height (si usa 1024×1024)
+    const body = { prompt: prompt.slice(0, 10000), width: size[0], height: size[1], steps: dev ? 30 : 4 };
     let res;
     let data;
     for (let i = 0; i < 5; i++) {
@@ -888,6 +891,10 @@
       });
       if (!bad.length) break;
       bad.forEach((f) => delete body[f]);
+      if (bad.includes('width') || bad.includes('height')) {
+        delete body.width; // il formato è una coppia: o tutti e due o nessuno (si usa 1024×1024)
+        delete body.height;
+      }
     }
     if (!res.ok) {
       let m = '';
@@ -916,7 +923,75 @@
     let b64 = typeof first === 'string' ? first : first.base64 || first.b64_json || first.image || first.b64 || d.image || d.base64 || '';
     if (typeof b64 === 'string') b64 = b64.replace(/^data:image\/[a-z]+;base64,/i, '');
     if (!b64 || typeof b64 !== 'string') throw new Error('NVIDIA FLUX: risposta senza immagine (campi ricevuti: ' + Object.keys(d).join(', ').slice(0, 120) + ').');
-    return { data: b64, mime: sniffImage(b64), note: '', who: 'NVIDIA FLUX.1 schnell' };
+    return { data: b64, mime: sniffImage(b64), note: '', who: dev ? 'NVIDIA FLUX.1 dev' : 'NVIDIA FLUX.1 schnell' };
+  }
+
+  // OCR di NVIDIA (nemoretriever-ocr, servizio di prova). Richiesta dalla pagina del modello su build.nvidia.com:
+  // POST https://ai.api.nvidia.com/v1/cv/nvidia/nemoretriever-ocr con { input: [{ type: 'image_url', url: 'data:image/…;base64,…' }] };
+  // l'immagine in base64 deve stare sotto i 180000 caratteri. La forma della risposta NON è documentata per il servizio ospitato:
+  // si leggono le forme note (data[].content, text_detections[].text_prediction.text, text).
+  function ocrTextOf(d) {
+    const texts = [];
+    const fromDetections = (list) => {
+      (list || []).forEach((t) => {
+        const s = t && ((t.text_prediction && t.text_prediction.text) || t.text || t.content);
+        if (typeof s === 'string' && s.trim()) texts.push(s.trim());
+      });
+    };
+    if (d && Array.isArray(d.text_detections)) fromDetections(d.text_detections);
+    (d && Array.isArray(d.data) ? d.data : []).forEach((it) => {
+      if (!it) return;
+      if (Array.isArray(it.text_detections)) return fromDetections(it.text_detections);
+      let c = it.content != null ? it.content : it.text;
+      if (typeof c === 'string') {
+        try {
+          const j = JSON.parse(c);
+          if (j && Array.isArray(j.text_detections)) return fromDetections(j.text_detections);
+        } catch (_) {}
+        if (c.trim()) texts.push(c.trim());
+      }
+    });
+    if (!texts.length && d && typeof d.text === 'string' && d.text.trim()) texts.push(d.text.trim());
+    return texts.join('\n');
+  }
+
+  /** items: [{ page, dataUrl }] → testo con «[Pagina N]». Una pagina che non riesce si segnala senza fermare le altre. */
+  async function ocrImages(items, ctx) {
+    if (!ctx.nvidiaKey) throw new Error('Manca la chiave NVIDIA (Impostazioni → provider NVIDIA).');
+    const parts = [];
+    let failed = 0;
+    let firstError = '';
+    for (const it of items) {
+      try {
+        const res = await fetch('https://ai.api.nvidia.com/v1/cv/nvidia/nemoretriever-ocr', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: 'Bearer ' + ctx.nvidiaKey },
+          body: JSON.stringify({ input: [{ type: 'image_url', url: it.dataUrl }] }),
+          signal: ctx.signal
+        });
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_) {}
+        if (!res.ok) {
+          const st = res.status;
+          const m = data && (data.detail || data.message || data.title);
+          throw new Error(
+            'OCR NVIDIA [HTTP ' + st + ']' + (m ? ': ' + oneLine(typeof m === 'string' ? m : JSON.stringify(m), 160) : '') +
+              (st === 401 || st === 403 ? ' — la chiave NVIDIA non è valida o non ha accesso a questo modello.' : st === 402 || st === 429 ? ' — crediti finiti o troppe richieste.' : '')
+          );
+        }
+        const t = ocrTextOf(data);
+        if (t) parts.push('[Pagina ' + it.page + ']\n' + t);
+      } catch (e) {
+        if (e && e.name === 'AbortError') throw e;
+        failed++;
+        if (!firstError) firstError = (e && e.message) || 'errore';
+        if (failed >= 2 && !parts.length) break; // non insistere se i primi tentativi falliscono
+      }
+    }
+    if (!parts.length) throw new Error(firstError || 'L\'OCR non ha riconosciuto testo.');
+    return { text: parts.join('\n\n'), failed };
   }
 
   // Pollinations: gratuito e senza chiave (progetto di comunità, nessuna garanzia di disponibilità).
@@ -2207,5 +2282,5 @@
     return { text: clip(out), files: [] };
   }
 
-  global.MiaTools = { definitions, connectorWeb, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
+  global.MiaTools = { ocrImages, definitions, connectorWeb, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
 })(window);

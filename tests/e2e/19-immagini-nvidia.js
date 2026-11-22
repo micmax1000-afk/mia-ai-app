@@ -58,7 +58,7 @@ const cors={'access-control-allow-origin':'*','access-control-allow-headers':'*'
   // modelli NVIDIA
   await page.selectOption('#provider','nvidia'); await page.fill('#apiKey','nvapi-X'); await page.click('#loadModels'); await page.waitForSelector('#modelResults li button');
   const shown = await page.evaluate(()=>[...document.querySelectorAll('#modelResults button')].map(b=>b.dataset.model));
-  console.log('— elenco modelli NVIDIA: mostrati', shown.length, 'su 26'); console.log('   NASCOSTI:', ['bigcode/starcoder2-15b','fastino/gliner2-pii','nvidia/ai-synthetic-video-detector','nvidia/ising-calibration-1.5-31b','nvidia/nvclip','nvidia/llama-3.3-nemotron-70b-reward','nvidia/nv-embedqa-e5-v5','nvidia/parakeet-ctc-1.1b-asr','nvidia/llama-3.1-nemoguard-8b-content-safety'].map(x=>x+(shown.includes(x)?' (!! ancora visibile)':' ok')).join('\n            '));
+  console.log('— elenco modelli NVIDIA: mostrati', shown.length, 'su 26'); console.log('   NASCOSTI:', ['bigcode/starcoder2-15b','fastino/gliner2-pii','nvidia/ai-synthetic-video-detector','nvidia/ising-calibration-1.5-31b','nvidia/nvclip','nvidia/llama-3.3-nemotron-70b-reward','nvidia/nv-embedqa-e5-v5','nvidia/parakeet-ctc-1.1b-asr','nvidia/llama-3.1-nemoguard-8b-content-safety','nvidia/riva-translate-4b-instruct-v2'].map(x=>x+(shown.includes(x)?' (!! ancora visibile)':' ok')).join('\n            '));
   console.log('   MOSTRATI:', shown.join(', '));
   await page.click('#closeSettings'); console.log('   salvato imageProvider =', await page.evaluate(()=>JSON.parse(localStorage.getItem('miaai_v1_settings')).imageProvider));
   console.log('ERRORS', errs);

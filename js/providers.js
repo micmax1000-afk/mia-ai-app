@@ -178,7 +178,7 @@
     (m.attachments || []).forEach((a) => {
       if (a.kind === 'text') t += '\n\n--- File allegato: ' + a.name + ' ---\n' + a.text + '\n--- Fine file ---';
       else if (a.kind === 'pdf' && a.text && (!nativePdf || a.dropped || !a.data))
-        t += '\n\n--- Testo estratto dal PDF «' + a.name + '»' + (a.pages ? ' (' + a.pages + ' pagine)' : '') + ' ---\n' + a.text + '\n--- Fine PDF ---';
+        t += '\n\n--- Testo estratto dal PDF «' + a.name + '»' + (a.pages ? ' (' + a.pages + ' pagine)' : '') + (a.ocr ? ', riconosciuto con OCR: può contenere errori' : '') + ' ---\n' + a.text + '\n--- Fine PDF ---';
       else if (a.dropped) t += '\n\n[Allegato «' + a.name + '» non più disponibile]';
     });
     return t.trim() || '(allegato)';
@@ -446,7 +446,7 @@
           free: pr || /:free$/.test(id) ? free : null,
           vision: inp.includes('image') || /vision|-vl\b|vl-|omni/i.test(id) || null,
           // solo modelli che rispondono con testo (no embedding, rerank, moderazione, audio, immagini)
-          chat: !(Array.isArray(out) && !out.includes('text')) && !/embed|rerank|guard|content-safety|moderation|whisper|tts|clip|detector|gliner|\bpii\b|calibration|reward|parakeet|canary|retriev|starcoder|riva-(asr|tts)/i.test(id)
+          chat: !(Array.isArray(out) && !out.includes('text')) && !/embed|rerank|guard|content-safety|moderation|whisper|tts|clip|detector|gliner|\bpii\b|calibration|reward|parakeet|canary|retriev|starcoder|riva-(asr|tts|translate)|video-detector/i.test(id)
         };
       })
       .filter((m) => m.id && m.chat);

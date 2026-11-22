@@ -156,7 +156,7 @@ module.exports = {
     /filtered +ERR NVIDIA FLUX: immagine non generata \(CONTENT_FILTERED\)/, /402 +ERR .*crediti gratuiti NVIDIA/, /429 +ERR .*Troppe richieste/,
     /auto: NVIDIA ok +OK[^\n]*\n +chiamate a Gemini: 0/, /auto: NVIDIA 402 → Gemini +OK[^\n]*\n +chiamate a Gemini: 1/,
     /auto: solo chiave Gemini +OK[^\n]*Creata con Gemini/, /nvidia esplicito senza chiave +ERR Serve la chiave NVIDIA/,
-    /scelte = auto,nvidia,gemini,pollinations \| predefinita = auto/, /elenco modelli NVIDIA: mostrati 17 su 26/,
+    /scelte = auto,nvidia,gemini,pollinations \| predefinita = auto/, /elenco modelli NVIDIA: mostrati 16 su 26/, /nvidia\/riva-translate-4b-instruct-v2 ok/,
     /starcoder2-15b ok/, /nvclip ok/, /^ERRORS \[\]/m
   ],
   '20-nvidia-campi-rifiutati.js': [
@@ -211,5 +211,13 @@ module.exports = {
     /inviato \| tentativi di scrittura = 2/, /file molto grande[^\n]*\n +esito: Sincronizzato/,
     /è pubblico: le chat non vengono inviate/, /nessuna scrittura = true/, /non può scrivere nel repository/, /GitHub risponde 404/, /non è di Mia: non lo sovrascrivo/,
     /chat scaricate da sole = Lasagne/, /nessuna chat = true/, /^ERRORS \[\]/m
+  ],
+  '26-ocr-flux-dev.js': [
+    /domanda mostrata = true/, /richieste OCR = 3 \| formato \{input:\[\{type,url\}\]\} = true \| immagine sotto i 180000 caratteri = true/,
+    /testo riconosciuto inviato al modello = true \| indicato come OCR = true \| nessun errore = true/, /detections → Prima riga 1\\nSeconda riga 1/, /jsonstring → Dal JSON 1/,
+    /l'utente rifiuta[^\n]*\n +richieste OCR = 0/, /domande = 0 \| richieste OCR = 0/, /richieste OCR = 10 \| avviso = true/,
+    /richieste OCR = 2 \(si smette dopo 2 errori\) \| messaggio = OCR NVIDIA \[HTTP 401\]/, /errore «scansione» come prima = true/,
+    /predefinito → OK .*flux\.1-schnell \{"prompt":"a fox","width":1344,"height":768,"steps":4\}/, /dev → OK .*flux\.1-dev \{"prompt":"a fox","width":1344,"height":768,"steps":30\}/,
+    /dev con formato rifiutato → OK .*richieste = 2 \| ultima = \{"prompt":"a fox","steps":30\}/, /arriva allo strumento = \/v1\/genai\/black-forest-labs\/flux\.1-dev/, /^ERRORS \[\]/m
   ]
 };

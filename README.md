@@ -49,7 +49,7 @@ Il token resta solo nel `localStorage` del dispositivo.
 ### Allegati (📎)
 
 - **Immagini** (ridimensionate a 1280 px): Gemini e i modelli «vision» di OpenRouter/Groq.
-- **PDF** (max 8 MB): Gemini e OpenRouter li leggono da soli (anche le scansioni). Con tutti gli altri modelli Mia estrae il **testo** del PDF sul dispositivo (pdf.js, fino a 100 pagine) e lo allega al messaggio. Se il PDF è una scansione (solo immagini) i modelli senza lettura nativa non possono leggerlo: l'app lo dice e suggerisce Gemini o OpenRouter.
+- **PDF** (max 8 MB): Gemini e OpenRouter li leggono da soli (anche le scansioni). Con tutti gli altri modelli Mia estrae il **testo** del PDF sul dispositivo (pdf.js, fino a 100 pagine) e lo allega al messaggio. Se il PDF è una scansione (solo immagini) i modelli senza lettura nativa non possono leggerlo: l'app lo dice e suggerisce Gemini o OpenRouter. Se hai una chiave NVIDIA, Mia ti propone di **riconoscere il testo con l'OCR di NVIDIA** (prime 10 pagine): le pagine vanno a NVIDIA, servizio di prova, quindi la domanda compare ogni volta e non va usato con documenti personali o riservati.
 - **File di testo/codice** (txt, md, csv, json, py, js…): funzionano con tutti i modelli,
   perché il contenuto viene inserito nel messaggio.
 - Se il modello non accetta l'allegato, compare un avviso: usa **Prova con…** per passare a un altro modello.
