@@ -1,0 +1,16 @@
+{
+  "name": "mia-ai-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Test end-to-end di Mia AI (Playwright, servizi esterni simulati)",
+  "scripts": {
+    "test": "node run-all.js",
+    "list": "node run-all.js --list"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  },
+  "optionalDependencies": {
+    "pyodide": "314.0.8"
+  }
+}

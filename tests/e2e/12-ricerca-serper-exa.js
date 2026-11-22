@@ -1,0 +1,50 @@
+/* Test end-to-end di Mia AI. Tutti i servizi esterni sono simulati: nessuna chiamata reale. Vedi tests/README.md */
+const { chromium } = require('playwright');
+const http = require('http'), fs = require('fs'), path = require('path');
+const TMP = fs.mkdtempSync(path.join(require('os').tmpdir(), 'mia-test-'));
+const root = path.resolve(__dirname, '..', '..');
+const mime = { '.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.webmanifest':'application/json' };
+const web = http.createServer((q,r)=>{ let p=q.url.split('?')[0]; if(p==='/')p='/index.html'; const f=path.join(root,p); fs.readFile(f,(e,d)=>{ if(e){r.writeHead(404);r.end();return;} r.writeHead(200,{'content-type':mime[path.extname(f)]||'application/octet-stream'}); r.end(d);});}).listen(8083);
+const cors={'access-control-allow-origin':'*','access-control-allow-headers':'*','access-control-allow-methods':'*'};
+(async () => {
+  const b = await chromium.launch(); const ctx = await b.newContext({viewport:{width:390,height:844}}); const page = await ctx.newPage(); const errs=[]; page.on('pageerror', e => errs.push(e.message));
+  const seen={serper:[],exa:[]}; let mode='ok';
+  await ctx.route('https://google.serper.dev/**', async route => { const r=route.request(); if(r.method()==='OPTIONS') return route.fulfill({status:204,headers:cors}); seen.serper.push({key:r.headers()['x-api-key'],body:JSON.parse(r.postData())});
+    if (r.headers()['x-api-key']!=='buona') return route.fulfill({status:403,headers:{...cors,'content-type':'application/json'},body:'{"message":"Unauthorized."}'});
+    if (mode==='vuoto') return route.fulfill({status:200,headers:{...cors,'content-type':'application/json'},body:'{"organic":[]}'});
+    route.fulfill({status:200,headers:{...cors,'content-type':'application/json'},body:JSON.stringify({answerBox:{answer:'2,8 milioni'},knowledgeGraph:{title:'Roma',description:'Capitale d\'Italia.'},organic:[{title:'Roma - Wikipedia',link:'https://it.wikipedia.org/wiki/Roma',snippet:'Roma è la <b>capitale</b> d\'Italia.'},{title:'Visit Rome',link:'https://turismoroma.it',snippet:'Il sito turistico'}]})}); });
+  await ctx.route('https://api.exa.ai/**', async route => { const r=route.request(); if(r.method()==='OPTIONS') return route.fulfill({status:204,headers:cors}); seen.exa.push({key:r.headers()['x-api-key'],body:JSON.parse(r.postData())});
+    if (r.headers()['x-api-key']!=='buona') return route.fulfill({status:401,headers:{...cors,'content-type':'application/json'},body:'{"error":"invalid api key"}'});
+    if (mode==='429') return route.fulfill({status:429,headers:{...cors,'content-type':'application/json'},body:'{}'});
+    route.fulfill({status:200,headers:{...cors,'content-type':'application/json'},body:JSON.stringify({results:[{title:'Roma',url:'https://it.wikipedia.org/wiki/Roma',publishedDate:'2026-03-01T00:00:00.000Z',text:'Roma è la capitale d\'Italia dal 1871.'},{title:'',url:'https://senza-titolo.example',text:''}]})}); });
+  await page.addInitScript(() => { if (!localStorage.getItem('miaai_v1_settings')) localStorage.setItem('miaai_v1_settings', JSON.stringify({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.6-flash'}},agentEnabled:true,favorites:[],theme:'dark',searchProvider:'brave'})); });
+  await page.goto('http://localhost:8083/');
+  const run = (c, a={}) => page.evaluate(async ([c,a]) => { try { const r = await MiaTools.run('web_search',{query:'capitale italia',...a},c); return {ok:true,text:r.text}; } catch(e){ return {ok:false,error:e.message}; } }, [c,a]);
+  const show=(t,r)=>console.log(t.padEnd(22), r.ok?'OK ':'ERR', JSON.stringify(r.ok?r.text:r.error).slice(0,300));
+  show('Serper', await run({searchProvider:'serper',searchKey:'buona'}));
+  console.log('  richiesta:', JSON.stringify(seen.serper[0]));
+  show('Serper limite 1', await run({searchProvider:'serper',searchKey:'buona'},{limit:1}));
+  show('Serper chiave errata', await run({searchProvider:'serper',searchKey:'no'}));
+  mode='vuoto'; show('Serper vuoto', await run({searchProvider:'serper',searchKey:'buona'})); mode='ok';
+  show('Serper senza chiave', await run({searchProvider:'serper'}));
+  show('Exa', await run({searchProvider:'exa',searchKey:'buona'}));
+  console.log('  richiesta:', JSON.stringify(seen.exa[0]));
+  show('Exa chiave errata', await run({searchProvider:'exa',searchKey:'no'}));
+  mode='429'; show('Exa limite 429', await run({searchProvider:'exa',searchKey:'buona'})); mode='ok';
+  show('Brave (rimosso)', await run({searchProvider:'brave',searchKey:'x'}));
+  // migrazione: chi aveva salvato «brave» passa a Google/Gemini
+  await page.click('#menuBtn').catch(()=>{}); 
+  const opened = await page.locator('#settings').isVisible(); if(!opened){ await page.click('#drawer [data-open-settings]'); } await page.waitForSelector('#settings:not([hidden])');
+  console.log('impostazione salvata «brave» → il menu mostra:', await page.inputValue('#searchProvider'));
+  console.log('voci del menu:', await page.evaluate(()=>[...document.querySelectorAll('#searchProvider option')].map(o=>o.value||'(disattivata)').join(', ')));
+  const vis = async (v) => { await page.selectOption('#searchProvider', v); return await page.locator('#searchKeyField').isVisible(); };
+  console.log('campo chiave: gemini', await vis('gemini'), '| ddg', await vis('ddg'), '| tavily', await vis('tavily'), '| serper', await vis('serper'), '| exa', await vis('exa'), '| disattivata', await vis(''));
+  await page.selectOption('#searchProvider','serper'); await page.fill('#searchKey','sk-1'); await page.click('#closeSettings');
+  console.log('salvato:', JSON.stringify(await page.evaluate(()=>{const s=JSON.parse(localStorage.getItem('miaai_v1_settings')); return [s.searchProvider,s.searchKey]})));
+  // NVIDIA: testo corretto
+  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]'); await page.waitForSelector('#settings:not([hidden])'); await page.selectOption('#provider','nvidia');
+  console.log('guida NVIDIA:', (await page.textContent('#providerHint')).slice(0,170));
+  console.log('provider nel menu:', await page.evaluate(()=>[...document.querySelectorAll('#provider option')].map(o=>o.textContent).join(' | ')));
+  console.log('ERRORS', errs);
+  await b.close(); web.close();
+})().catch(e=>{console.error('FAIL',e);process.exit(1)});
