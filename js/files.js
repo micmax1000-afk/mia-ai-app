@@ -67,32 +67,36 @@
    * Nel browser usa la condivisione di sistema se c'è, altrimenti scarica il file.
    * Restituisce 'shared' | 'downloaded'.
    */
-  async function share(meta) {
-    const blob = await get(meta.id);
-    if (!blob) throw new Error('File non più disponibile su questo dispositivo.');
+  async function shareBlob(blob, name, mime) {
     if (native()) {
       const { Filesystem, Share } = window.Capacitor.Plugins;
-      const safe = String(meta.name).replace(/[\\/:*?"<>|]+/g, '_');
+      const safe = String(name).replace(/[\\/:*?"<>|]+/g, '_');
       const w = await Filesystem.writeFile({ path: safe, data: await blobToBase64(blob), directory: 'CACHE' });
       try {
-        await Share.share({ title: meta.name, files: [w.uri], dialogTitle: 'Salva o condividi ' + meta.name });
+        await Share.share({ title: name, files: [w.uri], dialogTitle: 'Salva o condividi ' + name });
       } catch (e) {
         if (!/cancel/i.test(String((e && e.message) || e))) throw e; // chiusura del pannello = nessun errore
       }
       return 'shared';
     }
     try {
-      const file = new File([blob], meta.name, { type: meta.mime || blob.type });
+      const file = new File([blob], name, { type: mime || blob.type });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: meta.name });
+        await navigator.share({ files: [file], title: name });
         return 'shared';
       }
     } catch (e) {
       if (e && e.name === 'AbortError') return 'shared';
     }
-    downloadBlob(blob, meta.name);
+    downloadBlob(blob, name);
     return 'downloaded';
   }
 
-  global.MiaFiles = { put, get, del, share };
+  async function share(meta) {
+    const blob = await get(meta.id);
+    if (!blob) throw new Error('File non più disponibile su questo dispositivo.');
+    return shareBlob(blob, meta.name, meta.mime);
+  }
+
+  global.MiaFiles = { put, get, del, share, shareBlob };
 })(window);

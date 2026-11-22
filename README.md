@@ -160,10 +160,17 @@ vai su *Actions* → «Pagina web (GitHub Pages)» → *Run workflow*.
 
 **Installarla come app:** Chrome/Edge → menu → «Installa Mia». Funziona anche senza rete per aprire l'app e leggere le chat già salvate (le risposte dei modelli richiedono internet).
 
+**Portare le chat su un altro dispositivo (con Drive)**
+1. Sul dispositivo di partenza: Impostazioni → **Esporta chat**. Su Android si apre il pannello «Condividi»: scegli **Drive** (Salva su Drive). Nel browser il file viene scaricato: caricalo tu su Drive.
+2. Sull'altro dispositivo: Impostazioni → **Importa chat** e scegli il file da Drive.
+3. Le chat nuove vengono aggiunte; se una chat esiste già, vince la versione più recente (nessuna chat viene cancellata). Un messaggio riassume quante chat sono state aggiunte e aggiornate.
+
+Il file contiene solo le conversazioni, **non** chiavi, token o impostazioni (vanno reinseriti). I file creati dagli strumenti (PDF, Excel, immagini…) restano sul dispositivo d'origine. Il file viene ripulito in lettura: si tengono solo i campi noti, e il contenuto si mostra sempre come testo.
+
 **Cosa cambia rispetto all'app Android**
 - Il browser applica le regole **CORS**: alcune richieste a servizi esterni possono essere bloccate (di norma vanno Gemini, OpenRouter, Groq e GitHub; possono non andare altri provider, la ricerca DuckDuckGo e vari connettori MCP).
 - Non ci sono fotocamera, condivisione da altre app e microfono/lettura vocale nativi (il microfono del browser funziona con Chrome ed Edge).
-- **Nessuna sincronizzazione**: chat, chiavi e impostazioni stanno nel browser di quel dispositivo. Esporta le chat in JSON per spostarle.
+- **Nessuna sincronizzazione automatica**: chat, chiavi e impostazioni stanno nel browser di quel dispositivo. Per spostare le chat usa Esporta/Importa (vedi sopra).
 - I dati stanno nel `localStorage` dell'indirizzo `micmax1000-afk.github.io`: altri siti ospitati su GitHub Pages con lo stesso account condividono quello spazio. Usa un browser o un profilo dedicato se ne hai.
 
 ## APK con GitHub Actions
