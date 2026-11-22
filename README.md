@@ -195,6 +195,14 @@ npm run serve          # apre su http://localhost:8080
 npm run build:apk      # serve JDK 21 + Android SDK
 ```
 
+## Test
+
+```bash
+cd tests && npm install && npx playwright install chromium && npm test
+```
+
+Test end-to-end con Playwright, servizi esterni simulati (circa 1 minuto). Dettagli in [`tests/README.md`](tests/README.md); note per chi lavora sul progetto in [`CLAUDE.md`](CLAUDE.md).
+
 ## Struttura
 
 - `index.html`, `css/app.css`, `css/app-fix.css` — interfaccia (app-fix.css corregge le sheet su mobile)

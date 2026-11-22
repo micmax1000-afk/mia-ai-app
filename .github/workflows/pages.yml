@@ -9,6 +9,7 @@ on:
     paths-ignore:
       - '**.md'
       - 'bridge/**'
+      - 'tests/**'
 
 permissions:
   contents: read
