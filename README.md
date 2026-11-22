@@ -66,7 +66,7 @@ In **Impostazioni → Modalità agente** Mia può usare 24 strumenti (più quell
 | `read_webpage` | legge il testo di una pagina web | no |
 | `notes` | note salvate sul telefono | solo elimina |
 | `github_edit_file` | modifica un file con «trova e sostituisci» esatto (non lo riscrive per intero), con commit | **sì** |
-| `web_search` | ricerca web con fonti: Google tramite Gemini (predefinita, usa la chiave Gemini), Brave Search o Tavily | no |
+| `web_search` | ricerca web con fonti: Google tramite Gemini (predefinita, usa la chiave Gemini), DuckDuckGo (non ufficiale, senza chiave), Brave Search o Tavily | no |
 | `update_plan` | scrive e aggiorna l'elenco dei passi di un lavoro lungo, visibile in chat | no |
 | `github_search_code` | cerca testo/codice nei repository | no |
 | `github_pull_requests` | elenca/legge PR (con diff); crea, commenta, unisce | solo crea/commenta/**unisce** |
@@ -97,7 +97,7 @@ In **Impostazioni → Modalità agente** Mia può usare 24 strumenti (più quell
 - `read_webpage` prova l'indirizzo direttamente; se il sito blocca la richiesta usa il servizio r.jina.ai.
 - Ogni richiesta può fare al massimo 15 giri di strumenti (regolabile da 3 a 40 in Impostazioni); il pulsante ■ ferma tutto.
 - Nei lavori lunghi i risultati più vecchi degli strumenti vengono accorciati nel contesto, e l'ultima richiesta dell'utente resta sempre inclusa.
-- La ricerca web invia la domanda al servizio scelto (Google/Gemini, Brave o Tavily). Con Google usa il «grounding» di Gemini: la quota gratuita delle ricerche dipende dal tuo piano.
+- La ricerca web invia la domanda al servizio scelto (Google/Gemini, DuckDuckGo, Brave o Tavily). **DuckDuckGo non ha un'API ufficiale**: Mia legge la sua pagina HTML, cosa che va contro i suoi termini d'uso, può rompersi senza preavviso e può essere bloccata con una verifica anti-robot; nel browser è bloccata dalle regole CORS (nell'app Android dovrebbe funzionare, ma non è verificato). Con Google usa il «grounding» di Gemini: la quota gratuita delle ricerche dipende dal tuo piano.
 
 ### Connettori (MCP)
 
