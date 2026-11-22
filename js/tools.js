@@ -1660,7 +1660,7 @@
   // 23 — web_search (serve una chiave Brave Search o Tavily)
   def('web_search', {
     description:
-      'Cerca sul web (Google, Brave o Tavily secondo le impostazioni) e restituisce una risposta o titoli, indirizzi ed estratti, con le fonti. Usalo per notizie, fatti recenti, documentazione, prezzi. ' +
+      'Cerca sul web (Google, DuckDuckGo, Brave o Tavily secondo le impostazioni) e restituisce una risposta o titoli, indirizzi ed estratti, con le fonti. Usalo per notizie, fatti recenti, documentazione, prezzi. ' +
       'Poi puoi leggere una pagina intera con read_webpage.',
     parameters: {
       type: 'object',
@@ -1677,7 +1677,7 @@
       const provider = ctx.searchProvider;
       if (!provider) throw new Error('La ricerca web è disattivata: in Impostazioni → Ricerca web scegli un servizio.');
       if (provider === 'gemini' && !ctx.geminiKey) throw new Error('Per la ricerca di Google serve la chiave Gemini: inseriscila in Impostazioni (provider Google Gemini), oppure scegli Brave o Tavily.');
-      if (provider !== 'gemini' && !ctx.searchKey) throw new Error('Manca la chiave della ricerca web: in Impostazioni → Ricerca web incollala.');
+      if (!['gemini', 'ddg'].includes(provider) && !ctx.searchKey) throw new Error('Manca la chiave della ricerca web: in Impostazioni → Ricerca web incollala.');
       const strip = (s) => oneLine(str(s).replace(/<[^>]+>/g, ''), 300);
       const fail = async (res, who) => {
         let m = '';
@@ -1725,6 +1725,47 @@
           (gm.webSearchQueries && gm.webSearchQueries.length ? '\n\nRicerche fatte: ' + gm.webSearchQueries.slice(0, 4).join('; ') : '') +
           (sources.length ? '\n\nFonti:\n' + sources.slice(0, n).map((x, i) => i + 1 + '. ' + oneLine(x.title || x.uri, 100) + ' — ' + x.uri).join('\n') : '\n\n(nessuna fonte indicata)')
         );
+      }
+      if (provider === 'ddg') {
+        // Non ufficiale: legge la versione HTML di DuckDuckGo. Può smettere di funzionare o chiedere una verifica anti-robot.
+        let res;
+        try {
+          res = await fetch('https://html.duckduckgo.com/html/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'q=' + encodeURIComponent(q) + '&kl=it-it',
+            signal: ctx.signal
+          });
+        } catch (e) {
+          if (e && e.name === 'AbortError') throw e;
+          throw new Error('DuckDuckGo non raggiungibile da qui: nel browser è bloccato dalle regole CORS (funziona nell\'app Android). Scegli un altro servizio in Impostazioni → Ricerca web.');
+        }
+        const blocked = 'DuckDuckGo ha bloccato la richiesta (verifica anti-robot o troppe ricerche). Riprova più tardi o scegli un altro servizio in Impostazioni → Ricerca web.';
+        if ([202, 403, 429].includes(res.status)) throw new Error(blocked + ' [HTTP ' + res.status + ']');
+        if (!res.ok) throw new Error('DuckDuckGo: errore [HTTP ' + res.status + ']');
+        const html = await res.text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const items = [];
+        doc.querySelectorAll('.result').forEach((el) => {
+          if (el.classList.contains('result--ad')) return; // pubblicità
+          const a = el.querySelector('a.result__a');
+          if (!a) return;
+          let href = a.getAttribute('href') || '';
+          const m = /[?&]uddg=([^&]+)/.exec(href); // il collegamento passa da un reindirizzamento di DuckDuckGo
+          if (m) {
+            try {
+              href = decodeURIComponent(m[1]);
+            } catch (_) {}
+          } else if (href.startsWith('//')) href = 'https:' + href;
+          if (!/^https?:\/\//i.test(href) || /duckduckgo\.com\/y\.js/.test(href)) return;
+          const sn = el.querySelector('.result__snippet');
+          items.push({ title: a.textContent, url: href, snippet: sn ? sn.textContent : '' });
+        });
+        if (!items.length) {
+          if (/anomaly|captcha|bots use DuckDuckGo/i.test(html)) throw new Error(blocked);
+          return 'Nessun risultato.';
+        }
+        return items.slice(0, n).map((r, i) => i + 1 + '. ' + oneLine(r.title, 120) + '\n   ' + r.url + '\n   ' + oneLine(r.snippet, 300)).join('\n');
       }
       if (provider === 'tavily') {
         const res = await fetch('https://api.tavily.com/search', {
