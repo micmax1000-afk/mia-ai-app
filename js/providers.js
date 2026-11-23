@@ -118,8 +118,8 @@
       return who + ': limite giornaliero gratuito raggiunto. Usa un altro provider (es. Gemini) o riprova domani.';
     if (/429|quota|rate|overload|capacity|503|502/i.test(m))
       return who + ': modello occupato o limite di richieste raggiunto. Riprova tra poco o usa «Prova con…».';
-    if (/Failed to fetch|NetworkError|Load failed|network|offline/i.test(m))
-      return who + ': nessuna connessione o il server non risponde. Controlla la rete e riprova.';
+    if (isConnectionError(e))
+      return who + ': la connessione è caduta mentre aspettavo la risposta (rete mobile debole, schermo spento o server che chiude la connessione). Riprova: se capita spesso con questo modello, usa «Prova con…» o un altro modello.';
     if (/404|not found/i.test(m)) return who + ': modello o indirizzo non trovato. Controlla le Impostazioni.';
     return m.length > 300 ? m.slice(0, 300) + '…' : m || 'Errore sconosciuto.';
   }
@@ -513,11 +513,18 @@
     return /cod(e|er|ing)|math|embed|rerank|guard|safety|ocr|vision-only/i.test(String(model || ''));
   }
 
+  /** Connessione caduta o rete assente (non è un errore del modello): ha senso riprovare. L'interruzione voluta dall'utente non conta. */
+  function isConnectionError(e) {
+    if (e && (e.name === 'AbortError' || e.attachmentError)) return false;
+    const m = String((e && e.message) || e || '');
+    return /connection (abort|reset|closed|refused)|software caused|ECONN(RESET|ABORTED|REFUSED)|socket|timed? ?out|timeout|unexpected end|premature|incomplete|ERR_(NETWORK|CONNECTION|INTERNET|EMPTY)|Failed to fetch|NetworkError|Load failed|network|offline/i.test(m);
+  }
+
   /** Errori per cui ha senso riprovare subito con un altro modello. */
   function isBusyError(e) {
     const m = String((e && e.message) || e || '');
     return !(e && e.attachmentError) && /429|quota|rate.?limit|overload|capacity|unavailable|50[234]|no endpoints/i.test(m);
   }
 
-  global.MiaProviders = { PRESETS, chat, listModels, abort, friendlyError, isBusyError, cleanText, isSpecialized };
+  global.MiaProviders = { PRESETS, chat, listModels, abort, friendlyError, isBusyError, isConnectionError, cleanText, isSpecialized };
 })(window);

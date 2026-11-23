@@ -219,5 +219,10 @@ module.exports = {
     /richieste OCR = 2 \(si smette dopo 2 errori\) \| messaggio = OCR NVIDIA \[HTTP 401\]/, /errore «scansione» come prima = true/,
     /predefinito → OK .*flux\.1-schnell \{"prompt":"a fox","width":1344,"height":768,"steps":4\}/, /dev → OK .*flux\.1-dev \{"prompt":"a fox","width":1344,"height":768,"steps":30\}/,
     /dev con formato rifiutato → OK .*richieste = 2 \| ultima = \{"prompt":"a fox","steps":30\}/, /arriva allo strumento = \/v1\/genai\/black-forest-labs\/flux\.1-dev/, /^ERRORS \[\]/m
+  ],
+  '27-connessione-caduta.js': [
+    /riconosciuti = true \| 401\/429 e interruzione dell'utente non lo sono = true/, /messaggio in italiano = NVIDIA: la connessione è caduta/,
+    /richieste = 3 \| nessun errore = true/, /richieste = 3 \| ⚠️ NVIDIA .*la connessione è caduta/, /richieste NVIDIA = 3 \| richieste Gemini = 1/,
+    /richieste dopo lo stop <= 2 = true/, /^ERRORS \[\]/m
   ]
 };

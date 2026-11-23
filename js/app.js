@@ -1008,6 +1008,21 @@
         attempts.forEach((a) => (a.systemPrompt = (a.systemPrompt || '') + '\n\n' + extra));
       }
 
+      // connessione caduta (rete mobile, schermo spento…): fino a 2 nuovi tentativi con lo stesso modello prima di cambiare
+      const chatWithRetry = async (...args) => {
+        for (let retry = 0; ; retry++) {
+          try {
+            return await P.chat(...args);
+          } catch (err) {
+            if (retry >= 2 || ctl.signal.aborted || !P.isConnectionError(err)) throw err;
+            partial = '';
+            toast('Connessione interrotta: riprovo (' + (retry + 1) + '/2)…');
+            await new Promise((r) => setTimeout(r, 1500 * (retry + 1)));
+            if (ctl.signal.aborted) throw err;
+          }
+        }
+      };
+
       const STEPS = maxSteps();
       for (let step = 0; step < STEPS; step++) {
         const history = buildHistory(c);
@@ -1017,7 +1032,7 @@
           const a = attempts[i];
           tag = modelLabel(a.provider, a.model);
           try {
-            result = await P.chat(
+            result = await chatWithRetry(
               a,
               history,
               (full) => {
@@ -1035,8 +1050,8 @@
             addFavorite(a.provider, a.model);
           } catch (err) {
             const next = attempts[i + 1];
-            if (!next || partial || !P.isBusyError(err)) throw err;
-            toast(a.model + ' è occupato: provo ' + next.model);
+            if (!next || partial || !(P.isBusyError(err) || P.isConnectionError(err))) throw err;
+            toast(a.model + (P.isConnectionError(err) ? ': connessione caduta, provo ' : ' è occupato: provo ') + next.model);
           }
         }
         const usedFallback = tag !== modelLabel(cfg.provider, cfg.model);
