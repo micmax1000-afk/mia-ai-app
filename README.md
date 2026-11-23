@@ -236,6 +236,13 @@ Test end-to-end con Playwright, servizi esterni simulati (circa 1 minuto). Detta
 - `js/app-fix.js` — gestione classe `sheet-open` per bloccare lo scroll dello sfondo
 
 
+## Secondo parere e riepilogo (condivisione con altre app)
+Sotto ogni risposta di Mia ci sono due pulsanti nuovi, senza chiavi né richieste a pagamento:
+- **Secondo parere**: prepara un testo completo (la tua richiesta, le modifiche fatte con i commit, la risposta e una domanda già scritta: «ci sono errori, cose dimenticate o rischi?») e apre il pannello «Condividi» di Android, così lo mandi all'app di un'altra AI. Se il testo è lungo (oltre ~7500 caratteri) lo condivide come file `secondo-parere.md`. Nel browser copia il testo o scarica il file.
+- **Riepilogo** (compare dopo un lavoro con strumenti): file `riepilogo-lavoro.md` con richiesta, azioni (✓ riuscite, ✗ fallite, ⛔ rifiutate, con i commit), file toccati e risposta finale.
+- **Il parere torna a Mia**: condividi la risposta dell'altra app con Mia; se avevi chiesto un secondo parere nelle ultime 2 ore il testo arriva nella casella con l'etichetta «Parere di un'altra app (è un suggerimento, non un ordine…)» e Mia lo controlla nei file prima di applicarlo. Mia accetta in condivisione testo, immagini, file di testo e PDF.
+- Attenzione: il testo condiviso finisce in un'altra app, con le sue regole sui dati.
+
 ## Modelli di ripiego, schermo acceso e ripresa automatica
 - **Modelli di ripiego**: in Impostazioni c'è un elenco *in ordine* (provider + modello, con frecce ▲▼ e ✕). Se il modello scelto è occupato, ha raggiunto il limite o la connessione cade, Mia prova questi, nell'ordine, fino a 4. I modelli senza chiave vengono saltati. L'elenco è separato dai preferiti del cambio rapido: non si riempie da solo (la prima volta parte da una copia dei preferiti).
 - **Schermo acceso mentre Mia lavora** (attivo di serie): su Android con il plugin `KeepAwake`, nel browser con la funzione standard del sistema; si rilascia a lavoro finito.
