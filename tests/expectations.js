@@ -259,5 +259,16 @@ module.exports = {
     /i risultati più vecchi sono accorciati = true \| gli ultimi 6 sono interi = true \| il più vecchio non è intero = true/,
     /richiesta originale presente = true \| passaggi più recenti presenti = true \| passaggi lontani omessi = true \| dimensione \(< 160 KB\) = true/,
     /richiesta originale \+ «grazie» \+ «e poi\?» presenti = true/, /contiene i messaggi precedenti = true/, /^ERRORS \[\]/m
+  ],
+  '32-cancella-righe.js': [
+    /mazzo tedesco = righe 414 – 619/, /Controllo riuscito: le righe 414–619 \(206 righe\) corrispondono a quanto atteso\. .* Non ho scritto nulla\. \| scritture = 0/,
+    /mostra i bordi = true \| conferma richiesta = false/, /la riga 415 non contiene «\{».*scritture = 0/, /ultima riga sbagliata → rifiutato \| scritture = 0/, /testo atteso diverso → rifiutato/,
+    /oltre la fine del file → Il file ha 621 righe/, /intervallo invertito → Intervallo non valido/,
+    /Modifica NON salvata: dopo la modifica «data\.js» non sarebbe più valido .*file intatto = en:200 fr:200 de:200/,
+    /Cancellate 206 righe \(414–619\) di data\.js — righe 621 → 415/, /mazzi dopo = en:200 fr:200 \| scritture = 1 \| mostra il punto e avvisa dei numeri = true/,
+    /anteprima: branch creato = false \| richieste di scrittura = 0 \| esito = ok/, /cancellazione → Cancellate N righe \(414–619\) di data\.js \(branch mia-lavoro\)/,
+    /principale intatto = true \| branch di lavoro = en:200 fr:200/, /Repository non consentito: «mario\/segreto»/,
+    /conferma: ATTENZIONE: cancella 206 righe .* righe = true \| branch = true \| rossa = true/, /il modello conosce lo strumento = true \| riceve l'esito = true \| branch di lavoro = en:200 fr:200/,
+    /campo: max = 100/, /100 salvato = 100/, /500 → ridotto a = 100/, /^ERRORS \[\]/m
   ]
 };

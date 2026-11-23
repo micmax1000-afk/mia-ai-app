@@ -73,6 +73,7 @@ In **Impostazioni → Modalità agente** Mia può usare 24 strumenti (più quell
 | `notes` | note salvate sul telefono (salva, elenca, leggi, elimina, **cerca**) | solo elimina |
 | *(limite)* | Con «L'agente usa GitHub solo sul repository selezionato» (attivo di serie) tutti gli strumenti GitHub lavorano **solo** sul repository scelto in Impostazioni → GitHub: gli altri sono rifiutati, non si possono creare repository e senza repository selezionato GitHub resta bloccato. Non vale per i connettori MCP | — |
 | *(sicurezza)* | **Branch di lavoro** (attivo di serie, `mia-lavoro`): l'agente scrive solo lì, mai sul branch principale; tu controlli e unisci con una PR. **Controllo della sintassi** dei file `.js`/`.json` prima di salvare: se la modifica romperebbe un file valido non viene salvata. Dopo ogni modifica il modello riceve le righe cambiate per controllarle. La conferma mostra quante righe si tolgono e diventa rossa se se ne cancellano 20 o più | — |
+| `github_delete_lines` | cancella un intervallo di righe di un file GitHub (da N a M) per togliere blocchi lunghi: prima anteprima (`dry_run`), il testo della prima e dell'ultima riga deve corrispondere, controllo della sintassi, conferma rossa da 20 righe | sì |
 | `search_chats` | cerca nelle conversazioni salvate (titoli, messaggi, nomi degli allegati) | no |
 | `memory` | Memoria personale: aggiunge, elenca, toglie fatti da ricordare | aggiungi e togli |
 | `github_edit_file` | modifica un file con «trova e sostituisci» esatto (non lo riscrive per intero), con commit | **sì** |

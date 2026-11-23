@@ -33,7 +33,7 @@
   // ─── Limite al repository selezionato ─────────────────────
   // Con ctx.repoLock l'agente può usare GitHub SOLO sul repository scelto nelle Impostazioni (ctx.repoScope = «proprietario/nome»):
   // owner/repo omessi si completano, un altro repository viene rifiutato, la ricerca nel codice è sempre limitata a quel repository.
-  const REPO_SCOPED = ['github_read_file', 'github_write_file', 'github_delete_file', 'github_create_branch', 'github_list_branches_commits', 'github_issues', 'github_pull_requests', 'github_actions', 'github_edit_file'];
+  const REPO_SCOPED = ['github_read_file', 'github_write_file', 'github_delete_file', 'github_create_branch', 'github_list_branches_commits', 'github_issues', 'github_pull_requests', 'github_actions', 'github_edit_file', 'github_delete_lines'];
   function applyScope(name, args, ctx) {
     if (!ctx || !ctx.repoLock || !/^github_/.test(name)) return args;
     const sel = str(ctx.repoScope).trim();
@@ -60,7 +60,7 @@
   // ─── Branch di lavoro ──────────────────────────────────────
   // Con ctx.workBranch le scritture dell'agente vanno SEMPRE su quel branch (mai sul principale) e le letture
   // partono da lì; il branch si crea da solo dal principale e, se non ha commit propri, viene riallineato al principale.
-  const BRANCH_WRITES = ['github_write_file', 'github_edit_file', 'github_delete_file'];
+  const BRANCH_WRITES = ['github_write_file', 'github_edit_file', 'github_delete_file', 'github_delete_lines'];
   function applyBranch(name, args, ctx) {
     const wb = ctx && str(ctx.workBranch).trim();
     if (!wb) return args;
@@ -2023,6 +2023,86 @@
 
   // ─── Modifica precisa di un file GitHub ────────────────────
   // 22 — github_edit_file
+  // Cancella un intervallo di righe (per togliere blocchi lunghi, come un mazzo di carte, senza far riscrivere al modello centinaia di righe).
+  // Protezioni: servono il testo atteso della prima e dell'ultima riga (letti prima con find/start), con «dry_run» si vedono i bordi
+  // dell'intervallo senza scrivere, il controllo della sintassi vale come per le altre modifiche, e dal 20 righe in su la conferma è rossa.
+  def('github_delete_lines', {
+    description:
+      'Cancella le righe da «from_line» a «to_line» (comprese, numerate da 1 come in github_read_file con «find») di un file di GitHub, senza riscrivere il resto. ' +
+      'Prima cerca con «find» le righe di inizio e fine, poi chiama con dry_run=true per vedere i bordi dell\'intervallo, poi chiama senza dry_run. ' +
+      '«expect_first» e «expect_last» sono pezzi di testo che devono comparire nella prima e nell\'ultima riga da cancellare: se non corrispondono non si cancella nulla. ' +
+      'Dopo una cancellazione i numeri di riga cambiano: rifai la ricerca prima della cancellazione successiva.',
+    write: (a) => !a.dry_run,
+    danger: (a) => !a.dry_run && Number(a.to_line) - Number(a.from_line) + 1 >= 20,
+    parameters: {
+      type: 'object',
+      properties: Object.assign({}, REPO_PROPS, {
+        path: { type: 'string', description: 'Percorso del file.' },
+        from_line: { type: 'integer', description: 'Prima riga da cancellare (da 1).' },
+        to_line: { type: 'integer', description: 'Ultima riga da cancellare (compresa).' },
+        expect_first: { type: 'string', description: 'Testo che deve comparire nella riga from_line (copialo da github_read_file).' },
+        expect_last: { type: 'string', description: 'Testo che deve comparire nella riga to_line.' },
+        dry_run: { type: 'boolean', description: 'Se true non scrive nulla: mostra solo le righe ai bordi dell\'intervallo.' },
+        message: { type: 'string', description: 'Messaggio del commit (non serve con dry_run).' },
+        branch: { type: 'string', description: 'Branch (facoltativo).' }
+      }),
+      required: ['owner', 'repo', 'path', 'from_line', 'to_line', 'expect_first', 'expect_last']
+    },
+    title: (a) => {
+      const n = Number(a.to_line) - Number(a.from_line) + 1;
+      return (a.dry_run ? 'Controlla le righe ' : n >= 20 ? 'ATTENZIONE: cancella ' + n + ' righe — ' : 'Cancella le righe ') + str(a.from_line) + '–' + str(a.to_line) + ' di «' + str(a.path) + '» in ' + str(a.owner) + '/' + str(a.repo);
+    },
+    details: (a) =>
+      'Commit: ' + str(a.message) + (a.branch ? '\nBranch: ' + a.branch : '') + '\nRighe: −' + (Number(a.to_line) - Number(a.from_line) + 1) + ' / +0' +
+      '\n\nPrima riga: ' + clip(str(a.expect_first), 120) + '\nUltima riga: ' + clip(str(a.expect_last), 120) + '\n(il testo viene verificato prima di cancellare)',
+    async run(args, ctx) {
+      const { base } = repoArgs(args);
+      const path = need(args, 'path');
+      const from = parseInt(args.from_line, 10);
+      const to = parseInt(args.to_line, 10);
+      if (!(from >= 1) || !(to >= from)) throw new Error('Intervallo non valido: from_line e to_line devono essere numeri da 1 e to_line ≥ from_line.');
+      if (to - from + 1 > 5000) throw new Error('Troppe righe in una volta (massimo 5000): fai più cancellazioni.');
+      const efirst = need(args, 'expect_first');
+      const elast = need(args, 'expect_last');
+      const dry = !!args.dry_run;
+      const message = dry ? '' : need(args, 'message');
+      if (!dry && ctx.workBranch && args.branch === ctx.workBranch) await ensureWorkBranch(ctx, base, args.branch);
+      let file = await gh(ctx, base + '/contents/' + encPath(path) + (args.branch ? '?ref=' + encodeURIComponent(args.branch) : ''), { allow404: dry && !!args.branch });
+      if (!file && dry) file = await gh(ctx, base + '/contents/' + encPath(path)); // il branch di lavoro non esiste ancora: si guarda il principale
+      if (Array.isArray(file) || file.type !== 'file' || !file.content) throw new Error('«' + path + '» non è un file di testo leggibile.');
+      const original = base64ToUtf8(file.content);
+      if (original.includes('\u0000')) throw new Error('File binario: non modificabile.');
+      const lines = original.split('\n');
+      if (to > lines.length) throw new Error('Il file ha ' + lines.length + ' righe: to_line (' + to + ') è oltre la fine.');
+      const show = (a, b) => lines.slice(a - 1, b).map((l, k) => String(a + k).padStart(6) + ' | ' + clip(l, 160)).join('\n');
+      const norm = (t) => str(t).replace(/\s+/g, ' ').trim().toLowerCase();
+      const okFirst = norm(lines[from - 1]).includes(norm(efirst));
+      const okLast = norm(lines[to - 1]).includes(norm(elast));
+      const borders = 'Primo bordo (righe ' + Math.max(1, from - 2) + '–' + Math.min(lines.length, from + 2) + '):\n' + show(Math.max(1, from - 2), Math.min(lines.length, from + 2)) +
+        '\nUltimo bordo (righe ' + Math.max(1, to - 2) + '–' + Math.min(lines.length, to + 2) + '):\n' + show(Math.max(1, to - 2), Math.min(lines.length, to + 2));
+      if (!okFirst || !okLast)
+        throw new Error(
+          'Righe diverse da quelle attese: ' + (okFirst ? '' : 'la riga ' + from + ' non contiene «' + clip(efirst, 80) + '». ') + (okLast ? '' : 'la riga ' + to + ' non contiene «' + clip(elast, 80) + '». ') +
+            'Non ho cancellato nulla. Rifai la ricerca con find (i numeri cambiano dopo ogni cancellazione).\n' + borders
+        );
+      const n = to - from + 1;
+      if (dry) return 'Controllo riuscito: le righe ' + from + '–' + to + ' (' + n + ' righe) corrispondono a quanto atteso. Il file ha ' + lines.length + ' righe. Non ho scritto nulla.\n' + borders;
+      const next = lines.slice(0, from - 1).concat(lines.slice(to)).join('\n');
+      const note = checkSyntaxOrThrow(path, original, next);
+      const body = { message, content: utf8ToBase64(next), sha: file.sha };
+      if (args.branch) body.branch = args.branch;
+      const r = await gh(ctx, base + '/contents/' + encPath(path), { method: 'PUT', body });
+      const after = next.split('\n');
+      const c0 = Math.max(1, from - 3);
+      const c1 = Math.min(after.length, from + 2);
+      return (
+        'Cancellate ' + n + ' righe (' + from + '–' + to + ') di ' + path + (args.branch ? ' (branch ' + args.branch + ')' : '') + ' — righe ' + lines.length + ' → ' + after.length +
+        ' — commit ' + short(r.commit && r.commit.sha) + '.' + note + '\nCosì com\'è ora intorno al punto (righe ' + c0 + '–' + c1 + '):\n' +
+        after.slice(c0 - 1, c1).map((l, k) => String(c0 + k).padStart(6) + ' | ' + clip(l, 160)).join('\n') + '\nI numeri di riga sono cambiati: rifai la ricerca prima di un\'altra cancellazione.'
+      );
+    }
+  });
+
   /** Righe tolte e aggiunte da un insieme di sostituzioni (per la conferma). */
   function editLines(a) {
     let removed = 0;
