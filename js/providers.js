@@ -252,6 +252,30 @@
     return out;
   }
 
+  /**
+   * Su Android con CapacitorHttp il fetch normale passa dal canale nativo, che restituisce la risposta solo a richiesta finita (niente testo «a poco a poco»).
+   * Per i provider che accettano richieste dal browser (CORS) si usa il fetch originale del browser (window.CapacitorWebFetch), che fa arrivare il testo in streaming.
+   * Se fallisce prima di ricevere una risposta (CORS o rete) si ripiega sul canale nativo e si ricorda l'host per il resto della sessione.
+   */
+  const WEB_STREAM_HOSTS = /^(generativelanguage\.googleapis\.com|api\.groq\.com|api\.mistral\.ai|openrouter\.ai)$/;
+  const nativeOnly = new Set();
+  async function streamFetch(url, init) {
+    const web = typeof window !== 'undefined' && window.CapacitorWebFetch;
+    let host = '';
+    try {
+      host = new URL(url).host;
+    } catch (_) {}
+    if (typeof web === 'function' && WEB_STREAM_HOSTS.test(host) && !nativeOnly.has(host)) {
+      try {
+        return await web.call(window, url, init);
+      } catch (e) {
+        if (e && e.name === 'AbortError') throw e;
+        nativeOnly.add(host);
+      }
+    }
+    return fetch(url, init);
+  }
+
   async function streamGemini(cfg, messages, onText, signal, tools) {
     const body = {
       contents: geminiContents(cfg, messages),
@@ -272,7 +296,7 @@
 
     const url =
       trimSlash(cfg.baseUrl) + '/models/' + encodeURIComponent(cfg.model) + ':streamGenerateContent?alt=sse';
-    const res = await fetch(url, {
+    const res = await streamFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.apiKey },
       body: JSON.stringify(body),
@@ -384,7 +408,7 @@
       reqBody.tools = tools.map((t) => ({ type: 'function', function: t }));
       reqBody.tool_choice = 'auto';
     }
-    const res = await fetch(trimSlash(cfg.baseUrl) + '/chat/completions', {
+    const res = await streamFetch(trimSlash(cfg.baseUrl) + '/chat/completions', {
       method: 'POST',
       headers: openaiHeaders(cfg),
       body: JSON.stringify(reqBody),

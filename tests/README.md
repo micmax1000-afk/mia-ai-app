@@ -49,6 +49,7 @@ Serve Node 18 o più recente. Il runner prepara da solo la cartella `www/` (`scr
 | 22 | Mia Bridge: token, strumenti, percorsi fuori cartella, timeout, sola lettura |
 | 23 | PDF: testo estratto per i modelli senza lettura nativa, Gemini/OpenRouter, scansioni, 120 pagine, file rotto |
 | 24 | ricerca nelle chat e nelle note, Memoria (impostazioni e strumento) |
+| 37 | tempo e velocità di ogni risposta, misure per modello, streaming su Android con il fetch del browser (con ripiego sul nativo) |
 | 36 | «Stop» che funziona anche con richieste non interrompibili (come CapacitorHttp su Android), errori di Hugging Face spiegati |
 | 35 | «Secondo parere» e «Riepilogo» (condivisione con altre app), parere che torna a Mia come suggerimento, file di testo condivisi |
 | 34 | elenco «Modelli di ripiego» (ordine, aggiungi/togli), schermo acceso mentre Mia lavora, ripresa automatica dopo connessione caduta o app chiusa |

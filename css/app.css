@@ -506,3 +506,6 @@ html[data-offline='1'] .net-dot {
 .fallback-list .fb-btn:disabled { opacity: .3; cursor: default; }
 .fb-add { display: flex; gap: 6px; flex-wrap: wrap; }
 .fb-add select, .fb-add input { flex: 1 1 140px; min-width: 0; padding: 8px; border-radius: 10px; border: 1px solid var(--border, rgba(128,128,128,.35)); background: transparent; color: inherit; font: inherit; font-size: 14px; }
+
+.speed-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.speed-list li { padding: 6px 8px; border: 1px solid var(--border, rgba(128,128,128,.35)); border-radius: 10px; overflow-wrap: anywhere; }

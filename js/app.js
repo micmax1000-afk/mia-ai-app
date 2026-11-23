@@ -34,6 +34,8 @@
     favorites: [], // [{ provider, model }] — modelli per il cambio rapido
     fallbacks: null, // [{ provider, model }] — modelli di ripiego IN ORDINE (null = non ancora creata: si parte dai preferiti)
     keepAwake: true, // schermo acceso mentre Mia lavora
+    showSpeed: true, // mostra il tempo di ogni risposta sotto il messaggio
+    speedStats: {}, // { 'provider|modello': { n, ms, words, first, sn } } — velocità misurate
     autoResume: true, // riprende da sola dopo una connessione caduta o un'app chiusa durante un lavoro
     autoFallback: true, // se il modello è occupato, prova da solo gli altri dell'elenco
     agentEnabled: false, // modalità agente: il modello può usare gli strumenti (GitHub, web, note, file, codice)
@@ -77,6 +79,7 @@
   let settings = Object.assign({}, DEFAULT_SETTINGS, load(LS_SETTINGS, {}));
   if (!Array.isArray(settings.favorites)) settings.favorites = [];
   if (!Array.isArray(settings.fallbacks)) settings.fallbacks = settings.favorites.map((f) => ({ provider: f.provider, model: f.model })); // una tantum: l'elenco di ripiego parte dai preferiti
+  if (!settings.speedStats || typeof settings.speedStats !== 'object' || Array.isArray(settings.speedStats)) settings.speedStats = {};
   if (!Array.isArray(settings.mcpServers)) settings.mcpServers = [];
   if (settings.searchProvider === 'brave') settings.searchProvider = 'gemini'; // Brave Search non è più tra le scelte
   if (typeof settings.githubRepo !== 'string') settings.githubRepo = '';
@@ -520,7 +523,7 @@
       if (msg.model) {
         const tag = document.createElement('span');
         tag.className = 'model-tag';
-        tag.textContent = msg.model;
+        tag.textContent = msg.model + (msg.speed && settings.showSpeed !== false ? ' · ' + speedText(msg.speed) : '');
         actions.appendChild(tag);
       }
     }
@@ -1129,9 +1132,11 @@
       }
 
       // connessione caduta (rete mobile, schermo spento…): fino a 2 nuovi tentativi con lo stesso modello prima di cambiare
+      let timing = { t0: 0, first: 0, chunks: 0 };
       const chatWithRetry = async (...args) => {
         for (let retry = 0; ; retry++) {
           try {
+            timing = { t0: Date.now(), first: 0, chunks: 0 }; // si misura l'ultimo tentativo
             return await P.chat(...args);
           } catch (err) {
             if (ctl.signal.aborted) throw abortError(); // «Stop» premuto: non è un errore di connessione
@@ -1158,6 +1163,10 @@
               history,
               (full) => {
                 partial = full;
+                if (full && full.trim()) {
+                  if (!timing.first) timing.first = Date.now() - timing.t0;
+                  timing.chunks++;
+                }
                 if (!frame) {
                   frame = requestAnimationFrame(() => {
                     frame = 0;
@@ -1178,6 +1187,11 @@
         const usedFallback = tag !== modelLabel(cfg.provider, cfg.model);
         const msg = { role: 'assistant', content: result.text, model: (usedFallback ? '↪ ' : '') + tag };
         if (result.toolCalls.length) msg.toolCalls = result.toolCalls;
+        if (timing.t0) {
+          const words = (result.text.match(/\S+/g) || []).length;
+          msg.speed = { ms: Date.now() - timing.t0, first: timing.first || 0, chunks: timing.chunks, words };
+          recordSpeed(tag, msg.speed);
+        }
         c.messages.push(msg);
         if (usedFallback) toast('Ha risposto ' + tag + ' perché ' + cfg.model + ' era occupato');
         partial = '';
@@ -1229,6 +1243,60 @@
       const lastM = c.messages[c.messages.length - 1];
       if (!lastM || !lastM.error) delete resumeCount[c.id]; // lavoro riuscito: il contatore ricomincia
     }
+  }
+
+  // ─── Velocità dei modelli ─────────────────────────────────
+  const fmtSec = (ms) => (ms / 1000).toFixed(1).replace('.', ',') + ' s';
+  /** Risposta arrivata «a poco a poco»? (più pezzi e il primo testo ben prima della fine) */
+  const wasStreamed = (sp) => sp && sp.chunks >= 3 && sp.first > 0 && sp.first < sp.ms * 0.8;
+  /** Parole al secondo del solo testo (senza l'attesa iniziale se la risposta è in streaming). */
+  function wordsPerSec(sp) {
+    if (!sp || sp.words < 15) return 0;
+    const secs = (wasStreamed(sp) ? sp.ms - sp.first : sp.ms) / 1000;
+    return secs > 0.2 ? sp.words / secs : 0;
+  }
+  function speedText(sp) {
+    if (!sp) return '';
+    const w = wordsPerSec(sp);
+    return fmtSec(sp.ms) + (wasStreamed(sp) ? ' · 1° testo ' + fmtSec(sp.first) : '') + (w ? ' · ~' + Math.round(w) + ' parole/s' : '');
+  }
+  function recordSpeed(tag, sp) {
+    const key = tag.replace(/^↪ /, '');
+    const st = (settings.speedStats[key] = settings.speedStats[key] || { n: 0, ms: 0, words: 0, first: 0, sn: 0, wsecs: 0 });
+    st.n++;
+    st.ms += sp.ms;
+    st.words += sp.words;
+    if (wasStreamed(sp)) {
+      st.sn++;
+      st.first += sp.first;
+    }
+    if (sp.words >= 15) st.wsecs += (wasStreamed(sp) ? sp.ms - sp.first : sp.ms) / 1000;
+    if (st.n > 40) {
+      const k = 30 / st.n; // media mobile: contano di più le risposte recenti
+      ['n', 'ms', 'words', 'first', 'sn', 'wsecs'].forEach((f) => (st[f] *= k));
+    }
+  }
+  function renderSpeedStats() {
+    const ul = $('#speedList');
+    if (!ul) return;
+    ul.innerHTML = '';
+    const rows = Object.entries(settings.speedStats || {})
+      .filter(([, st]) => st.n >= 1)
+      .map(([k, st]) => ({ k, st, w: st.wsecs > 0 ? st.words / st.wsecs : 0 }))
+      .sort((a, b) => b.w - a.w);
+    if (!rows.length) {
+      const li = document.createElement('li');
+      li.className = 'hint';
+      li.textContent = 'Ancora nessuna misura: compaiono dopo le prime risposte.';
+      ul.appendChild(li);
+    }
+    rows.forEach(({ k, st, w }) => {
+      const li = document.createElement('li');
+      li.textContent =
+        k + ' — ' + (w ? '~' + Math.round(w) + ' parole/s' : 'velocità n.d.') + ' · ' + fmtSec(st.ms / st.n) + ' a risposta' +
+        (st.sn ? ' · 1° testo dopo ' + fmtSec(st.first / st.sn) : ' · senza streaming') + ' (' + Math.round(st.n) + ' risposte)';
+      ul.appendChild(li);
+    });
   }
 
   // ─── Schermo acceso mentre Mia lavora ─────────────────────
@@ -1761,6 +1829,8 @@
     $('#githubUseBranch').checked = settings.githubUseBranch !== false;
     $('#githubReadFirst').checked = settings.githubReadFirst !== false;
     $('#keepAwake').checked = settings.keepAwake !== false;
+    $('#showSpeed').checked = settings.showSpeed !== false;
+    renderSpeedStats();
     $('#autoResume').checked = settings.autoResume !== false;
     renderFallbacks();
     $('#githubWorkBranch').value = settings.githubWorkBranch || 'mia-lavoro';
@@ -1814,6 +1884,9 @@
     settings.githubUseBranch = $('#githubUseBranch').checked;
     settings.githubReadFirst = $('#githubReadFirst').checked;
     settings.keepAwake = $('#keepAwake').checked;
+    const speedWas = settings.showSpeed !== false;
+    settings.showSpeed = $('#showSpeed').checked;
+    if (speedWas !== settings.showSpeed) setTimeout(renderMessages, 0); // l'etichetta sotto i messaggi cambia subito
     settings.autoResume = $('#autoResume').checked;
     settings.githubWorkBranch = $('#githubWorkBranch').value.trim() || 'mia-lavoro';
     settings.nvidiaImageModel = $('#nvidiaImageModel').value || 'flux.1-schnell';
@@ -2299,6 +2372,11 @@
       await importChats(f);
     });
     bindFallbacks();
+    $('#speedReset').addEventListener('click', () => {
+      settings.speedStats = {};
+      save(LS_SETTINGS, settings);
+      renderSpeedStats();
+    });
     $('#syncNow').addEventListener('click', () => {
       settings.syncRepo = $('#syncRepo').value.trim();
       settings.syncAuto = $('#syncAuto').checked;

@@ -319,5 +319,13 @@ module.exports = {
     /preparazione[^\n]*\n +torna libero entro 1,5 s = true/, /risposta mostrata = true \| libero = true/,
     /403 permesso mancante → true/, /401 token non valido → true/, /402 crediti finiti → true/, /modello non disponibile → true/, /resta quello di connessione = true/,
     /OpenRouter 402\) = true \| \(NVIDIA 401\) = true/, /avviso = true/, /^ERRORS \[\]/m
+  ],
+  '37-velocita-streaming.js': [
+    /aggiornamenti del testo visti = 1 \(1 = tutto insieme\) \| richieste: native = 1 , web = 0/, /mostra il tempo totale e le parole al secondo, senza «1° testo» = true/,
+    /aggiornamenti del testo visti = \d{2,} \(> 5 = progressivo\) \| prima parte = "uno" \| native = 0 , web = generativelanguage\.googleapis\.com/, /mostra anche il «1° testo» = true/,
+    /Groq → web = api\.groq\.com \| native = 0/, /NVIDIA → web = 0 \| native = integrate\.api\.nvidia\.com/,
+    /risposta arrivata =  true \| web provato = 1 , nativo usato = 1/, /alla seconda richiesta non riprova il canale del browser = true \| nativo = 2/,
+    /torna libero subito = true .* testo parziale conservato con «\(interrotto\)» = true/,
+    /mostra modello, parole al secondo, tempo medio, 1° testo e numero di risposte = true/, /«Azzera le misure» = true/, /resta solo il modello = true/, /^ERRORS \[\]/m
   ]
 };
