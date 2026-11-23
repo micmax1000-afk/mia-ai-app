@@ -302,5 +302,14 @@ module.exports = {
     /l'avevi fermato tu → non riprende = true/, /interrotto 30 minuti fa → non riprende = true/, /lavoro finito → niente da riprendere = true/,
     /errore normale → non riprende da sola = true/, /con l'opzione spenta non riprende = true/,
     /«schermo acceso» = true \| «riprendi da sola» = true/, /salvate = true/, /^ERRORS \[\]/m
+  ],
+  '35-secondo-parere.js': [
+    /dopo un lavoro con strumenti → Copia \| Rigenera \| Prova con… \| Condividi \| Secondo parere \| Riepilogo \| Push \| Ascolta/, /in una chat senza strumenti → Copia \| Rigenera \| Prova con… \| Condividi \| Secondo parere \| Push \| Ascolta/,
+    /sezioni = true \| la richiesta originale c'è = true \| lunghezza ≤ 8000 = true/, /modifiche elencate \(solo quelle riuscite\) = true \| con il commit = true/, /domanda finale chiara = true/, /tempo ricordato nella chat = true/,
+    /file = secondo-parere\.md \| contiene la domanda = true \| lunghezza = true .* tagliato in modo ordinato = true/,
+    /file = riepilogo-lavoro\.md \| titolo = true \| azioni = 5 = true/, /esiti = true true true true true/, /errore e file toccati = true \| true \| repository e branch = true \| risposta finale = true/,
+    /la condivisione verso Mia è attiva = true/, /nessuna etichetta = true/, /etichettato come suggerimento = true/, /una seconda parte non ripete l'etichetta = true/,
+    /file di testo condiviso \(\.md\) → allegato = true/, /immagine condivisa → allegato \(come prima\) = true/, /altri tipi di file \(zip\) → ignorati = true/,
+    /spiega come trattare un «Parere di un'altra app» = true/, /^ERRORS \[\]/m
   ]
 };
