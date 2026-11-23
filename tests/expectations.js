@@ -253,5 +253,11 @@ module.exports = {
     /opzione spenta\) scrive sul principale = true/, /nessun riallineamento = true/, /il branch si riallinea da solo = true \| modifica salvata = true/,
     /cancella molte righe: ATTENZIONE: cancella 33 righe .* righe = true \| branch = true \| avviso rosso = true/, /il modello sa del branch = true \| riceve le righe dopo la modifica = true/,
     /modifica piccola: Modifica «data\.js» .* righe = true \| avviso rosso = false/, /branch di lavoro attivo di serie = true \| nome = mia-lavoro/, /nome salvato = prove/, /^ERRORS \[\]/m
+  ],
+  '31-continua-ricorda-il-lavoro.js': [
+    /la richiesta originale è nel contesto = true \| «continua» c'è = true/, /dimensione della richiesta ragionevole \(< 120 KB\) = true/,
+    /i risultati più vecchi sono accorciati = true \| gli ultimi 6 sono interi = true \| il più vecchio non è intero = true/,
+    /richiesta originale presente = true \| passaggi più recenti presenti = true \| passaggi lontani omessi = true \| dimensione \(< 160 KB\) = true/,
+    /richiesta originale \+ «grazie» \+ «e poi\?» presenti = true/, /contiene i messaggi precedenti = true/, /^ERRORS \[\]/m
   ]
 };

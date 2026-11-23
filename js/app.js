@@ -14,6 +14,8 @@
   const LS_CONVS = 'miaai_v1_conversations';
   const LS_CURRENT = 'miaai_v1_current';
   const MAX_HISTORY = 60; // messaggi inviati al modello come contesto
+  const MAX_HISTORY_HARD = 220; // limite assoluto quando si tengono nel contesto le ultime richieste dell'utente
+  const PIN_USER_MESSAGES = 3; // ultime richieste dell'utente sempre nel contesto
   const KEEP_TOOL_RESULTS = 6; // risultati di strumenti recenti inviati per intero (i più vecchi vengono accorciati)
   const MAX_TEXT_FILE = 200 * 1024; // caratteri massimi di un file di testo
   const MAX_BINARY = 8 * 1024 * 1024; // byte massimi di un PDF
@@ -960,31 +962,58 @@
   /** Cronologia da inviare al modello (non inizia mai con risultati di strumenti orfani). */
   function buildHistory(c) {
     const all = c.messages.filter((m) => !m.error);
+    // le richieste dell'utente non devono uscire dal contesto nei lavori lunghi con molti strumenti: se scrive solo «continua»,
+    // la richiesta vera è quella prima (altrimenti il modello non sa cosa deve fare). Si tengono le ultime 3 richieste e
+    // l'ultima «vera» richiesta (almeno 40 caratteri).
+    const users = [];
+    all.forEach((m, i) => m.role === 'user' && users.push(i));
+    const lastUser = users.length ? users[users.length - 1] : -1;
+    let task = -1;
+    for (let k = users.length - 1; k >= 0; k--)
+      if (String(all[users[k]].content || '').trim().length >= 40) {
+        task = users[k];
+        break;
+      }
+    let pin = users.length ? users[Math.max(0, users.length - PIN_USER_MESSAGES)] : -1;
+    if (task >= 0 && task < pin) pin = task;
     let start = Math.max(0, all.length - MAX_HISTORY);
-    // l'ultima richiesta dell'utente deve restare nel contesto anche nei lavori lunghi con molti strumenti
-    let lastUser = -1;
-    all.forEach((m, i) => m.role === 'user' && (lastUser = i));
+    let head = null;
+    if (pin >= 0 && pin < start) {
+      if (all.length - pin <= MAX_HISTORY_HARD) start = pin;
+      else if (task >= 0 && task < start) head = all[task]; // lavoro lunghissimo: la richiesta in testa, poi i passaggi più recenti
+    }
     if (lastUser >= 0 && start > lastUser) start = lastUser;
     const list = all.slice(start);
-    while (list.length && list[0].role !== 'user') list.shift();
-    // i risultati di strumenti più vecchi vengono accorciati per non riempire il contesto
+    if (head) {
+      while (list.length && list[0].role === 'tool') list.shift(); // risultati senza la loro richiesta
+      list.unshift(head);
+      if (list[1] && list[1].role === 'user') list.splice(1, 0, { role: 'assistant', content: '[…passaggi precedenti omessi…]' });
+    } else while (list.length && list[0].role !== 'user') list.shift();
+    // i risultati di strumenti più vecchi vengono accorciati per non riempire il contesto (molto di più se sono lontani)
     let seen = 0;
-    const shortTool = new Set();
-    for (let i = list.length - 1; i >= 0; i--) if (list[i].role === 'tool' && ++seen > KEEP_TOOL_RESULTS) shortTool.add(i);
-    return list.map((m, i) => ({
-      role: m.role,
-      content:
-        shortTool.has(i) && String(m.content).length > 1500
-          ? String(m.content).slice(0, 1500) + '\n[…risultato accorciato…]'
-          : m.context
-          ? m.content + '\n\n' + m.context // note dal web / repository letto dall'app
-          : m.content,
-      attachments: m.attachments,
-      toolCalls: m.toolCalls,
-      toolCallId: m.toolCallId,
-      name: m.name,
-      ok: m.ok
-    }));
+    const shortTool = new Map();
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (list[i].role !== 'tool') continue;
+      seen++;
+      if (seen > KEEP_TOOL_RESULTS) shortTool.set(i, seen > KEEP_TOOL_RESULTS * 4 ? 300 : 1500);
+    }
+    return list.map((m, i) => {
+      const cut = shortTool.get(i);
+      return {
+        role: m.role,
+        content:
+          cut && String(m.content).length > cut
+            ? String(m.content).slice(0, cut) + '\n[…risultato accorciato…]'
+            : m.context
+            ? m.content + '\n\n' + m.context // note dal web / repository letto dall'app
+            : m.content,
+        attachments: m.attachments,
+        toolCalls: m.toolCalls,
+        toolCallId: m.toolCallId,
+        name: m.name,
+        ok: m.ok
+      };
+    });
   }
 
   function addStreamBubble() {
