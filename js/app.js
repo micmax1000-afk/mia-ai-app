@@ -1121,9 +1121,9 @@
     let frame = 0;
     try {
       if (agent) {
-        await refreshMcp(ctl.signal);
+        await P.raceAbort(refreshMcp(ctl.signal), ctl.signal);
         tools = Tools.definitions({ preferConnectors: settings.preferMcpWeb !== false });
-        const extra = await agentPrompt(ctl.signal, tools);
+        const extra = await P.raceAbort(agentPrompt(ctl.signal, tools), ctl.signal);
         if (ctl.signal.aborted) throw abortError();
         attempts.forEach((a) => (a.systemPrompt = (a.systemPrompt || '') + '\n\n' + extra));
       }
@@ -1134,11 +1134,12 @@
           try {
             return await P.chat(...args);
           } catch (err) {
-            if (retry >= 2 || ctl.signal.aborted || !P.isConnectionError(err)) throw err;
+            if (ctl.signal.aborted) throw abortError(); // «Stop» premuto: non è un errore di connessione
+            if (retry >= 2 || !P.isConnectionError(err)) throw err;
             partial = '';
             toast('Connessione interrotta: riprovo (' + (retry + 1) + '/2)…');
-            await new Promise((r) => setTimeout(r, 1500 * (retry + 1)));
-            if (ctl.signal.aborted) throw err;
+            await P.raceAbort(new Promise((r) => setTimeout(r, 1500 * (retry + 1))), ctl.signal); // la pausa si interrompe subito con «Stop»
+            if (ctl.signal.aborted) throw abortError();
           }
         }
       };
@@ -1826,6 +1827,7 @@
     if (sel && sel.value) settings.githubRepo = sel.value;
     if (isConfigured()) addFavorite(settings.provider, profile().model);
     save(LS_SETTINGS, settings);
+    if (settings.provider === 'huggingface' && profile().apiKey && !/^hf_/.test(profile().apiKey)) toast('Il token Hugging Face di solito inizia con «hf_»: controlla di averlo copiato per intero.');
     applyTheme();
     updateHeader();
     $('#settings').hidden = true;

@@ -311,5 +311,13 @@ module.exports = {
     /la condivisione verso Mia è attiva = true/, /nessuna etichetta = true/, /etichettato come suggerimento = true/, /una seconda parte non ripete l'etichetta = true/,
     /file di testo condiviso \(\.md\) → allegato = true/, /immagine condivisa → allegato \(come prima\) = true/, /altri tipi di file \(zip\) → ignorati = true/,
     /spiega come trattare un «Parere di un'altra app» = true/, /^ERRORS \[\]/m
+  ],
+  '36-stop-non-interrompibile.js': [
+    /ero occupato = true \| dopo «Stop» torna libero entro 1,5 s = true/, /nessun messaggio di errore né testo parziale = true \| si può scrivere di nuovo = true/,
+    /torna libero entro 1,5 s = true .*nessun nuovo tentativo dopo lo stop = true \| nessun errore mostrato = true/,
+    /in corso = true \| richieste = .*a\.txt/, /torna libero entro 1,5 s = true \(\d+ ms\) \| nessun nuovo giro del modello = true/,
+    /preparazione[^\n]*\n +torna libero entro 1,5 s = true/, /risposta mostrata = true \| libero = true/,
+    /403 permesso mancante → true/, /401 token non valido → true/, /402 crediti finiti → true/, /modello non disponibile → true/, /resta quello di connessione = true/,
+    /OpenRouter 402\) = true \| \(NVIDIA 401\) = true/, /avviso = true/, /^ERRORS \[\]/m
   ]
 };

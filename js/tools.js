@@ -13,6 +13,26 @@
     return s.length > max ? s.slice(0, max) + '\n[…troncato: ' + (s.length - max) + ' caratteri in più…]' : s;
   }
 
+  /** Rende interrompibile una promessa (su Android la richiesta nativa non si ferma con l'AbortSignal): al segnale fallisce subito con AbortError. */
+  function raceAbort(promise, signal) {
+    if (!signal) return promise;
+    return new Promise((resolve, reject) => {
+      const stop = () => reject(Object.assign(new Error('Interrotto'), { name: 'AbortError' }));
+      if (signal.aborted) return stop();
+      signal.addEventListener('abort', stop, { once: true });
+      promise.then(
+        (v) => {
+          signal.removeEventListener('abort', stop);
+          resolve(v);
+        },
+        (e) => {
+          signal.removeEventListener('abort', stop);
+          reject(e);
+        }
+      );
+    });
+  }
+
   function str(v) {
     return v == null ? '' : String(v);
   }
@@ -2712,7 +2732,7 @@
     if (!t) throw new Error('Strumento sconosciuto: ' + name);
     if (ctx && ctx.signal && ctx.signal.aborted) throw abortError();
     args = applyBranch(name, applyScope(name, args || {}, ctx), ctx);
-    const out = await t.run(args, ctx || {});
+    const out = await raceAbort(t.run(args, ctx || {}), ctx && ctx.signal);
     const max = t.maxResult || MAX_RESULT; // github_read_file gestisce da sé i tagli e li segnala («FILE INCOMPLETO»)
     if (out && typeof out === 'object' && typeof out.text === 'string') return { text: clip(out.text, max), files: out.files || [], imageUrl: out.imageUrl };
     return { text: clip(out, max), files: [] };
