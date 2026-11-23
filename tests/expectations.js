@@ -284,5 +284,23 @@ module.exports = {
     /nessuna sezione = true/, /molto lungo → tagliato = true/, /non si legge il file = true/,
     /1\) senza lettura: nessuna scrittura = true \| il modello riceve il motivo = true/, /2\) dopo la lettura: scritto = true \| contenuto = const a = 10;/, /scritto senza rileggere = true/,
     /casella «leggere prima di modificare» attiva = true/, /salvata = true/, /^ERRORS \[\]/m
+  ],
+  '34-ripiego-schermo-ripresa.js': [
+    /all'inizio copiato dai preferiti, in ordine → 1\. Gemini · gemini-3\.5-flash \| 2\. Mistral · mistral-large/, /aggiunto Groq in fondo → .* 3\. Groq · llama/,
+    /Groq spostato su → 1\. Gemini · gemini-3\.5-flash \| 2\. Groq · llama \| 3\. Mistral/, /il primo spostato giù → 1\. Groq · llama \| 2\. Gemini/, /le frecce ai bordi sono spente = true true/,
+    /tolto il secondo → 1\. Groq · llama \| 2\. Mistral · mistral-large/, /doppione ignorato → 2 voci/, /senza chiave → 3\. OpenRouter · qualcosa:free \(manca la chiave\)/,
+    /salvato nelle impostazioni = groq,mistral,openrouter \| preferiti intatti = true/,
+    /ordine dei tentativi → nvidia → groq \| risposta = Risposta di groq\./, /ordine con più modelli occupati → nvidia → groq → mistral → gemini/,
+    /richieste totali = 5 \(1 \+ 4\), il quinto \(Gemini\) non viene provato = true/, /ripiego spento: nessun altro modello provato = nvidia/,
+    /non finisce da solo nell'elenco di ripiego = true \| ma nei preferiti sì = true/,
+    /mentre risponde: blocco attivo = true/, /tornando in primo piano lo riprende = true/, /a lavoro finito è rilasciato = true \| \{"req":2,"rel":2,"active":0\}/,
+    /con l'opzione spenta non lo chiede mai = true/, /plugin nativo \(Android\): attivato mentre lavora = true \| riposo a fine lavoro = true/, /nessuna delle due funzioni: nessun errore = true/,
+    /errore «riprendibile» = true \| richieste = 3/, /riprende da sola e risponde = true \| richieste totali = 4 \| errore sparito = true/,
+    /si ferma dopo 3 riprese → richieste = 12 .* messaggio finale = true/, /con la ripresa spenta resta l'errore con «Rigenera» = true \| richieste = 3/,
+    /app in secondo piano: non riprende = true/, /tornando in primo piano riprende = true/,
+    /risultato di uno strumento → riprende da solo = true/, /domanda senza risposta → riprende = true/, /la toglie e riprende = true \| nella cronologia inviata non c'è la richiesta orfana = true/,
+    /l'avevi fermato tu → non riprende = true/, /interrotto 30 minuti fa → non riprende = true/, /lavoro finito → niente da riprendere = true/,
+    /errore normale → non riprende da sola = true/, /con l'opzione spenta non riprende = true/,
+    /«schermo acceso» = true \| «riprendi da sola» = true/, /salvate = true/, /^ERRORS \[\]/m
   ]
 };

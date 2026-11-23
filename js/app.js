@@ -16,6 +16,8 @@
   const MAX_HISTORY = 60; // messaggi inviati al modello come contesto
   const MAX_HISTORY_HARD = 220; // limite assoluto quando si tengono nel contesto le ultime richieste dell'utente
   const PIN_USER_MESSAGES = 3; // ultime richieste dell'utente sempre nel contesto
+  const MAX_FALLBACKS = 4; // modelli di ripiego provati al massimo
+  const RESUME_WINDOW = 15 * 60 * 1000; // un lavoro interrotto si riprende da solo solo se è recente
   const KEEP_TOOL_RESULTS = 6; // risultati di strumenti recenti inviati per intero (i più vecchi vengono accorciati)
   const MAX_TEXT_FILE = 200 * 1024; // caratteri massimi di un file di testo
   const MAX_BINARY = 8 * 1024 * 1024; // byte massimi di un PDF
@@ -30,6 +32,9 @@
     temperature: 0.7,
     theme: 'auto',
     favorites: [], // [{ provider, model }] — modelli per il cambio rapido
+    fallbacks: null, // [{ provider, model }] — modelli di ripiego IN ORDINE (null = non ancora creata: si parte dai preferiti)
+    keepAwake: true, // schermo acceso mentre Mia lavora
+    autoResume: true, // riprende da sola dopo una connessione caduta o un'app chiusa durante un lavoro
     autoFallback: true, // se il modello è occupato, prova da solo gli altri dell'elenco
     agentEnabled: false, // modalità agente: il modello può usare gli strumenti (GitHub, web, note, file, codice)
     githubToken: '',
@@ -71,6 +76,7 @@
 
   let settings = Object.assign({}, DEFAULT_SETTINGS, load(LS_SETTINGS, {}));
   if (!Array.isArray(settings.favorites)) settings.favorites = [];
+  if (!Array.isArray(settings.fallbacks)) settings.fallbacks = settings.favorites.map((f) => ({ provider: f.provider, model: f.model })); // una tantum: l'elenco di ripiego parte dai preferiti
   if (!Array.isArray(settings.mcpServers)) settings.mcpServers = [];
   if (settings.searchProvider === 'brave') settings.searchProvider = 'gemini'; // Brave Search non è più tra le scelte
   if (typeof settings.githubRepo !== 'string') settings.githubRepo = '';
@@ -793,6 +799,7 @@
 
   function setBusy(v) {
     busy = v;
+    keepAwake(v);
     const btn = $('#sendBtn');
     btn.classList.toggle('stop', v);
     btn.textContent = v ? '■' : '↑';
@@ -1083,6 +1090,7 @@
     // rimuovi eventuali errori precedenti in coda
     while (c.messages.length && c.messages[c.messages.length - 1].error) c.messages.pop();
 
+    c.stopped = false;
     setBusy(true);
     renderMessages();
     let bubble = addStreamBubble();
@@ -1094,14 +1102,14 @@
     // Modelli da provare: quello scelto, poi (se attivo) gli altri dell'elenco ▾ già configurati
     const attempts = [cfg];
     if (settings.autoFallback !== false) {
-      settings.favorites
+      settings.fallbacks
         .filter(
           (f) =>
             !(f.provider === cfg.provider && f.model === cfg.model) &&
             isConfigured(f) &&
             (P.isSpecialized(cfg.model) || !P.isSpecialized(f.model)) // niente modelli per il codice come ripiego
         )
-        .slice(0, 3)
+        .slice(0, MAX_FALLBACKS)
         .forEach((f) => attempts.push(chatConfig(f)));
     }
 
@@ -1192,6 +1200,7 @@
       save(LS_SETTINGS, settings);
     } catch (e) {
       if (e && e.name === 'AbortError') {
+        c.stopped = true; // fermato dall'utente: non si riprende da solo
         if (partial.trim()) c.messages.push({ role: 'assistant', content: partial + '\n\n_(interrotto)_', model: tag });
       } else {
         if (partial.trim()) c.messages.push({ role: 'assistant', content: partial, model: tag });
@@ -1200,7 +1209,9 @@
         if (attempts.length > 1 && P.isBusyError(e)) msg += ' Ho provato anche: ' + attempts.slice(1).map((a) => a.model).join(', ') + '.';
         else if (attempts.length === 1 && P.isBusyError(e))
           msg += ' Suggerimento: aggiungi un secondo modello (es. Gemini) e l\'app passerà da sola a quello quando questo è occupato.';
-        c.messages.push({ role: 'assistant', content: msg, error: true });
+        const resumable = P.isConnectionError(e);
+        c.messages.push({ role: 'assistant', content: msg, error: true, resumable });
+        if (resumable) scheduleResume(4000);
       }
     } finally {
       if (frame) cancelAnimationFrame(frame);
@@ -1211,7 +1222,78 @@
       setBusy(false);
       renderMessages();
       renderConvList();
+      const lastM = c.messages[c.messages.length - 1];
+      if (!lastM || !lastM.error) delete resumeCount[c.id]; // lavoro riuscito: il contatore ricomincia
     }
+  }
+
+  // ─── Schermo acceso mentre Mia lavora ─────────────────────
+  // Su Android si usa il plugin KeepAwake (se presente), altrimenti la funzione standard del browser (Screen Wake Lock).
+  let wakeSentinel = null;
+  let wantAwake = false;
+  async function applyAwake() {
+    try {
+      const native = nativePlugin('KeepAwake');
+      if (wantAwake && settings.keepAwake !== false) {
+        if (native && native.keepAwake) await native.keepAwake();
+        else if (navigator.wakeLock && !wakeSentinel) {
+          wakeSentinel = await navigator.wakeLock.request('screen');
+          wakeSentinel.addEventListener('release', () => (wakeSentinel = null));
+        }
+      } else {
+        if (native && native.allowSleep) await native.allowSleep();
+        if (wakeSentinel) {
+          const sent = wakeSentinel;
+          wakeSentinel = null;
+          await sent.release();
+        }
+      }
+    } catch (_) {}
+  }
+  function keepAwake(on) {
+    wantAwake = !!on;
+    applyAwake();
+  }
+
+  // ─── Ripresa automatica dopo un'interruzione ──────────────
+  const resumeCount = {}; // riprese automatiche per chat (al massimo 3 di seguito)
+  let resumeTimer = 0;
+
+  /** Riprende l'ultima chat se si è fermata per la connessione caduta (errore «riprendibile»). */
+  function tryResume() {
+    if (settings.autoResume === false || busy) return;
+    const c = current();
+    if (!c) return;
+    const last = c.messages[c.messages.length - 1];
+    if (!last || !last.error || !last.resumable || !isConfigured()) return;
+    if ((resumeCount[c.id] || 0) >= 3) return;
+    resumeCount[c.id] = (resumeCount[c.id] || 0) + 1;
+    toast('Riprendo il lavoro (' + resumeCount[c.id] + '/3)…');
+    runAssistant(c);
+  }
+  function scheduleResume(ms) {
+    clearTimeout(resumeTimer);
+    resumeTimer = setTimeout(() => {
+      if (document.visibilityState === 'visible' && navigator.onLine !== false) tryResume();
+    }, ms);
+  }
+
+  /** All'avvio: se l'app è stata chiusa durante un lavoro recente, lo riprende (non se l'hai fermato tu). */
+  function resumeInterrupted() {
+    if (settings.autoResume === false || busy || !isConfigured()) return;
+    const c = current();
+    if (!c || c.stopped || !c.messages.length || Date.now() - (c.updated || 0) > RESUME_WINDOW) return;
+    let last = c.messages[c.messages.length - 1];
+    if (last.error) return; // gli errori si riprendono con tryResume o con «Rigenera»
+    // una richiesta di strumenti rimasta senza risultati (app chiusa mentre aspettava la conferma): si toglie e il modello la riproporrà
+    if (last.role === 'assistant' && last.toolCalls && last.toolCalls.length) {
+      c.messages.pop();
+      last = c.messages[c.messages.length - 1];
+      if (!last) return;
+    }
+    if (last.role !== 'tool' && last.role !== 'user') return;
+    toast('Riprendo il lavoro interrotto…');
+    setTimeout(() => !busy && runAssistant(c), 800);
   }
 
   function needsWeb(text) {
@@ -1387,6 +1469,91 @@
     runAssistant(c, pick);
   }
 
+  // ─── Modelli di ripiego (in ordine) ───────────────────────
+  function renderFallbacks() {
+    const ol = $('#fallbackList');
+    if (!ol) return;
+    ol.innerHTML = '';
+    if (!settings.fallbacks.length) {
+      const li = document.createElement('li');
+      li.className = 'hint';
+      li.textContent = 'Nessun modello di ripiego: se il modello scelto è occupato, Mia si ferma con un errore.';
+      ol.appendChild(li);
+    }
+    settings.fallbacks.forEach((f, i) => {
+      const li = document.createElement('li');
+      li.className = 'fb-item';
+      const name = document.createElement('span');
+      name.className = 'fb-name';
+      const preset = P.PRESETS[f.provider] || P.PRESETS.custom;
+      name.textContent = i + 1 + '. ' + (preset.short || preset.label) + ' · ' + f.model + (isConfigured(f) ? '' : ' (manca la chiave)') + (i >= MAX_FALLBACKS ? ' (oltre il limite di ' + MAX_FALLBACKS + ': non usato)' : '');
+      li.appendChild(name);
+      [['up', '▲', 'Sposta su', i === 0], ['down', '▼', 'Sposta giù', i === settings.fallbacks.length - 1], ['del', '✕', 'Togli', false]].forEach(([k, t, label, off]) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'fb-btn';
+        b.dataset['fb' + k] = i;
+        b.setAttribute('aria-label', label);
+        b.textContent = t;
+        b.disabled = off;
+        li.appendChild(b);
+      });
+      ol.appendChild(li);
+    });
+    // suggerimenti per il campo «modello»: preferiti e modello scelto del provider selezionato
+    const prov = $('#fbProvider').value;
+    const dl = $('#fbModels');
+    dl.innerHTML = '';
+    const names = new Set(settings.favorites.filter((f) => f.provider === prov).map((f) => f.model));
+    if (profile(prov).model) names.add(profile(prov).model);
+    names.forEach((m) => {
+      const o = document.createElement('option');
+      o.value = m;
+      dl.appendChild(o);
+    });
+  }
+
+  function saveFallbacks() {
+    save(LS_SETTINGS, settings);
+    renderFallbacks();
+  }
+
+  function bindFallbacks() {
+    const sel = $('#fbProvider');
+    Object.entries(P.PRESETS).forEach(([id, p]) => {
+      const o = document.createElement('option');
+      o.value = id;
+      o.textContent = p.label;
+      sel.appendChild(o);
+    });
+    sel.addEventListener('change', renderFallbacks);
+    $('#fallbackList').addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      const L = settings.fallbacks;
+      const k = ['fbup', 'fbdown', 'fbdel'].find((x) => b.dataset[x] !== undefined);
+      if (!k) return;
+      const i = Number(b.dataset[k]);
+      if (k === 'fbdel') L.splice(i, 1);
+      else {
+        const j = k === 'fbup' ? i - 1 : i + 1;
+        if (j < 0 || j >= L.length) return;
+        [L[i], L[j]] = [L[j], L[i]];
+      }
+      saveFallbacks();
+    });
+    $('#fbAdd').addEventListener('click', () => {
+      const provider = $('#fbProvider').value;
+      const model = $('#fbModel').value.trim();
+      if (!provider || !model) return toast('Scegli il provider e scrivi il nome del modello');
+      if (settings.fallbacks.some((f) => f.provider === provider && f.model === model)) return toast('Questo modello è già nell\'elenco');
+      settings.fallbacks.push({ provider, model });
+      $('#fbModel').value = '';
+      if (!isConfigured({ provider, model })) toast('Aggiunto, ma manca la chiave di questo provider: finché non la inserisci viene saltato');
+      saveFallbacks();
+    });
+  }
+
   // ─── Cambio rapido modello ────────────────────────────────
   let pickerMode = 'switch'; // 'switch' = cambia modello attivo, 'retry' = rigenera l'ultima risposta
 
@@ -1511,6 +1678,9 @@
     $('#githubScope').checked = settings.githubScope !== false;
     $('#githubUseBranch').checked = settings.githubUseBranch !== false;
     $('#githubReadFirst').checked = settings.githubReadFirst !== false;
+    $('#keepAwake').checked = settings.keepAwake !== false;
+    $('#autoResume').checked = settings.autoResume !== false;
+    renderFallbacks();
     $('#githubWorkBranch').value = settings.githubWorkBranch || 'mia-lavoro';
     $('#nvidiaImageModel').value = settings.nvidiaImageModel || 'flux.1-schnell';
     $('#searchProvider').value = settings.searchProvider == null ? 'gemini' : settings.searchProvider;
@@ -1561,6 +1731,8 @@
     settings.githubScope = $('#githubScope').checked;
     settings.githubUseBranch = $('#githubUseBranch').checked;
     settings.githubReadFirst = $('#githubReadFirst').checked;
+    settings.keepAwake = $('#keepAwake').checked;
+    settings.autoResume = $('#autoResume').checked;
     settings.githubWorkBranch = $('#githubWorkBranch').value.trim() || 'mia-lavoro';
     settings.nvidiaImageModel = $('#nvidiaImageModel').value || 'flux.1-schnell';
     settings.searchProvider = $('#searchProvider').value;
@@ -2041,6 +2213,7 @@
       e.target.value = '';
       await importChats(f);
     });
+    bindFallbacks();
     $('#syncNow').addEventListener('click', () => {
       settings.syncRepo = $('#syncRepo').value.trim();
       settings.syncAuto = $('#syncAuto').checked;
@@ -2048,6 +2221,12 @@
       syncNow(false);
     });
     if (settings.syncAuto) setTimeout(() => syncNow(true), 1500);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        if (wantAwake) applyAwake(); // il sistema rilascia il blocco quando l'app va in secondo piano
+        scheduleResume(800);
+      }
+    });
     document.addEventListener('visibilitychange', () => {
       if (!settings.syncAuto) return;
       if (document.visibilityState === 'hidden') syncNow(true);
@@ -2071,7 +2250,10 @@
       document.documentElement.dataset.offline = navigator.onLine ? '0' : '1';
     }
     paintNet();
-    window.addEventListener('online', paintNet);
+    window.addEventListener('online', () => {
+      paintNet();
+      scheduleResume(1000);
+    });
     window.addEventListener('offline', () => {
       paintNet();
       toast('Connessione assente. I messaggi ripartono quando torni online.');
@@ -2106,6 +2288,7 @@
     bind();
     renderMessages();
     renderConvList(); // su schermi larghi la barra delle chat è sempre visibile: l'elenco va compilato subito
+    setTimeout(resumeInterrupted, 1200);
     initSpeechRecognition();
     watchShares();
   }

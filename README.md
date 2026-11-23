@@ -236,6 +236,12 @@ Test end-to-end con Playwright, servizi esterni simulati (circa 1 minuto). Detta
 - `js/app-fix.js` — gestione classe `sheet-open` per bloccare lo scroll dello sfondo
 
 
+## Modelli di ripiego, schermo acceso e ripresa automatica
+- **Modelli di ripiego**: in Impostazioni c'è un elenco *in ordine* (provider + modello, con frecce ▲▼ e ✕). Se il modello scelto è occupato, ha raggiunto il limite o la connessione cade, Mia prova questi, nell'ordine, fino a 4. I modelli senza chiave vengono saltati. L'elenco è separato dai preferiti del cambio rapido: non si riempie da solo (la prima volta parte da una copia dei preferiti).
+- **Schermo acceso mentre Mia lavora** (attivo di serie): su Android con il plugin `KeepAwake`, nel browser con la funzione standard del sistema; si rilascia a lavoro finito.
+- **Ripresa automatica** (attiva di serie): se la connessione cade, dopo i 3 tentativi Mia riprende da sola (al ritorno in primo piano, quando torna la rete, o dopo pochi secondi) fino a 3 volte di seguito. Se l'app viene chiusa mentre lavora, all'apertura riprende un lavoro interrotto da meno di 15 minuti, **non** se l'hai fermato tu.
+- Limiti: se Android sospende o chiude l'app, il lavoro si ferma comunque finché non torni nell'app; non c'è un servizio in background.
+
 ## Regole del progetto (file `MIA.md`)
 Se nel repository selezionato c'è un file `MIA.md` (o, se manca, `AGENTS.md` o `CLAUDE.md`), Mia lo legge all'inizio del lavoro (prime 4000 caratteri) e lo aggiunge alle sue istruzioni. Serve per le regole di quel progetto, per esempio:
 
