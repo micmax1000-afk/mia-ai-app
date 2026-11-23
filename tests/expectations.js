@@ -219,5 +219,28 @@ module.exports = {
     /richieste OCR = 2 \(si smette dopo 2 errori\) \| messaggio = OCR NVIDIA \[HTTP 401\]/, /errore «scansione» come prima = true/,
     /predefinito → OK .*flux\.1-schnell \{"prompt":"a fox","width":1344,"height":768,"steps":4\}/, /dev → OK .*flux\.1-dev \{"prompt":"a fox","width":1344,"height":768,"steps":30\}/,
     /dev con formato rifiutato → OK .*richieste = 2 \| ultima = \{"prompt":"a fox","steps":30\}/, /arriva allo strumento = \/v1\/genai\/black-forest-labs\/flux\.1-dev/, /^ERRORS \[\]/m
+  ],
+  '27-connessione-caduta.js': [
+    /riconosciuti = true \| 401\/429 e interruzione dell'utente non lo sono = true/, /messaggio in italiano = NVIDIA: la connessione è caduta/,
+    /richieste = 3 \| nessun errore = true/, /richieste = 3 \| ⚠️ NVIDIA .*la connessione è caduta/, /richieste NVIDIA = 3 \| richieste Gemini = 1/,
+    /richieste dopo lo stop <= 2 = true/, /^ERRORS \[\]/m
+  ],
+  '28-file-lunghi-github.js': [
+    /avviso «FILE INCOMPLETO» = true \| indica il totale = true \| avverte di non riscrivere = true/, /lunghezza della risposta \(≈12000\) = true/, /blocchi = 28 \| ricostruito identico = true/,
+    /riga 4004: \{ front: "parola 3999/, /nessun risultato → Nessuna riga contiene «zzz»/, /senza avviso = true/, /al più 40000 = true/,
+    /senza conferma disponibile → RIFIUTATO .*scritture = 0/, /utente rifiuta → RIFIUTATO \| scritture = 0 \| consiglia github_edit_file = true/, /utente conferma → scritto \| scritture = 1/,
+    /riduzione −20% → scritto \| scritture = 1/, /file sotto i 2000 caratteri → scritto/, /file nuovo → scritto/,
+    /1ª domanda: Scrivi «data\.js» in mario\/flash .* mostra la lunghezza = true/, /2ª domanda: ATTENZIONE: «data\.js» passa da 329880 a 18 caratteri \(−100%\) \| avviso rosso = true/,
+    /nessuna scrittura = true \| il modello riceve il motivo = true/, /^ERRORS \[\]/m
+  ],
+  '29-solo-repository-selezionato.js': [
+    /si completano\) → OK File a\.txt .*GET \/repos\/mario\/flash\/contents\/a\.txt/, /maiuscole diverse → OK/,
+    /altro repository dello stesso utente → ERR Repository non consentito: «mario\/segreto».*richieste a GitHub = 0/, /altro proprietario → ERR Repository non consentito: «altro\/flash».*richieste a GitHub = 0/,
+    /scrittura in un altro repository → ERR .*richieste = 0/, /modifica in un altro repository → ERR .*richieste = 0/, /eliminazione in un altro repository → ERR .*richieste = 0/, /pull request di un altro repository → ERR .*richieste = 0/,
+    /repo omesso → OK File aggiornato: n\.md .*PUT \/repos\/mario\/flash\/contents\/n\.md/, /limitata a questo repository = true/, /forzata su questo = true/,
+    /elenco dei repository → OK L'agente lavora solo sul repository selezionato: mario\/flash\. \| richieste = 0/, /creazione di un repository → ERR Non consentito/,
+    /lettura → ERR Nessun repository selezionato.*richieste = 0/, /altro repository → OK File a\.txt .*richieste = 1/,
+    /nessuna domanda di conferma = true \| richieste di scrittura = 0 \| il modello riceve il motivo = true/, /il modello sa quale repository usare = true/,
+    /casella attiva di serie = true/, /salvata = true/, /^ERRORS \[\]/m
   ]
 };

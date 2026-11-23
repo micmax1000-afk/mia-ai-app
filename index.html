@@ -172,6 +172,11 @@
         </label>
         <div id="agentFields">
           <p class="hint">Usa il token GitHub qui sopra. Per crearne uno fine-grained: <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens</a>.</p>
+          <label class="field check-field">
+            <input type="checkbox" id="githubScope">
+            <span>L'agente usa GitHub solo sul repository selezionato (consigliato)</span>
+          </label>
+          <p class="hint">Il repository si sceglie nella sezione GitHub qui sopra. Con questa opzione Mia non legge, non modifica e non crea altri repository, anche se il token può accedervi. Se non è selezionato nessun repository, gli strumenti GitHub restano bloccati.</p>
           <label class="field">
             <span>Creazione di immagini</span>
             <select id="imageProvider">

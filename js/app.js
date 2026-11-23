@@ -32,6 +32,7 @@
     agentEnabled: false, // modalità agente: il modello può usare gli strumenti (GitHub, web, note, file, codice)
     githubToken: '',
     githubRepo: '',
+    githubScope: true, // l'agente usa GitHub solo sul repository selezionato (githubRepo)
     imageModel: 'gemini-2.5-flash-image', // modello Gemini per generate_image
     nvidiaImageModel: 'flux.1-schnell', // modello NVIDIA per le immagini: 'flux.1-schnell' | 'flux.1-dev'
     imageProvider: 'auto', // generate_image: 'auto' (NVIDIA FLUX, poi Gemini, poi Pollinations) | 'nvidia' | 'gemini' | 'pollinations'
@@ -830,7 +831,12 @@
     const w = Tools.connectorWeb();
     if (w.search && !names.includes('web_search')) t += ' Per cercare sul web usa lo strumento «' + w.search + '» (è l\'unico di ricerca disponibile).';
     if (w.fetch && !names.includes('read_webpage')) t += ' Per leggere una pagina web usa «' + w.fetch + '».';
-    if (login) t += ' L\'utente GitHub è «' + login + '»: usalo come proprietario (owner) quando non è specificato.';
+    if (settings.githubScope !== false) {
+      const sel = String(settings.githubRepo || '');
+      if (/^[\w.-]+\/[\w.-]+$/.test(sel))
+        t += ' GitHub: puoi lavorare SOLO sul repository «' + sel + '» (owner «' + sel.split('/')[0] + '», repo «' + sel.split('/')[1] + '»): usa sempre questi valori, gli altri repository sono bloccati. ';
+      else t += ' GitHub: nessun repository è selezionato, quindi gli strumenti GitHub sono bloccati: avvisa l\'utente di sceglierlo in Impostazioni → GitHub. ';
+    } else if (login) t += ' L\'utente GitHub è «' + login + '»: usalo come proprietario (owner) quando non è specificato.';
     else if (settings.githubToken) t += ' Il token GitHub non sembra valido: se serve GitHub, avvisa l\'utente.';
     else t += ' Non c\'è un token GitHub: gli strumenti GitHub non funzioneranno, avvisa l\'utente se li chiede.';
     return t;
@@ -853,6 +859,9 @@
       imageModel: settings.imageModel,
       imageProvider: settings.imageProvider,
       nvidiaImageModel: settings.nvidiaImageModel,
+      confirm: askConfirm,
+      repoLock: settings.githubScope !== false,
+      repoScope: settings.githubRepo,
       nvidiaKey: profile('nvidia').apiKey,
       searchProvider: settings.searchProvider,
       searchKey: settings.searchKey,
@@ -872,13 +881,19 @@
     const tool = Tools.get(tc.name);
     if (!tool) return { ok: false, content: 'Strumento sconosciuto: ' + tc.name };
     if (tc.argsError) return { ok: false, content: 'Argomenti non validi (JSON malformato): riprova.' };
+    const ctx = toolContext(ctl.signal);
+    try {
+      tc.args = Tools.applyScope(tc.name, tc.args, ctx); // completa owner/repo e rifiuta altri repository
+    } catch (e) {
+      return { ok: false, content: 'Errore: ' + ((e && e.message) || e) };
+    }
     const d = Tools.describe(tc.name, tc.args);
     if (Tools.needsConfirm(tc.name, tc.args)) {
       const yes = await askConfirm(d);
       if (!yes) return { ok: false, denied: true, content: 'L\'utente ha rifiutato questa azione. Non riprovare: chiedi cosa preferisce.' };
     }
     try {
-      const out = await Tools.run(tc.name, tc.args, toolContext(ctl.signal));
+      const out = await Tools.run(tc.name, tc.args, ctx);
       return { ok: true, content: out.text, files: out.files };
     } catch (e) {
       if (e && e.name === 'AbortError') return { ok: false, content: 'Interrotto dall\'utente.' };
@@ -1008,6 +1023,21 @@
         attempts.forEach((a) => (a.systemPrompt = (a.systemPrompt || '') + '\n\n' + extra));
       }
 
+      // connessione caduta (rete mobile, schermo spento…): fino a 2 nuovi tentativi con lo stesso modello prima di cambiare
+      const chatWithRetry = async (...args) => {
+        for (let retry = 0; ; retry++) {
+          try {
+            return await P.chat(...args);
+          } catch (err) {
+            if (retry >= 2 || ctl.signal.aborted || !P.isConnectionError(err)) throw err;
+            partial = '';
+            toast('Connessione interrotta: riprovo (' + (retry + 1) + '/2)…');
+            await new Promise((r) => setTimeout(r, 1500 * (retry + 1)));
+            if (ctl.signal.aborted) throw err;
+          }
+        }
+      };
+
       const STEPS = maxSteps();
       for (let step = 0; step < STEPS; step++) {
         const history = buildHistory(c);
@@ -1017,7 +1047,7 @@
           const a = attempts[i];
           tag = modelLabel(a.provider, a.model);
           try {
-            result = await P.chat(
+            result = await chatWithRetry(
               a,
               history,
               (full) => {
@@ -1035,8 +1065,8 @@
             addFavorite(a.provider, a.model);
           } catch (err) {
             const next = attempts[i + 1];
-            if (!next || partial || !P.isBusyError(err)) throw err;
-            toast(a.model + ' è occupato: provo ' + next.model);
+            if (!next || partial || !(P.isBusyError(err) || P.isConnectionError(err))) throw err;
+            toast(a.model + (P.isConnectionError(err) ? ': connessione caduta, provo ' : ' è occupato: provo ') + next.model);
           }
         }
         const usedFallback = tag !== modelLabel(cfg.provider, cfg.model);
@@ -1384,6 +1414,7 @@
     $('#agentFields').hidden = !settings.agentEnabled;
     $('#imageModel').value = settings.imageModel || '';
     $('#imageProvider').value = settings.imageProvider || 'auto';
+    $('#githubScope').checked = settings.githubScope !== false;
     $('#nvidiaImageModel').value = settings.nvidiaImageModel || 'flux.1-schnell';
     $('#searchProvider').value = settings.searchProvider == null ? 'gemini' : settings.searchProvider;
     syncSearchFields();
@@ -1430,6 +1461,7 @@
     settings.agentEnabled = $('#agentEnabled').checked;
     settings.imageModel = $('#imageModel').value.trim() || DEFAULT_SETTINGS.imageModel;
     settings.imageProvider = $('#imageProvider').value || 'auto';
+    settings.githubScope = $('#githubScope').checked;
     settings.nvidiaImageModel = $('#nvidiaImageModel').value || 'flux.1-schnell';
     settings.searchProvider = $('#searchProvider').value;
     settings.searchKey = $('#searchKey').value.trim();
