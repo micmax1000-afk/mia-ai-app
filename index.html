@@ -176,6 +176,15 @@
             <input type="checkbox" id="githubScope">
             <span>L'agente usa GitHub solo sul repository selezionato (consigliato)</span>
           </label>
+          <label class="field check-field">
+            <input type="checkbox" id="githubUseBranch">
+            <span>Le modifiche dell'agente vanno su un branch di lavoro (consigliato)</span>
+          </label>
+          <label class="field">
+            <span>Nome del branch di lavoro</span>
+            <input id="githubWorkBranch" spellcheck="false" autocapitalize="off" placeholder="mia-lavoro">
+          </label>
+          <p class="hint">Mia non scrive mai sul branch principale: crea da sola il branch di lavoro e ci mette le modifiche. Tu controlli su GitHub e unisci con una pull request. Se il branch non ha modifiche proprie, viene riallineato al principale da solo.</p>
           <p class="hint">Il repository si sceglie nella sezione GitHub qui sopra. Con questa opzione Mia non legge, non modifica e non crea altri repository, anche se il token può accedervi. Se non è selezionato nessun repository, gli strumenti GitHub restano bloccati.</p>
           <label class="field">
             <span>Creazione di immagini</span>

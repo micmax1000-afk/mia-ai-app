@@ -49,6 +49,7 @@ Serve Node 18 o più recente. Il runner prepara da solo la cartella `www/` (`scr
 | 22 | Mia Bridge: token, strumenti, percorsi fuori cartella, timeout, sola lettura |
 | 23 | PDF: testo estratto per i modelli senza lettura nativa, Gemini/OpenRouter, scansioni, 120 pagine, file rotto |
 | 24 | ricerca nelle chat e nelle note, Memoria (impostazioni e strumento) |
+| 30 | branch di lavoro, controllo della sintassi prima di salvare, righe mostrate dopo la modifica, conferma rossa per molte righe cancellate |
 | 29 | l'agente usa GitHub solo sul repository selezionato (lettura, scrittura, ricerca, elenco, creazione) |
 | 28 | file lunghi su GitHub: lettura a blocchi, «find», avviso «FILE INCOMPLETO», seconda conferma se un file si riduce di molto |
 | 27 | connessione caduta: nuovi tentativi, messaggio chiaro, ripiego su un altro modello, stop dell'utente |

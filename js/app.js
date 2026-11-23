@@ -32,6 +32,8 @@
     agentEnabled: false, // modalità agente: il modello può usare gli strumenti (GitHub, web, note, file, codice)
     githubToken: '',
     githubRepo: '',
+    githubUseBranch: true, // le modifiche dell'agente vanno su un branch di lavoro, mai sul principale
+    githubWorkBranch: 'mia-lavoro',
     githubScope: true, // l'agente usa GitHub solo sul repository selezionato (githubRepo)
     imageModel: 'gemini-2.5-flash-image', // modello Gemini per generate_image
     nvidiaImageModel: 'flux.1-schnell', // modello NVIDIA per le immagini: 'flux.1-schnell' | 'flux.1-dev'
@@ -85,6 +87,13 @@
   }
 
   /** Config per la chiamata: provider/modello attivi, oppure quelli di `pick` ({provider, model}). */
+  /** Branch su cui l'agente scrive (vuoto = branch principale, come prima). */
+  function workBranch() {
+    if (settings.githubUseBranch === false) return '';
+    const b = String(settings.githubWorkBranch || '').trim();
+    return /^[\w./-]+$/.test(b) && !/^(main|master)$/i.test(b) ? b : 'mia-lavoro';
+  }
+
   /** Testo della «Memoria» da aggiungere alle istruzioni di sistema (vuoto se non c'è nulla). */
   function memoryPrompt() {
     const m = String(settings.memory || '').trim();
@@ -836,8 +845,14 @@
       if (/^[\w.-]+\/[\w.-]+$/.test(sel))
         t += ' GitHub: puoi lavorare SOLO sul repository «' + sel + '» (owner «' + sel.split('/')[0] + '», repo «' + sel.split('/')[1] + '»): usa sempre questi valori, gli altri repository sono bloccati. ';
       else t += ' GitHub: nessun repository è selezionato, quindi gli strumenti GitHub sono bloccati: avvisa l\'utente di sceglierlo in Impostazioni → GitHub. ';
-    } else if (login) t += ' L\'utente GitHub è «' + login + '»: usalo come proprietario (owner) quando non è specificato.';
-    else if (settings.githubToken) t += ' Il token GitHub non sembra valido: se serve GitHub, avvisa l\'utente.';
+    }
+    if (workBranch())
+      t += ' Le modifiche ai file GitHub vanno sul branch di lavoro «' + workBranch() + '» (lo sceglie l\'app, non indicare altri branch per scrivere): il branch principale non si tocca. ' +
+        'Le letture partono da quel branch. Quando il lavoro è finito puoi proporre una pull request da «' + workBranch() + '» al branch principale; l\'utente controlla e decide se unirla. ' +
+        'Dopo ogni modifica leggi le righe mostrate nell\'esito e controlla che il risultato sia giusto. ';
+    if (login) {
+      if (settings.githubScope === false) t += ' L\'utente GitHub è «' + login + '»: usalo come proprietario (owner) quando non è specificato.';
+    } else if (settings.githubToken) t += ' Il token GitHub non sembra valido: se serve GitHub, avvisa l\'utente.';
     else t += ' Non c\'è un token GitHub: gli strumenti GitHub non funzioneranno, avvisa l\'utente se li chiede.';
     return t;
   }
@@ -862,6 +877,7 @@
       confirm: askConfirm,
       repoLock: settings.githubScope !== false,
       repoScope: settings.githubRepo,
+      workBranch: workBranch(),
       nvidiaKey: profile('nvidia').apiKey,
       searchProvider: settings.searchProvider,
       searchKey: settings.searchKey,
@@ -883,7 +899,7 @@
     if (tc.argsError) return { ok: false, content: 'Argomenti non validi (JSON malformato): riprova.' };
     const ctx = toolContext(ctl.signal);
     try {
-      tc.args = Tools.applyScope(tc.name, tc.args, ctx); // completa owner/repo e rifiuta altri repository
+      tc.args = Tools.applyBranch(tc.name, Tools.applyScope(tc.name, tc.args, ctx), ctx); // owner/repo, altri repository rifiutati, branch di lavoro
     } catch (e) {
       return { ok: false, content: 'Errore: ' + ((e && e.message) || e) };
     }
@@ -1415,6 +1431,8 @@
     $('#imageModel').value = settings.imageModel || '';
     $('#imageProvider').value = settings.imageProvider || 'auto';
     $('#githubScope').checked = settings.githubScope !== false;
+    $('#githubUseBranch').checked = settings.githubUseBranch !== false;
+    $('#githubWorkBranch').value = settings.githubWorkBranch || 'mia-lavoro';
     $('#nvidiaImageModel').value = settings.nvidiaImageModel || 'flux.1-schnell';
     $('#searchProvider').value = settings.searchProvider == null ? 'gemini' : settings.searchProvider;
     syncSearchFields();
@@ -1462,6 +1480,8 @@
     settings.imageModel = $('#imageModel').value.trim() || DEFAULT_SETTINGS.imageModel;
     settings.imageProvider = $('#imageProvider').value || 'auto';
     settings.githubScope = $('#githubScope').checked;
+    settings.githubUseBranch = $('#githubUseBranch').checked;
+    settings.githubWorkBranch = $('#githubWorkBranch').value.trim() || 'mia-lavoro';
     settings.nvidiaImageModel = $('#nvidiaImageModel').value || 'flux.1-schnell';
     settings.searchProvider = $('#searchProvider').value;
     settings.searchKey = $('#searchKey').value.trim();
