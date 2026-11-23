@@ -33,7 +33,7 @@
   // ─── Limite al repository selezionato ─────────────────────
   // Con ctx.repoLock l'agente può usare GitHub SOLO sul repository scelto nelle Impostazioni (ctx.repoScope = «proprietario/nome»):
   // owner/repo omessi si completano, un altro repository viene rifiutato, la ricerca nel codice è sempre limitata a quel repository.
-  const REPO_SCOPED = ['github_read_file', 'github_write_file', 'github_delete_file', 'github_create_branch', 'github_list_branches_commits', 'github_issues', 'github_pull_requests', 'github_actions', 'github_edit_file', 'github_delete_lines'];
+  const REPO_SCOPED = ['github_read_file', 'github_write_file', 'github_delete_file', 'github_create_branch', 'github_list_branches_commits', 'github_issues', 'github_pull_requests', 'github_actions', 'github_edit_file', 'github_delete_lines', 'github_compare'];
   function applyScope(name, args, ctx) {
     if (!ctx || !ctx.repoLock || !/^github_/.test(name)) return args;
     const sel = str(ctx.repoScope).trim();
@@ -86,6 +86,79 @@
         await gh(ctx, base + '/git/refs/heads/' + encPath(branch), { method: 'PATCH', body: { sha: mainRef.object.sha, force: false } });
     }
     branchReady[key] = true;
+  }
+
+  // ─── Leggere prima di scrivere ─────────────────────────────
+  // ctx.readGuard attiva il controllo; ctx.readState = { read:Set, full:Set } (chiavi «owner/repo/path» in minuscolo) viene ricavato dall'app
+  // dalla cronologia della chat: read = file letto (anche solo in parte o con find) o creato/modificato dal modello, full = letto per intero.
+  const fileKey = (a) => (str(a.owner) + '/' + str(a.repo) + '/' + encPath(a.path)).toLowerCase();
+  function needRead(ctx, args, full, what) {
+    if (!ctx || !ctx.readGuard || !ctx.readState) return;
+    const key = fileKey(args);
+    if (full ? ctx.readState.full.has(key) : ctx.readState.read.has(key)) return;
+    throw new Error(
+      full
+        ? 'Non ho scritto nulla: «' + str(args.path) + '» esiste già e in questa chat non l\'hai letto per intero (la lettura può essere parziale). Non sostituire il file intero: leggilo con github_read_file e cambia solo le parti necessarie con github_edit_file (o github_delete_lines).'
+        : 'Non ho ' + what + ' nulla: in questa chat non hai ancora letto «' + str(args.path) + '». Leggilo prima con github_read_file (o cerca con «find» la parte da cambiare), poi riprova.'
+    );
+  }
+
+  // ─── Regole sul contenuto: «quante volte compare un testo» ─
+  const MUST_COUNT = {
+    type: 'array',
+    description:
+      'Regole da rispettare (consigliate per i file di dati): dopo l\'operazione ogni «text» deve comparire «equals» volte nel file, oppure variare di «change» rispetto a prima. Se una regola non è rispettata non si salva nulla. Esempio: [{"text":"front:","equals":4012}].',
+    items: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'Testo da contare (per esempio «front:»).' },
+        equals: { type: 'integer', description: 'Numero esatto di occorrenze dopo l\'operazione.' },
+        change: { type: 'integer', description: 'Variazione rispetto a prima (per esempio -1003).' }
+      },
+      required: ['text']
+    }
+  };
+  const countOcc = (t, s) => (s ? str(t).split(s).length - 1 : 0);
+  function checkMustCount(rules, before, after, path) {
+    if (!Array.isArray(rules) || !rules.length) return;
+    rules.forEach((r, i) => {
+      const text = str(r && r.text);
+      if (!text) throw new Error('Regola ' + (i + 1) + ': «text» è vuoto.');
+      const hasEq = r.equals != null && r.equals !== '';
+      const hasCh = r.change != null && r.change !== '';
+      if (!hasEq && !hasCh) throw new Error('Regola ' + (i + 1) + ' («' + text + '»): serve «equals» oppure «change».');
+      const b = countOcc(before, text);
+      const a = countOcc(after, text);
+      const bad = hasEq ? a !== Number(r.equals) : a - b !== Number(r.change);
+      if (bad)
+        throw new Error(
+          'Modifica NON salvata: la regola su «' + oneLine(text, 40) + '» non è rispettata (' + str(path) + '): prima compariva ' + b + ' volte, dopo ' + a + ' volte, ' +
+            (hasEq ? 'attese ' + Number(r.equals) : 'attesa una variazione di ' + Number(r.change) + ' (è ' + (a - b) + ')') + '. Il file su GitHub non è cambiato. Controlla cosa stai cambiando.'
+        );
+    });
+  }
+
+  // ─── Regole del progetto (file nel repository) ─────────────
+  const rulesCache = {};
+  /** Legge MIA.md (o AGENTS.md, CLAUDE.md) dal branch principale del repository: regole che valgono per quel progetto. Restituisce { name, text } o null. */
+  async function projectRules(ctx, sel) {
+    if (!/^[\w.-]+\/[\w.-]+$/.test(str(sel)) || !ctx.token) return null;
+    const hit = rulesCache[sel];
+    if (hit && Date.now() - hit.t < 300000) return hit.v;
+    let v = null;
+    for (const name of ['MIA.md', 'AGENTS.md', 'CLAUDE.md']) {
+      try {
+        const d = await gh(ctx, '/repos/' + sel + '/contents/' + name, { allow404: true });
+        if (d && d.content && !Array.isArray(d)) {
+          v = { name, text: clip(base64ToUtf8(d.content), 4000) };
+          break;
+        }
+      } catch (_) {
+        break; // niente token valido o rete: nessuna regola, il lavoro continua
+      }
+    }
+    rulesCache[sel] = { t: Date.now(), v };
+    return v;
   }
 
   // ─── Controllo della sintassi (js/json) prima di salvare ──
@@ -372,6 +445,7 @@
       properties: Object.assign({}, REPO_PROPS, {
         path: { type: 'string', description: 'Percorso del file, es. «docs/guida.md».' },
         content: { type: 'string', description: 'Contenuto COMPLETO del file.' },
+        must_count: MUST_COUNT,
         message: { type: 'string', description: 'Messaggio del commit.' },
         branch: { type: 'string', description: 'Branch di destinazione (facoltativo, predefinito: branch principale).' }
       }),
@@ -395,6 +469,8 @@
           oldText = base64ToUtf8(existing.content);
         } catch (_) {}
       }
+      if (existing && existing.sha) needRead(ctx, Object.assign({}, args, { path }), true);
+      checkMustCount(args.must_count, oldText || '', args.content, path);
       const note = checkSyntaxOrThrow(path, oldText, args.content);
       // protezione: un file esistente che si riduce di molto di solito è una riscrittura parziale (il modello ha letto solo l'inizio):
       // si chiede all'utente una seconda conferma, con le dimensioni, e senza conferma non si scrive.
@@ -1647,11 +1723,11 @@
   def('github_actions', {
     description:
       'GitHub Actions (test e build): «list_runs» (ultime esecuzioni), «read_run» (esito dei job, passaggi falliti e log degli errori), ' +
-      '«run_workflow» (avvia un workflow su un branch), «rerun_failed» (rilancia i job falliti).',
+      '«run_workflow» (avvia un workflow su un branch), «rerun_failed» (rilancia i job falliti), «branch_status» (esito dei test e dei build sull\'ultimo commit di un branch: di serie il branch di lavoro; usalo a fine lavoro prima di proporre la pull request).',
     parameters: {
       type: 'object',
       properties: Object.assign({}, REPO_PROPS, {
-        action: { type: 'string', enum: ['list_runs', 'read_run', 'run_workflow', 'rerun_failed'], description: 'Azione da eseguire.' },
+        action: { type: 'string', enum: ['list_runs', 'read_run', 'run_workflow', 'rerun_failed', 'branch_status'], description: 'Azione da eseguire.' },
         run_id: { type: 'integer', description: 'ID dell\'esecuzione (per read_run e rerun_failed; si ottiene da list_runs).' },
         workflow: { type: 'string', description: 'Nome del file del workflow, es. «build-apk.yml» (per run_workflow).' },
         ref: { type: 'string', description: 'Branch su cui avviare il workflow, o filtro per list_runs.' }
@@ -1664,6 +1740,7 @@
       if (a.action === 'run_workflow') return 'Avvia il workflow «' + str(a.workflow) + '» su ' + (str(a.ref) || 'branch principale') + ' in ' + r;
       if (a.action === 'rerun_failed') return 'Rilancia i job falliti dell\'esecuzione ' + str(a.run_id) + ' in ' + r;
       if (a.action === 'read_run') return 'Leggi l\'esecuzione ' + str(a.run_id) + ' di ' + r;
+      if (a.action === 'branch_status') return 'Controlla i test del branch ' + (str(a.ref) || 'di lavoro') + ' in ' + r;
       return 'Elenca le esecuzioni di Actions in ' + r;
     },
     async run(args, ctx) {
@@ -1676,6 +1753,22 @@
         return d.workflow_runs
           .map((r) => r.id + ' · ' + r.name + ' · ' + r.head_branch + ' · ' + (r.status === 'completed' ? r.conclusion : r.status) + ' · ' + r.created_at.slice(0, 16).replace('T', ' ') + ' · ' + short(r.head_sha))
           .join('\n');
+      }
+      if (action === 'branch_status') {
+        let br = str(args.ref).trim() || str(ctx.workBranch).trim();
+        if (!br) br = (await gh(ctx, base)).default_branch;
+        const ref = await gh(ctx, base + '/git/ref/heads/' + encPath(br), { allow404: true });
+        if (!ref) return 'Il branch «' + br + '» non esiste ancora (nessuna modifica è stata fatta).';
+        const sha = ref.object.sha;
+        const d = await gh(ctx, base + '/actions/runs?head_sha=' + sha + '&per_page=20');
+        const runs = d.workflow_runs || [];
+        if (!runs.length)
+          return 'Branch «' + br + '», commit ' + short(sha) + ': nessun test o build risulta avviato per questo commit. Se il repository ha dei workflow potrebbero non partire sui branch (controlla i trigger) oppure essere ancora in coda: riprova tra poco. Non dire che i test sono passati.';
+        const line = (r) => '  ' + r.name + ' · ' + (r.status === 'completed' ? r.conclusion : r.status) + ' · id ' + r.id;
+        const running = runs.filter((r) => r.status !== 'completed');
+        const failed = runs.filter((r) => r.status === 'completed' && !['success', 'skipped', 'neutral'].includes(r.conclusion));
+        const verdict = running.length ? 'ANCORA IN CORSO: aspetta e riprova prima di dire il risultato.' : failed.length ? 'FALLITI: leggi gli errori con read_run e correggi, oppure dillo all\'utente.' : 'Tutti passati.';
+        return 'Branch «' + br + '», commit ' + short(sha) + ': ' + verdict + '\n' + runs.map(line).join('\n');
       }
       if (action === 'run_workflow') {
         const wf = need(args, 'workflow');
@@ -1716,7 +1809,7 @@
         }
         return clip(out);
       }
-      throw new Error('Azione non valida: usa list_runs, read_run, run_workflow o rerun_failed.');
+      throw new Error('Azione non valida: usa list_runs, read_run, run_workflow, rerun_failed o branch_status.');
     }
   });
 
@@ -2023,6 +2116,59 @@
 
   // ─── Modifica precisa di un file GitHub ────────────────────
   // 22 — github_edit_file
+  // Confronto tra due branch (o di un file tra due branch): solo lettura. Serve a controllare il lavoro: file cambiati, righe, conteggi.
+  def('github_compare', {
+    description:
+      'Confronta (sola lettura) il branch di lavoro con il principale. Senza «path» elenca i file cambiati (con righe aggiunte e tolte); con «path» confronta quel file nei due branch (righe, caratteri) e conta quante volte compaiono i testi indicati in «count» (per esempio «front:» per contare le carte). ' +
+      'Usalo alla fine di un lavoro per controllare che i numeri siano quelli attesi.',
+    parameters: {
+      type: 'object',
+      properties: Object.assign({}, REPO_PROPS, {
+        path: { type: 'string', description: 'File da confrontare (facoltativo: senza, si elencano i file cambiati).' },
+        base: { type: 'string', description: 'Branch di riferimento (facoltativo, predefinito: principale).' },
+        head: { type: 'string', description: 'Branch da controllare (facoltativo, predefinito: branch di lavoro).' },
+        count: { type: 'array', items: { type: 'string' }, description: 'Testi da contare nel file nei due branch (con path).' }
+      }),
+      required: ['owner', 'repo']
+    },
+    title: (a) => 'Confronta ' + (str(a.path) ? '«' + str(a.path) + '»' : 'i branch') + ' in ' + str(a.owner) + '/' + str(a.repo),
+    async run(args, ctx) {
+      const { base: api } = repoArgs(args);
+      const repo = await gh(ctx, api);
+      const baseB = str(args.base).trim() || repo.default_branch;
+      const headB = str(args.head).trim() || str(ctx.workBranch).trim() || repo.default_branch;
+      if (baseB === headB) return 'Base e head sono lo stesso branch («' + baseB + '»): non c\'è niente da confrontare.';
+      if (!str(args.path).trim()) {
+        const d = await gh(ctx, api + '/compare/' + encodeURIComponent(baseB) + '...' + encodeURIComponent(headB), { allow404: true });
+        if (!d) return 'Il branch «' + headB + '» non esiste ancora (nessuna modifica è stata fatta).';
+        const files = d.files || [];
+        if (!files.length) return 'Nessuna differenza tra «' + baseB + '» e «' + headB + '» (' + (d.ahead_by || 0) + ' commit avanti, ' + (d.behind_by || 0) + ' indietro).';
+        const add = files.reduce((s, f) => s + (f.additions || 0), 0);
+        const del = files.reduce((s, f) => s + (f.deletions || 0), 0);
+        return (
+          '«' + headB + '» rispetto a «' + baseB + '»: ' + (d.ahead_by || 0) + ' commit avanti, ' + (d.behind_by || 0) + ' indietro; ' + files.length + ' file cambiati (+' + add + ' −' + del + ' righe)\n' +
+          files.slice(0, 60).map((f) => '  ' + f.status + ' ' + f.filename + ' (+' + (f.additions || 0) + ' −' + (f.deletions || 0) + ')').join('\n') + (files.length > 60 ? '\n  […altri ' + (files.length - 60) + ' file…]' : '')
+        );
+      }
+      const path = need(args, 'path');
+      const get = async (ref) => {
+        const f = await gh(ctx, api + '/contents/' + encPath(path) + '?ref=' + encodeURIComponent(ref), { allow404: true });
+        if (!f || Array.isArray(f) || !f.content) return null;
+        return base64ToUtf8(f.content);
+      };
+      const [a, b] = [await get(baseB), await get(headB)];
+      if (a == null && b == null) return '«' + path + '» non esiste né in «' + baseB + '» né in «' + headB + '» (o è troppo grande per essere letto).';
+      const stat = (t) => (t == null ? 'non esiste' : lineCount(t) + ' righe, ' + t.length + ' caratteri');
+      let out = '«' + path + '»\n  ' + baseB + ': ' + stat(a) + '\n  ' + headB + ': ' + stat(b);
+      if (a != null && b != null) out += '\n  differenza: ' + (lineCount(b) - lineCount(a) >= 0 ? '+' : '') + (lineCount(b) - lineCount(a)) + ' righe, ' + (b.length - a.length >= 0 ? '+' : '') + (b.length - a.length) + ' caratteri' + (a === b ? ' (file identico)' : '');
+      (Array.isArray(args.count) ? args.count : []).slice(0, 10).forEach((t) => {
+        const x = str(t);
+        if (x) out += '\n  «' + oneLine(x, 40) + '» compare: ' + baseB + ' ' + (a == null ? '—' : countOcc(a, x)) + ' volte → ' + headB + ' ' + (b == null ? '—' : countOcc(b, x)) + ' volte';
+      });
+      return out;
+    }
+  });
+
   // Cancella un intervallo di righe (per togliere blocchi lunghi, come un mazzo di carte, senza far riscrivere al modello centinaia di righe).
   // Protezioni: servono il testo atteso della prima e dell'ultima riga (letti prima con find/start), con «dry_run» si vedono i bordi
   // dell'intervallo senza scrivere, il controllo della sintassi vale come per le altre modifiche, e dal 20 righe in su la conferma è rossa.
@@ -2043,6 +2189,7 @@
         expect_first: { type: 'string', description: 'Testo che deve comparire nella riga from_line (copialo da github_read_file).' },
         expect_last: { type: 'string', description: 'Testo che deve comparire nella riga to_line.' },
         dry_run: { type: 'boolean', description: 'Se true non scrive nulla: mostra solo le righe ai bordi dell\'intervallo.' },
+        must_count: MUST_COUNT,
         message: { type: 'string', description: 'Messaggio del commit (non serve con dry_run).' },
         branch: { type: 'string', description: 'Branch (facoltativo).' }
       }),
@@ -2065,6 +2212,7 @@
       const efirst = need(args, 'expect_first');
       const elast = need(args, 'expect_last');
       const dry = !!args.dry_run;
+      if (!dry) needRead(ctx, args, false, 'cancellato');
       const message = dry ? '' : need(args, 'message');
       if (!dry && ctx.workBranch && args.branch === ctx.workBranch) await ensureWorkBranch(ctx, base, args.branch);
       let file = await gh(ctx, base + '/contents/' + encPath(path) + (args.branch ? '?ref=' + encodeURIComponent(args.branch) : ''), { allow404: dry && !!args.branch });
@@ -2088,6 +2236,7 @@
       const n = to - from + 1;
       if (dry) return 'Controllo riuscito: le righe ' + from + '–' + to + ' (' + n + ' righe) corrispondono a quanto atteso. Il file ha ' + lines.length + ' righe. Non ho scritto nulla.\n' + borders;
       const next = lines.slice(0, from - 1).concat(lines.slice(to)).join('\n');
+      checkMustCount(args.must_count, original, next, path);
       const note = checkSyntaxOrThrow(path, original, next);
       const body = { message, content: utf8ToBase64(next), sha: file.sha };
       if (args.branch) body.branch = args.branch;
@@ -2140,6 +2289,7 @@
             required: ['old_text', 'new_text']
           }
         },
+        must_count: MUST_COUNT,
         message: { type: 'string', description: 'Messaggio del commit.' },
         branch: { type: 'string', description: 'Branch (facoltativo, predefinito: branch principale).' }
       }),
@@ -2158,6 +2308,7 @@
       const message = need(args, 'message');
       const edits = Array.isArray(args.edits) ? args.edits : [];
       if (!edits.length) throw new Error('Nessuna modifica: «edits» è vuoto.');
+      needRead(ctx, args, false, 'modificato');
       if (ctx.workBranch && args.branch === ctx.workBranch) await ensureWorkBranch(ctx, base, args.branch);
       const refQ = args.branch ? '?ref=' + encodeURIComponent(args.branch) : '';
       const url = base + '/contents/' + encPath(path);
@@ -2187,6 +2338,7 @@
         spots.push({ at, len: newT.length });
       });
       if (text === original) throw new Error('Le sostituzioni non cambiano il file.');
+      checkMustCount(args.must_count, original, text, path);
       const note = checkSyntaxOrThrow(path, original, text);
       const body = { message, content: utf8ToBase64(text), sha: file.sha };
       if (args.branch) body.branch = args.branch;
@@ -2566,5 +2718,5 @@
     return { text: clip(out, max), files: [] };
   }
 
-  global.MiaTools = { applyScope, applyBranch, syntaxError, ocrImages, definitions, connectorWeb, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
+  global.MiaTools = { projectRules, applyScope, applyBranch, syntaxError, ocrImages, definitions, connectorWeb, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
 })(window);

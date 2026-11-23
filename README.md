@@ -72,8 +72,11 @@ In **Impostazioni → Modalità agente** Mia può usare 24 strumenti (più quell
 | `read_webpage` | legge il testo di una pagina web | no |
 | `notes` | note salvate sul telefono (salva, elenca, leggi, elimina, **cerca**) | solo elimina |
 | *(limite)* | Con «L'agente usa GitHub solo sul repository selezionato» (attivo di serie) tutti gli strumenti GitHub lavorano **solo** sul repository scelto in Impostazioni → GitHub: gli altri sono rifiutati, non si possono creare repository e senza repository selezionato GitHub resta bloccato. Non vale per i connettori MCP | — |
+| *(sicurezza)* | **Leggere prima di modificare** (attivo di serie): Mia può modificare o cancellare righe solo di file che ha letto in quella chat, e sostituire un file intero solo se l'ha letto per intero. **Regole sul contenuto** (`must_count`): per esempio «dopo la modifica `front:` deve comparire 4012 volte», altrimenti non si salva. |  — |
 | *(sicurezza)* | **Branch di lavoro** (attivo di serie, `mia-lavoro`): l'agente scrive solo lì, mai sul branch principale; tu controlli e unisci con una PR. **Controllo della sintassi** dei file `.js`/`.json` prima di salvare: se la modifica romperebbe un file valido non viene salvata. Dopo ogni modifica il modello riceve le righe cambiate per controllarle. La conferma mostra quante righe si tolgono e diventa rossa se se ne cancellano 20 o più | — |
 | `github_delete_lines` | cancella un intervallo di righe di un file GitHub (da N a M) per togliere blocchi lunghi: prima anteprima (`dry_run`), il testo della prima e dell'ultima riga deve corrispondere, controllo della sintassi, conferma rossa da 20 righe | sì |
+| `github_compare` | confronta il branch di lavoro con il principale: file cambiati, righe, e quante volte compare un testo (per contare le carte) | no |
+| `github_actions` · `branch_status` | esito dei test e dei build sull'ultimo commit del branch di lavoro (nessun workflow, in corso, falliti, passati) | no |
 | `search_chats` | cerca nelle conversazioni salvate (titoli, messaggi, nomi degli allegati) | no |
 | `memory` | Memoria personale: aggiunge, elenca, toglie fatti da ricordare | aggiungi e togli |
 | `github_edit_file` | modifica un file con «trova e sostituisci» esatto (non lo riscrive per intero), con commit | **sì** |
@@ -231,3 +234,16 @@ Test end-to-end con Playwright, servizi esterni simulati (circa 1 minuto). Detta
 - `js/markdown.js` — renderer Markdown sicuro (tutto l'HTML viene escapato)
 - `js/app.js` — conversazioni, impostazioni, UI
 - `js/app-fix.js` — gestione classe `sheet-open` per bloccare lo scroll dello sfondo
+
+
+## Regole del progetto (file `MIA.md`)
+Se nel repository selezionato c'è un file `MIA.md` (o, se manca, `AGENTS.md` o `CLAUDE.md`), Mia lo legge all'inizio del lavoro (prime 4000 caratteri) e lo aggiunge alle sue istruzioni. Serve per le regole di quel progetto, per esempio:
+
+```
+# Regole del progetto
+- I mazzi sono 4 (en, es, fr, de), 1003 carte ciascuno: non cambiare i numeri.
+- Quando sposti i dati copiali esattamente, senza correggere le traduzioni.
+- Se cambi i file in data/ aggiorna anche sw.js.
+- Test: il workflow «Test» deve passare prima della pull request.
+```
+Le regole del progetto non cambiano le protezioni dell'app (repository selezionato, branch di lavoro, conferme). Si legge il file dal branch principale; serve il token con accesso al repository.

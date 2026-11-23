@@ -80,7 +80,7 @@ reset();
   console.log('— conferme dall\'app');
   const gem=[]; let script=[];
   await ctx.route('https://generativelanguage.googleapis.com/**', async route => { const q=route.request(); if(q.method()==='OPTIONS') return route.fulfill({status:204,headers:cors}); gem.push(q.postData()); const parts=script.shift()||[{text:'Fine.'}]; route.fulfill({status:200,headers:{...cors,'content-type':'text/event-stream'},body:'data: '+JSON.stringify({candidates:[{content:{parts}}]})+'\n\n'}); });
-  await page.evaluate(()=>localStorage.setItem('miaai_v1_settings',JSON.stringify({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.5-flash',baseUrl:'https://generativelanguage.googleapis.com/v1beta'}},agentEnabled:true,githubToken:'tok',githubRepo:'mario/flash',autoFallback:false,favorites:[],theme:'dark',systemPrompt:'x',temperature:0.7})));
+  await page.evaluate(()=>localStorage.setItem('miaai_v1_settings',JSON.stringify({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.5-flash',baseUrl:'https://generativelanguage.googleapis.com/v1beta'}},agentEnabled:true,githubToken:'tok',githubRepo:'mario/flash',githubReadFirst:false,autoFallback:false,favorites:[],theme:'dark',systemPrompt:'x',temperature:0.7})));
   await page.reload(); await page.waitForSelector('#input'); reset();
   script=[[{functionCall:{name:'github_edit_file',args:{path:'data.js',message:'togli de',edits:[{old_text:deBlock,new_text:''}]}}}],[{text:'Fine.'}]];
   await page.fill('#input','togli il tedesco'); await page.click('#sendBtn'); await page.waitForSelector('#confirm:not([hidden])');
