@@ -131,6 +131,27 @@
         <span>Se il modello è occupato, prova gli altri dell'elenco</span>
       </label>
 
+      <div class="field" id="fallbackBox">
+        <span>Modelli di ripiego (in ordine)</span>
+        <ol class="fallback-list" id="fallbackList"></ol>
+        <div class="fb-add">
+          <select id="fbProvider" aria-label="Provider"></select>
+          <input id="fbModel" list="fbModels" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="nome del modello" aria-label="Nome del modello">
+          <datalist id="fbModels"></datalist>
+          <button type="button" class="btn ghost" id="fbAdd">Aggiungi</button>
+        </div>
+        <small class="hint">Quando il modello scelto è occupato, ha raggiunto il limite o la connessione cade, Mia prova questi in ordine (al massimo 4). Con le frecce cambi l'ordine; i modelli senza chiave vengono saltati. Questo elenco è separato dai preferiti del cambio rapido.</small>
+      </div>
+
+      <label class="field check-field">
+        <input type="checkbox" id="keepAwake">
+        <span>Tieni lo schermo acceso mentre Mia lavora</span>
+      </label>
+      <label class="field check-field">
+        <input type="checkbox" id="autoResume">
+        <span>Riprendi da sola un lavoro interrotto (connessione caduta o app chiusa)</span>
+      </label>
+
       <label class="field">
         <span>Tema</span>
         <select id="theme">

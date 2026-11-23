@@ -498,3 +498,11 @@ html[data-offline='1'] .net-dot {
 
 .conv-list .open-conv small.conv-snippet { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #convSearch { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border, rgba(128,128,128,.35)); background: transparent; color: inherit; font: inherit; font-size: 14px; }
+
+.fallback-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.fallback-list .fb-item { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--border, rgba(128,128,128,.35)); border-radius: 10px; }
+.fallback-list .fb-name { flex: 1; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.fallback-list .fb-btn { background: transparent; border: 0; color: inherit; font-size: 15px; padding: 4px 8px; border-radius: 8px; cursor: pointer; }
+.fallback-list .fb-btn:disabled { opacity: .3; cursor: default; }
+.fb-add { display: flex; gap: 6px; flex-wrap: wrap; }
+.fb-add select, .fb-add input { flex: 1 1 140px; min-width: 0; padding: 8px; border-radius: 10px; border: 1px solid var(--border, rgba(128,128,128,.35)); background: transparent; color: inherit; font: inherit; font-size: 14px; }
