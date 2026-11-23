@@ -270,5 +270,19 @@ module.exports = {
     /principale intatto = true \| branch di lavoro = en:200 fr:200/, /Repository non consentito: «mario\/segreto»/,
     /conferma: ATTENZIONE: cancella 206 righe .* righe = true \| branch = true \| rossa = true/, /il modello conosce lo strumento = true \| riceve l'esito = true \| branch di lavoro = en:200 fr:200/,
     /campo: max = 100/, /100 salvato = 100/, /500 → ridotto a = 100/, /^ERRORS \[\]/m
+  ],
+  '33-istruzioni-controlli.js': [
+    /modifica senza lettura → Non ho modificato nulla: in questa chat non hai ancora letto «piccolo\.js».* \| scritture = 0/, /dopo aver letto \(anche solo in parte\) → salvata/,
+    /sostituire un file letto solo in parte → Non ho scritto nulla.* \| scritture = 0/, /sostituire un file letto per intero → scritto/, /file nuovo \(nulla da leggere\) → scritto/, /controllo spento → scritto/,
+    /cancella righe senza lettura → Non ho cancellato nulla/, /anteprima senza lettura → ok/,
+    /prima compariva 600 volte, dopo 300 volte, attese 600.* \| scritture = 0/, /variazione -300 → ok, mazzi: en:300/, /modifica che non cambia il numero → ok \| scritture = 1/,
+    /equals 600 → rifiutata/, /file nuovo con regola non rispettata → rifiutato/, /regola senza equals\/change → Regola 1/,
+    /elenco dei file cambiati → «mia-lavoro» rispetto a «main»: 3 commit avanti, 0 indietro; 3 file cambiati/, /branch di lavoro non ancora creato → Il branch «mia-lavoro» non esiste ancora/,
+    /«front:» compare: main 600 volte → mia-lavoro 590 volte/, /stesso branch → Base e head sono lo stesso branch/,
+    /nessun workflow → true/, /in corso → true/, /uno fallito → true/, /tutti passati → true/, /branch inesistente → true/, /non chiede conferma \(sola lettura\) = true/,
+    /regole del progetto \(MIA\.md\) nelle istruzioni = true \| non cambiano le regole di sicurezza = true/, /istruzioni principali presenti = true/, /senza MIA\.md si usa AGENTS\.md = true/,
+    /nessuna sezione = true/, /molto lungo → tagliato = true/, /non si legge il file = true/,
+    /1\) senza lettura: nessuna scrittura = true \| il modello riceve il motivo = true/, /2\) dopo la lettura: scritto = true \| contenuto = const a = 10;/, /scritto senza rileggere = true/,
+    /casella «leggere prima di modificare» attiva = true/, /salvata = true/, /^ERRORS \[\]/m
   ]
 };
