@@ -200,13 +200,18 @@
 
   // 3 — leggi file o cartella
   def('github_read_file', {
+    maxResult: 45000,
     description:
-      'Legge un file di testo di un repository oppure elenca il contenuto di una cartella (path vuoto = radice del repository).',
+      'Legge un file di testo di un repository oppure elenca il contenuto di una cartella (path vuoto = radice del repository). ' +
+      'Restituisce al massimo ~12000 caratteri per volta: se il file è più lungo l\'esito dice «FILE INCOMPLETO»; leggi il resto con «start», oppure cerca una parola con «find» (restituisce le righe con il numero).',
     parameters: {
       type: 'object',
       properties: Object.assign({}, REPO_PROPS, {
         path: { type: 'string', description: 'Percorso del file o della cartella, es. «src/index.js». Vuoto per la radice.' },
-        ref: { type: 'string', description: 'Branch, tag o commit (facoltativo, predefinito: branch principale).' }
+        ref: { type: 'string', description: 'Branch, tag o commit (facoltativo, predefinito: branch principale).' },
+        start: { type: 'integer', description: 'Carattere da cui iniziare a leggere (per i file lunghi; predefinito 0).' },
+        length: { type: 'integer', description: 'Quanti caratteri leggere (500–40000, predefinito 12000).' },
+        find: { type: 'string', description: 'Testo da cercare: restituisce le righe che lo contengono, con il numero di riga (senza leggere tutto il file).' }
       }),
       required: ['owner', 'repo']
     },
@@ -228,7 +233,29 @@
         return 'File binario: non leggibile come testo.';
       }
       if (text.includes('\u0000')) return 'File binario: non leggibile come testo.';
-      return 'File ' + d.path + ' (' + d.size + ' byte)\n\n' + clip(text);
+      const total = text.length;
+      const head = 'File ' + d.path + ' (' + d.size + ' byte, ' + total + ' caratteri)';
+      if (args.find) {
+        const needle = str(args.find).toLowerCase();
+        const lines = text.split('\n');
+        const hits = [];
+        lines.forEach((l, i) => l.toLowerCase().includes(needle) && hits.push('riga ' + (i + 1) + ': ' + clip(l.trim(), 200)));
+        if (!hits.length) return head + '\n\nNessuna riga contiene «' + str(args.find) + '».';
+        return head + ' — ' + lines.length + ' righe\n\n' + hits.slice(0, 60).join('\n') + (hits.length > 60 ? '\n[…altre ' + (hits.length - 60) + ' righe…]' : '');
+      }
+      const start = Math.min(Math.max(parseInt(args.start, 10) || 0, 0), total);
+      const len = Math.min(Math.max(parseInt(args.length, 10) || MAX_RESULT, 500), 40000);
+      let end = Math.min(start + len, total);
+      if (end < total) {
+        const nl = text.lastIndexOf('\n', end - 1); // si taglia a fine riga
+        if (nl > start + len / 2) end = nl + 1;
+      }
+      let out = head + (start > 0 || end < total ? ' — MOSTRATI i caratteri ' + start + '–' + end + ' di ' + total : '') + '\n\n' + text.slice(start, end);
+      if (end < total)
+        out +=
+          '\n\n[FILE INCOMPLETO: restano ' + (total - end) + ' caratteri. Leggi il resto con start=' + end + ' oppure cerca con «find». ' +
+          'NON riscrivere questo file con github_write_file (perderesti la parte che non hai letto): per cambiarlo usa github_edit_file.]';
+      return out;
     }
   });
 
@@ -236,7 +263,8 @@
   def('github_write_file', {
     description:
       'Crea un nuovo file o sostituisce per intero il contenuto di un file esistente, con un commit. ' +
-      'Per modificare un file esistente, leggilo prima con github_read_file e riscrivi il contenuto completo.',
+      'Per cambiare poche righe di un file esistente usa invece github_edit_file. Sostituisci un file per intero solo se lo hai letto TUTTO (se la lettura dice «FILE INCOMPLETO» non farlo): ' +
+      'se il nuovo contenuto è molto più corto dell\'originale l\'utente dovrà confermare di nuovo.',
     write: true,
     parameters: {
       type: 'object',
@@ -249,7 +277,7 @@
       required: ['owner', 'repo', 'path', 'content', 'message']
     },
     title: (a) => 'Scrivi «' + str(a.path) + '» in ' + str(a.owner) + '/' + str(a.repo) + (a.branch ? ' (branch ' + a.branch + ')' : ''),
-    details: (a) => 'Commit: ' + str(a.message) + '\n\n' + clip(str(a.content), 1200),
+    details: (a) => 'Commit: ' + str(a.message) + '\nNuovo contenuto: ' + str(a.content).length + ' caratteri\n\n' + clip(str(a.content), 1200),
     async run(args, ctx) {
       const { base } = repoArgs(args);
       const path = need(args, 'path');
@@ -259,6 +287,29 @@
       const url = base + '/contents/' + encPath(path);
       const existing = await gh(ctx, url + refQ, { allow404: true });
       if (existing && Array.isArray(existing)) throw new Error('«' + path + '» è una cartella, non un file.');
+      // protezione: un file esistente che si riduce di molto di solito è una riscrittura parziale (il modello ha letto solo l'inizio):
+      // si chiede all'utente una seconda conferma, con le dimensioni, e senza conferma non si scrive.
+      if (existing && existing.content) {
+        let oldLen = 0;
+        try {
+          oldLen = base64ToUtf8(existing.content).length;
+        } catch (_) {}
+        const newLen = args.content.length;
+        if (oldLen > 2000 && newLen < oldLen * 0.5) {
+          const ok = ctx.confirm
+            ? await ctx.confirm({
+                title: 'ATTENZIONE: «' + path + '» passa da ' + oldLen + ' a ' + newLen + ' caratteri (−' + Math.round(100 - (newLen * 100) / oldLen) + '%)',
+                details: 'Il file esistente verrebbe SOSTITUITO da uno molto più corto: se non te l\'aspetti, rifiuta. Il vecchio contenuto resta comunque nella cronologia di GitHub.',
+                danger: true
+              })
+            : false;
+          if (!ok)
+            throw new Error(
+              'Scrittura annullata: «' + path + '» passerebbe da ' + oldLen + ' a ' + newLen + ' caratteri (sembra una riscrittura parziale). ' +
+                'Non riscrivere il file: leggilo per intero (start/find) e cambia solo le parti necessarie con github_edit_file.'
+            );
+        }
+      }
       const body = { message, content: utf8ToBase64(args.content) };
       if (args.branch) body.branch = args.branch;
       if (existing && existing.sha) body.sha = existing.sha;
@@ -2278,8 +2329,9 @@
     if (!t) throw new Error('Strumento sconosciuto: ' + name);
     if (ctx && ctx.signal && ctx.signal.aborted) throw abortError();
     const out = await t.run(args || {}, ctx || {});
-    if (out && typeof out === 'object' && typeof out.text === 'string') return { text: clip(out.text), files: out.files || [], imageUrl: out.imageUrl };
-    return { text: clip(out), files: [] };
+    const max = t.maxResult || MAX_RESULT; // github_read_file gestisce da sé i tagli e li segnala («FILE INCOMPLETO»)
+    if (out && typeof out === 'object' && typeof out.text === 'string') return { text: clip(out.text, max), files: out.files || [], imageUrl: out.imageUrl };
+    return { text: clip(out, max), files: [] };
   }
 
   global.MiaTools = { ocrImages, definitions, connectorWeb, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };

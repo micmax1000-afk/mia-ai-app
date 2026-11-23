@@ -853,6 +853,7 @@
       imageModel: settings.imageModel,
       imageProvider: settings.imageProvider,
       nvidiaImageModel: settings.nvidiaImageModel,
+      confirm: askConfirm,
       nvidiaKey: profile('nvidia').apiKey,
       searchProvider: settings.searchProvider,
       searchKey: settings.searchKey,

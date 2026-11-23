@@ -224,5 +224,13 @@ module.exports = {
     /riconosciuti = true \| 401\/429 e interruzione dell'utente non lo sono = true/, /messaggio in italiano = NVIDIA: la connessione è caduta/,
     /richieste = 3 \| nessun errore = true/, /richieste = 3 \| ⚠️ NVIDIA .*la connessione è caduta/, /richieste NVIDIA = 3 \| richieste Gemini = 1/,
     /richieste dopo lo stop <= 2 = true/, /^ERRORS \[\]/m
+  ],
+  '28-file-lunghi-github.js': [
+    /avviso «FILE INCOMPLETO» = true \| indica il totale = true \| avverte di non riscrivere = true/, /lunghezza della risposta \(≈12000\) = true/, /blocchi = 28 \| ricostruito identico = true/,
+    /riga 4004: \{ front: "parola 3999/, /nessun risultato → Nessuna riga contiene «zzz»/, /senza avviso = true/, /al più 40000 = true/,
+    /senza conferma disponibile → RIFIUTATO .*scritture = 0/, /utente rifiuta → RIFIUTATO \| scritture = 0 \| consiglia github_edit_file = true/, /utente conferma → scritto \| scritture = 1/,
+    /riduzione −20% → scritto \| scritture = 1/, /file sotto i 2000 caratteri → scritto/, /file nuovo → scritto/,
+    /1ª domanda: Scrivi «data\.js» in mario\/flash .* mostra la lunghezza = true/, /2ª domanda: ATTENZIONE: «data\.js» passa da 329880 a 18 caratteri \(−100%\) \| avviso rosso = true/,
+    /nessuna scrittura = true \| il modello riceve il motivo = true/, /^ERRORS \[\]/m
   ]
 };
