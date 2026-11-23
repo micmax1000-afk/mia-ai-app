@@ -33,7 +33,7 @@
   // ─── Limite al repository selezionato ─────────────────────
   // Con ctx.repoLock l'agente può usare GitHub SOLO sul repository scelto nelle Impostazioni (ctx.repoScope = «proprietario/nome»):
   // owner/repo omessi si completano, un altro repository viene rifiutato, la ricerca nel codice è sempre limitata a quel repository.
-  const REPO_SCOPED = ['github_read_file', 'github_write_file', 'github_delete_file', 'github_create_branch', 'github_list_branches_commits', 'github_issues', 'github_pull_requests', 'github_actions', 'github_edit_file'];
+  const REPO_SCOPED = ['github_read_file', 'github_write_file', 'github_delete_file', 'github_create_branch', 'github_list_branches_commits', 'github_issues', 'github_pull_requests', 'github_actions', 'github_edit_file', 'github_delete_lines'];
   function applyScope(name, args, ctx) {
     if (!ctx || !ctx.repoLock || !/^github_/.test(name)) return args;
     const sel = str(ctx.repoScope).trim();
@@ -56,6 +56,78 @@
     }
     return a;
   }
+
+  // ─── Branch di lavoro ──────────────────────────────────────
+  // Con ctx.workBranch le scritture dell'agente vanno SEMPRE su quel branch (mai sul principale) e le letture
+  // partono da lì; il branch si crea da solo dal principale e, se non ha commit propri, viene riallineato al principale.
+  const BRANCH_WRITES = ['github_write_file', 'github_edit_file', 'github_delete_file', 'github_delete_lines'];
+  function applyBranch(name, args, ctx) {
+    const wb = ctx && str(ctx.workBranch).trim();
+    if (!wb) return args;
+    if (BRANCH_WRITES.includes(name)) return Object.assign({}, args, { branch: wb });
+    if (name === 'github_read_file' && !str(args.ref).trim()) return Object.assign({}, args, { ref: wb, _workRef: true });
+    return args;
+  }
+  const branchReady = {};
+  async function ensureWorkBranch(ctx, base, branch) {
+    const key = base + '#' + branch;
+    if (branchReady[key]) return;
+    const repo = await gh(ctx, base);
+    const main = repo.default_branch;
+    if (branch === main) throw new Error('Il branch di lavoro non può essere il branch principale («' + main + '»).');
+    const mainRef = await gh(ctx, base + '/git/ref/heads/' + encPath(main));
+    const existing = await gh(ctx, base + '/git/ref/heads/' + encPath(branch), { allow404: true });
+    if (!existing) {
+      await gh(ctx, base + '/git/refs', { method: 'POST', body: { ref: 'refs/heads/' + branch, sha: mainRef.object.sha } });
+    } else if (existing.object && existing.object.sha !== mainRef.object.sha) {
+      // nessun commit proprio sul branch ma il principale è andato avanti (es. dopo l'unione): si riallinea, senza forzare
+      const cmp = await gh(ctx, base + '/compare/' + encodeURIComponent(main) + '...' + encodeURIComponent(branch), { allow404: true });
+      if (cmp && cmp.ahead_by === 0 && cmp.behind_by > 0)
+        await gh(ctx, base + '/git/refs/heads/' + encPath(branch), { method: 'PATCH', body: { sha: mainRef.object.sha, force: false } });
+    }
+    branchReady[key] = true;
+  }
+
+  // ─── Controllo della sintassi (js/json) prima di salvare ──
+  // Restituisce null se il testo è valido, il messaggio d'errore se non lo è, oppure undefined se non si può controllare.
+  function syntaxError(path, text) {
+    const ext = (/\.([a-z0-9]+)$/i.exec(str(path)) || [])[1];
+    if (!ext) return undefined;
+    const e = ext.toLowerCase();
+    try {
+      if (e === 'json') {
+        JSON.parse(text);
+        return null;
+      }
+      if (e === 'js' || e === 'cjs') {
+        if (/^\s*(import|export)\b/m.test(text)) return undefined; // moduli: non controllabili così
+        try {
+          new Function(text); // solo analisi: il codice NON viene eseguito
+        } catch (err) {
+          if (!(err instanceof SyntaxError)) return undefined;
+          const AsyncFn = Object.getPrototypeOf(async function () {}).constructor;
+          new AsyncFn(text); // ammette «await» al primo livello
+        }
+        return null;
+      }
+    } catch (err) {
+      if (err instanceof SyntaxError) return err.message;
+      return undefined;
+    }
+    return undefined;
+  }
+  function checkSyntaxOrThrow(path, before, after) {
+    const now = syntaxError(path, after);
+    if (now === undefined || now === null) return '';
+    const prev = before == null ? null : syntaxError(path, before);
+    if (prev === null)
+      throw new Error(
+        'Modifica NON salvata: dopo la modifica «' + path + '» non sarebbe più valido (' + now + '). Il file su GitHub non è cambiato. ' +
+          'Rileggi la zona interessata (find/start) e riprova con frammenti corretti.'
+      );
+    return ' Attenzione: il file non risulta valido (' + now + ')' + (prev ? ', ma non lo era nemmeno prima.' : '.');
+  }
+  const lineCount = (t) => (t ? str(t).split('\n').length : 0);
 
   function encPath(p) {
     return str(p)
@@ -247,7 +319,8 @@
     async run(args, ctx) {
       const { base } = repoArgs(args);
       const q = args.ref ? '?ref=' + encodeURIComponent(args.ref) : '';
-      const d = await gh(ctx, base + '/contents/' + encPath(args.path) + q);
+      let d = await gh(ctx, base + '/contents/' + encPath(args.path) + q, { allow404: !!args._workRef });
+      if (!d && args._workRef) d = await gh(ctx, base + '/contents/' + encPath(args.path)); // il branch di lavoro non esiste ancora: si legge il principale
       if (Array.isArray(d)) {
         if (!d.length) return 'Cartella vuota.';
         return d.map((f) => (f.type === 'dir' ? '📁 ' : '📄 ') + f.path + (f.type === 'file' ? ' (' + f.size + ' B)' : '')).join('\n');
@@ -305,16 +378,24 @@
       required: ['owner', 'repo', 'path', 'content', 'message']
     },
     title: (a) => 'Scrivi «' + str(a.path) + '» in ' + str(a.owner) + '/' + str(a.repo) + (a.branch ? ' (branch ' + a.branch + ')' : ''),
-    details: (a) => 'Commit: ' + str(a.message) + '\nNuovo contenuto: ' + str(a.content).length + ' caratteri\n\n' + clip(str(a.content), 1200),
+    details: (a) => 'Commit: ' + str(a.message) + (a.branch ? '\nBranch: ' + a.branch : '') + '\nNuovo contenuto: ' + lineCount(a.content) + ' righe, ' + str(a.content).length + ' caratteri\n\n' + clip(str(a.content), 1200),
     async run(args, ctx) {
       const { base } = repoArgs(args);
       const path = need(args, 'path');
       const message = need(args, 'message');
       if (typeof args.content !== 'string') throw new Error('Parametro mancante: «content».');
+      if (ctx.workBranch && args.branch === ctx.workBranch) await ensureWorkBranch(ctx, base, args.branch);
       const refQ = args.branch ? '?ref=' + encodeURIComponent(args.branch) : '';
       const url = base + '/contents/' + encPath(path);
       const existing = await gh(ctx, url + refQ, { allow404: true });
       if (existing && Array.isArray(existing)) throw new Error('«' + path + '» è una cartella, non un file.');
+      let oldText = null;
+      if (existing && existing.content) {
+        try {
+          oldText = base64ToUtf8(existing.content);
+        } catch (_) {}
+      }
+      const note = checkSyntaxOrThrow(path, oldText, args.content);
       // protezione: un file esistente che si riduce di molto di solito è una riscrittura parziale (il modello ha letto solo l'inizio):
       // si chiede all'utente una seconda conferma, con le dimensioni, e senza conferma non si scrive.
       if (existing && existing.content) {
@@ -342,7 +423,10 @@
       if (args.branch) body.branch = args.branch;
       if (existing && existing.sha) body.sha = existing.sha;
       const r = await gh(ctx, url, { method: 'PUT', body });
-      return (existing ? 'File aggiornato: ' : 'File creato: ') + path + ' — commit ' + short(r.commit && r.commit.sha) + ' — ' + (r.content && r.content.html_url);
+      return (
+        (existing ? 'File aggiornato: ' : 'File creato: ') + path + (args.branch ? ' (branch ' + args.branch + ')' : '') + ' — commit ' + short(r.commit && r.commit.sha) +
+        ' — righe: ' + (oldText != null ? lineCount(oldText) + ' → ' : '') + lineCount(args.content) + '.' + note + ' — ' + (r.content && r.content.html_url)
+      );
     }
   });
 
@@ -366,6 +450,7 @@
       const { base } = repoArgs(args);
       const path = need(args, 'path');
       const message = need(args, 'message');
+      if (ctx.workBranch && args.branch === ctx.workBranch) await ensureWorkBranch(ctx, base, args.branch);
       const refQ = args.branch ? '?ref=' + encodeURIComponent(args.branch) : '';
       const url = base + '/contents/' + encPath(path);
       const existing = await gh(ctx, url + refQ);
@@ -1938,12 +2023,107 @@
 
   // ─── Modifica precisa di un file GitHub ────────────────────
   // 22 — github_edit_file
+  // Cancella un intervallo di righe (per togliere blocchi lunghi, come un mazzo di carte, senza far riscrivere al modello centinaia di righe).
+  // Protezioni: servono il testo atteso della prima e dell'ultima riga (letti prima con find/start), con «dry_run» si vedono i bordi
+  // dell'intervallo senza scrivere, il controllo della sintassi vale come per le altre modifiche, e dal 20 righe in su la conferma è rossa.
+  def('github_delete_lines', {
+    description:
+      'Cancella le righe da «from_line» a «to_line» (comprese, numerate da 1 come in github_read_file con «find») di un file di GitHub, senza riscrivere il resto. ' +
+      'Prima cerca con «find» le righe di inizio e fine, poi chiama con dry_run=true per vedere i bordi dell\'intervallo, poi chiama senza dry_run. ' +
+      '«expect_first» e «expect_last» sono pezzi di testo che devono comparire nella prima e nell\'ultima riga da cancellare: se non corrispondono non si cancella nulla. ' +
+      'Dopo una cancellazione i numeri di riga cambiano: rifai la ricerca prima della cancellazione successiva.',
+    write: (a) => !a.dry_run,
+    danger: (a) => !a.dry_run && Number(a.to_line) - Number(a.from_line) + 1 >= 20,
+    parameters: {
+      type: 'object',
+      properties: Object.assign({}, REPO_PROPS, {
+        path: { type: 'string', description: 'Percorso del file.' },
+        from_line: { type: 'integer', description: 'Prima riga da cancellare (da 1).' },
+        to_line: { type: 'integer', description: 'Ultima riga da cancellare (compresa).' },
+        expect_first: { type: 'string', description: 'Testo che deve comparire nella riga from_line (copialo da github_read_file).' },
+        expect_last: { type: 'string', description: 'Testo che deve comparire nella riga to_line.' },
+        dry_run: { type: 'boolean', description: 'Se true non scrive nulla: mostra solo le righe ai bordi dell\'intervallo.' },
+        message: { type: 'string', description: 'Messaggio del commit (non serve con dry_run).' },
+        branch: { type: 'string', description: 'Branch (facoltativo).' }
+      }),
+      required: ['owner', 'repo', 'path', 'from_line', 'to_line', 'expect_first', 'expect_last']
+    },
+    title: (a) => {
+      const n = Number(a.to_line) - Number(a.from_line) + 1;
+      return (a.dry_run ? 'Controlla le righe ' : n >= 20 ? 'ATTENZIONE: cancella ' + n + ' righe — ' : 'Cancella le righe ') + str(a.from_line) + '–' + str(a.to_line) + ' di «' + str(a.path) + '» in ' + str(a.owner) + '/' + str(a.repo);
+    },
+    details: (a) =>
+      'Commit: ' + str(a.message) + (a.branch ? '\nBranch: ' + a.branch : '') + '\nRighe: −' + (Number(a.to_line) - Number(a.from_line) + 1) + ' / +0' +
+      '\n\nPrima riga: ' + clip(str(a.expect_first), 120) + '\nUltima riga: ' + clip(str(a.expect_last), 120) + '\n(il testo viene verificato prima di cancellare)',
+    async run(args, ctx) {
+      const { base } = repoArgs(args);
+      const path = need(args, 'path');
+      const from = parseInt(args.from_line, 10);
+      const to = parseInt(args.to_line, 10);
+      if (!(from >= 1) || !(to >= from)) throw new Error('Intervallo non valido: from_line e to_line devono essere numeri da 1 e to_line ≥ from_line.');
+      if (to - from + 1 > 5000) throw new Error('Troppe righe in una volta (massimo 5000): fai più cancellazioni.');
+      const efirst = need(args, 'expect_first');
+      const elast = need(args, 'expect_last');
+      const dry = !!args.dry_run;
+      const message = dry ? '' : need(args, 'message');
+      if (!dry && ctx.workBranch && args.branch === ctx.workBranch) await ensureWorkBranch(ctx, base, args.branch);
+      let file = await gh(ctx, base + '/contents/' + encPath(path) + (args.branch ? '?ref=' + encodeURIComponent(args.branch) : ''), { allow404: dry && !!args.branch });
+      if (!file && dry) file = await gh(ctx, base + '/contents/' + encPath(path)); // il branch di lavoro non esiste ancora: si guarda il principale
+      if (Array.isArray(file) || file.type !== 'file' || !file.content) throw new Error('«' + path + '» non è un file di testo leggibile.');
+      const original = base64ToUtf8(file.content);
+      if (original.includes('\u0000')) throw new Error('File binario: non modificabile.');
+      const lines = original.split('\n');
+      if (to > lines.length) throw new Error('Il file ha ' + lines.length + ' righe: to_line (' + to + ') è oltre la fine.');
+      const show = (a, b) => lines.slice(a - 1, b).map((l, k) => String(a + k).padStart(6) + ' | ' + clip(l, 160)).join('\n');
+      const norm = (t) => str(t).replace(/\s+/g, ' ').trim().toLowerCase();
+      const okFirst = norm(lines[from - 1]).includes(norm(efirst));
+      const okLast = norm(lines[to - 1]).includes(norm(elast));
+      const borders = 'Primo bordo (righe ' + Math.max(1, from - 2) + '–' + Math.min(lines.length, from + 2) + '):\n' + show(Math.max(1, from - 2), Math.min(lines.length, from + 2)) +
+        '\nUltimo bordo (righe ' + Math.max(1, to - 2) + '–' + Math.min(lines.length, to + 2) + '):\n' + show(Math.max(1, to - 2), Math.min(lines.length, to + 2));
+      if (!okFirst || !okLast)
+        throw new Error(
+          'Righe diverse da quelle attese: ' + (okFirst ? '' : 'la riga ' + from + ' non contiene «' + clip(efirst, 80) + '». ') + (okLast ? '' : 'la riga ' + to + ' non contiene «' + clip(elast, 80) + '». ') +
+            'Non ho cancellato nulla. Rifai la ricerca con find (i numeri cambiano dopo ogni cancellazione).\n' + borders
+        );
+      const n = to - from + 1;
+      if (dry) return 'Controllo riuscito: le righe ' + from + '–' + to + ' (' + n + ' righe) corrispondono a quanto atteso. Il file ha ' + lines.length + ' righe. Non ho scritto nulla.\n' + borders;
+      const next = lines.slice(0, from - 1).concat(lines.slice(to)).join('\n');
+      const note = checkSyntaxOrThrow(path, original, next);
+      const body = { message, content: utf8ToBase64(next), sha: file.sha };
+      if (args.branch) body.branch = args.branch;
+      const r = await gh(ctx, base + '/contents/' + encPath(path), { method: 'PUT', body });
+      const after = next.split('\n');
+      const c0 = Math.max(1, from - 3);
+      const c1 = Math.min(after.length, from + 2);
+      return (
+        'Cancellate ' + n + ' righe (' + from + '–' + to + ') di ' + path + (args.branch ? ' (branch ' + args.branch + ')' : '') + ' — righe ' + lines.length + ' → ' + after.length +
+        ' — commit ' + short(r.commit && r.commit.sha) + '.' + note + '\nCosì com\'è ora intorno al punto (righe ' + c0 + '–' + c1 + '):\n' +
+        after.slice(c0 - 1, c1).map((l, k) => String(c0 + k).padStart(6) + ' | ' + clip(l, 160)).join('\n') + '\nI numeri di riga sono cambiati: rifai la ricerca prima di un\'altra cancellazione.'
+      );
+    }
+  });
+
+  /** Righe tolte e aggiunte da un insieme di sostituzioni (per la conferma). */
+  function editLines(a) {
+    let removed = 0;
+    let added = 0;
+    // righe toccate: gli «a capo» del frammento (almeno 1 se il frammento non è vuoto)
+    const n = (t) => (t ? Math.max(1, str(t).split('\n').length - 1) : 0);
+    (Array.isArray(a && a.edits) ? a.edits : []).forEach((e) => {
+      removed += n(e && e.old_text);
+      added += n(e && e.new_text);
+    });
+    return { removed, added, net: added - removed };
+  }
+
   def('github_edit_file', {
     description:
       'Modifica un file di GitHub sostituendo frammenti di testo esatti (come un «trova e sostituisci»), senza riscrivere tutto il file. ' +
       'Ogni «old_text» deve comparire UNA sola volta nel file: copialo esattamente da github_read_file e aggiungi contesto se serve. ' +
       'Preferiscilo a github_write_file per cambiare poche righe di file esistenti.',
     write: true,
+    // una modifica che cancella molte righe è segnalata in rosso nella conferma
+    danger: (a) => editLines(a).net <= -20,
     parameters: {
       type: 'object',
       properties: Object.assign({}, REPO_PROPS, {
@@ -1965,9 +2145,9 @@
       }),
       required: ['owner', 'repo', 'path', 'edits', 'message']
     },
-    title: (a) => 'Modifica «' + str(a.path) + '» in ' + str(a.owner) + '/' + str(a.repo) + ' (' + ((a.edits && a.edits.length) || 0) + ' sostituzioni)',
+    title: (a) => (editLines(a).net <= -20 ? 'ATTENZIONE: cancella ' + -editLines(a).net + ' righe — ' : '') + 'Modifica «' + str(a.path) + '» in ' + str(a.owner) + '/' + str(a.repo) + ' (' + ((a.edits && a.edits.length) || 0) + ' sostituzioni)',
     details: (a) =>
-      'Commit: ' + str(a.message) + (a.branch ? '\nBranch: ' + a.branch : '') + '\n' +
+      'Commit: ' + str(a.message) + (a.branch ? '\nBranch: ' + a.branch : '') + '\nRighe: −' + editLines(a).removed + ' / +' + editLines(a).added + '\n' +
       (Array.isArray(a.edits) ? a.edits : [])
         .map((e, i) => '\n@@ ' + (i + 1) + ' @@\n' + clip(str(e && e.old_text).replace(/^/gm, '- '), 500) + '\n' + clip(str(e && e.new_text).replace(/^/gm, '+ '), 500))
         .join('\n')
@@ -1978,6 +2158,7 @@
       const message = need(args, 'message');
       const edits = Array.isArray(args.edits) ? args.edits : [];
       if (!edits.length) throw new Error('Nessuna modifica: «edits» è vuoto.');
+      if (ctx.workBranch && args.branch === ctx.workBranch) await ensureWorkBranch(ctx, base, args.branch);
       const refQ = args.branch ? '?ref=' + encodeURIComponent(args.branch) : '';
       const url = base + '/contents/' + encPath(path);
       const file = await gh(ctx, url + refQ);
@@ -1986,6 +2167,7 @@
       if (original.includes('\u0000')) throw new Error('File binario: non modificabile.');
       const crlf = original.includes('\r\n');
       let text = original;
+      const spots = []; // dove sono finite le sostituzioni (per mostrarle al modello)
       edits.forEach((e, i) => {
         let oldT = str(e && e.old_text);
         let newT = str(e && e.new_text);
@@ -1998,14 +2180,35 @@
         const n = text.split(oldT).length - 1;
         if (n === 0) throw new Error('Modifica ' + (i + 1) + ': testo non trovato nel file. Rileggilo con github_read_file e copia il frammento esatto.');
         if (n > 1) throw new Error('Modifica ' + (i + 1) + ': il testo compare ' + n + ' volte. Aggiungi più righe di contesto per renderlo unico.');
-        text = text.replace(oldT, () => newT);
+        const at = text.indexOf(oldT);
+        text = text.slice(0, at) + newT + text.slice(at + oldT.length);
+        const shift = newT.length - oldT.length;
+        spots.forEach((p) => p.at > at && (p.at += shift));
+        spots.push({ at, len: newT.length });
       });
       if (text === original) throw new Error('Le sostituzioni non cambiano il file.');
+      const note = checkSyntaxOrThrow(path, original, text);
       const body = { message, content: utf8ToBase64(text), sha: file.sha };
       if (args.branch) body.branch = args.branch;
       const r = await gh(ctx, url, { method: 'PUT', body });
       const delta = text.length - original.length;
-      return 'File modificato: ' + path + ' — ' + edits.length + ' sostituzioni, ' + (delta >= 0 ? '+' : '') + delta + ' caratteri — commit ' + short(r.commit && r.commit.sha);
+      const lines = text.split('\n');
+      const ctxLines = spots
+        .map((p, i) => {
+          const first = text.slice(0, p.at).split('\n').length;
+          const last = first + Math.max(0, text.slice(p.at, p.at + p.len).split('\n').length - 1);
+          const from = Math.max(1, first - 3);
+          const to = Math.min(lines.length, last + 3);
+          return '@@ sostituzione ' + (i + 1) + ', righe ' + from + '–' + to + ' dopo la modifica @@\n' +
+            lines.slice(from - 1, to).map((l, k) => String(from + k).padStart(5) + ' | ' + clip(l, 200)).join('\n');
+        })
+        .join('\n');
+      return (
+        'File modificato: ' + path + (args.branch ? ' (branch ' + args.branch + ')' : '') + ' — ' + edits.length + ' sostituzioni, ' +
+        (delta >= 0 ? '+' : '') + delta + ' caratteri, righe ' + lineCount(original) + ' → ' + lineCount(text) +
+        ' (' + (lineCount(text) - lineCount(original) >= 0 ? '+' : '') + (lineCount(text) - lineCount(original)) + ') — commit ' + short(r.commit && r.commit.sha) + '.' + note +
+        '\nControlla qui sotto che il risultato sia quello voluto (se non lo è, correggilo subito):\n' + clip(ctxLines, 6000)
+      );
     }
   });
 
@@ -2356,12 +2559,12 @@
     const t = get(name);
     if (!t) throw new Error('Strumento sconosciuto: ' + name);
     if (ctx && ctx.signal && ctx.signal.aborted) throw abortError();
-    args = applyScope(name, args || {}, ctx);
+    args = applyBranch(name, applyScope(name, args || {}, ctx), ctx);
     const out = await t.run(args, ctx || {});
     const max = t.maxResult || MAX_RESULT; // github_read_file gestisce da sé i tagli e li segnala («FILE INCOMPLETO»)
     if (out && typeof out === 'object' && typeof out.text === 'string') return { text: clip(out.text, max), files: out.files || [], imageUrl: out.imageUrl };
     return { text: clip(out, max), files: [] };
   }
 
-  global.MiaTools = { applyScope, ocrImages, definitions, connectorWeb, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
+  global.MiaTools = { applyScope, applyBranch, syntaxError, ocrImages, definitions, connectorWeb, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
 })(window);

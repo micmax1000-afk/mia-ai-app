@@ -230,7 +230,7 @@ module.exports = {
     /riga 4004: \{ front: "parola 3999/, /nessun risultato → Nessuna riga contiene «zzz»/, /senza avviso = true/, /al più 40000 = true/,
     /senza conferma disponibile → RIFIUTATO .*scritture = 0/, /utente rifiuta → RIFIUTATO \| scritture = 0 \| consiglia github_edit_file = true/, /utente conferma → scritto \| scritture = 1/,
     /riduzione −20% → scritto \| scritture = 1/, /file sotto i 2000 caratteri → scritto/, /file nuovo → scritto/,
-    /1ª domanda: Scrivi «data\.js» in mario\/flash .* mostra la lunghezza = true/, /2ª domanda: ATTENZIONE: «data\.js» passa da 329880 a 18 caratteri \(−100%\) \| avviso rosso = true/,
+    /1ª domanda: Scrivi «data\.js» in mario\/flash .*mostra la lunghezza = true/, /2ª domanda: ATTENZIONE: «data\.js» passa da 329880 a 18 caratteri \(−100%\) \| avviso rosso = true/,
     /nessuna scrittura = true \| il modello riceve il motivo = true/, /^ERRORS \[\]/m
   ],
   '29-solo-repository-selezionato.js': [
@@ -242,5 +242,33 @@ module.exports = {
     /lettura → ERR Nessun repository selezionato.*richieste = 0/, /altro repository → OK File a\.txt .*richieste = 1/,
     /nessuna domanda di conferma = true \| richieste di scrittura = 0 \| il modello riceve il motivo = true/, /il modello sa quale repository usare = true/,
     /casella attiva di serie = true/, /salvata = true/, /^ERRORS \[\]/m
+  ],
+  '30-branch-sintassi-conferme.js': [
+    /valido: valido \| rotto: errore \| json rotto: errore \| json: valido \| modulo: non controllabile \| await: valido \| markdown: non controllabile/, /il codice NON viene eseguito = true/,
+    /esito: Modifica NON salvata: dopo la modifica «data\.js» non sarebbe più valido .*scritture = 0 \| file intatto = en:25 fr:25 de:25/,
+    /esito: File modificato: data\.js — 1 sostituzioni, -\d+ caratteri, righe 102 → 69 \(-33\)/, /mazzi dopo = en:25 fr:25 \| righe mostrate al modello = true \| invito a controllare = true/,
+    /salvato, avviso = true/, /JSON rotto → rifiutato/, /file nuovo \.js non valido → rifiutato/, /file \.md → salvato \| righe nel risultato = true/,
+    /lettura prima che il branch esista → legge il principale = true/, /modifica \(il modello chiede «main»\) → File modificato: data\.js \(branch mia-lavoro\)/,
+    /branch creato dal principale = true \| principale intatto = true \| modifica sul branch = true/, /la lettura successiva vede la modifica = true/, /file nuovo sul branch = true/, /eliminazione solo sul branch = true/,
+    /opzione spenta\) scrive sul principale = true/, /nessun riallineamento = true/, /il branch si riallinea da solo = true \| modifica salvata = true/,
+    /cancella molte righe: ATTENZIONE: cancella 33 righe .* righe = true \| branch = true \| avviso rosso = true/, /il modello sa del branch = true \| riceve le righe dopo la modifica = true/,
+    /modifica piccola: Modifica «data\.js» .* righe = true \| avviso rosso = false/, /branch di lavoro attivo di serie = true \| nome = mia-lavoro/, /nome salvato = prove/, /^ERRORS \[\]/m
+  ],
+  '31-continua-ricorda-il-lavoro.js': [
+    /la richiesta originale è nel contesto = true \| «continua» c'è = true/, /dimensione della richiesta ragionevole \(< 120 KB\) = true/,
+    /i risultati più vecchi sono accorciati = true \| gli ultimi 6 sono interi = true \| il più vecchio non è intero = true/,
+    /richiesta originale presente = true \| passaggi più recenti presenti = true \| passaggi lontani omessi = true \| dimensione \(< 160 KB\) = true/,
+    /richiesta originale \+ «grazie» \+ «e poi\?» presenti = true/, /contiene i messaggi precedenti = true/, /^ERRORS \[\]/m
+  ],
+  '32-cancella-righe.js': [
+    /mazzo tedesco = righe 414 – 619/, /Controllo riuscito: le righe 414–619 \(206 righe\) corrispondono a quanto atteso\. .* Non ho scritto nulla\. \| scritture = 0/,
+    /mostra i bordi = true \| conferma richiesta = false/, /la riga 415 non contiene «\{».*scritture = 0/, /ultima riga sbagliata → rifiutato \| scritture = 0/, /testo atteso diverso → rifiutato/,
+    /oltre la fine del file → Il file ha 621 righe/, /intervallo invertito → Intervallo non valido/,
+    /Modifica NON salvata: dopo la modifica «data\.js» non sarebbe più valido .*file intatto = en:200 fr:200 de:200/,
+    /Cancellate 206 righe \(414–619\) di data\.js — righe 621 → 415/, /mazzi dopo = en:200 fr:200 \| scritture = 1 \| mostra il punto e avvisa dei numeri = true/,
+    /anteprima: branch creato = false \| richieste di scrittura = 0 \| esito = ok/, /cancellazione → Cancellate N righe \(414–619\) di data\.js \(branch mia-lavoro\)/,
+    /principale intatto = true \| branch di lavoro = en:200 fr:200/, /Repository non consentito: «mario\/segreto»/,
+    /conferma: ATTENZIONE: cancella 206 righe .* righe = true \| branch = true \| rossa = true/, /il modello conosce lo strumento = true \| riceve l'esito = true \| branch di lavoro = en:200 fr:200/,
+    /campo: max = 100/, /100 salvato = 100/, /500 → ridotto a = 100/, /^ERRORS \[\]/m
   ]
 };

@@ -176,6 +176,15 @@
             <input type="checkbox" id="githubScope">
             <span>L'agente usa GitHub solo sul repository selezionato (consigliato)</span>
           </label>
+          <label class="field check-field">
+            <input type="checkbox" id="githubUseBranch">
+            <span>Le modifiche dell'agente vanno su un branch di lavoro (consigliato)</span>
+          </label>
+          <label class="field">
+            <span>Nome del branch di lavoro</span>
+            <input id="githubWorkBranch" spellcheck="false" autocapitalize="off" placeholder="mia-lavoro">
+          </label>
+          <p class="hint">Mia non scrive mai sul branch principale: crea da sola il branch di lavoro e ci mette le modifiche. Tu controlli su GitHub e unisci con una pull request. Se il branch non ha modifiche proprie, viene riallineato al principale da solo.</p>
           <p class="hint">Il repository si sceglie nella sezione GitHub qui sopra. Con questa opzione Mia non legge, non modifica e non crea altri repository, anche se il token può accedervi. Se non è selezionato nessun repository, gli strumenti GitHub restano bloccati.</p>
           <label class="field">
             <span>Creazione di immagini</span>
@@ -220,9 +229,9 @@
           </label>
           <label class="field">
             <span>Passaggi massimi per richiesta</span>
-            <input id="maxSteps" type="number" inputmode="numeric" min="3" max="40" step="1">
+            <input id="maxSteps" type="number" inputmode="numeric" min="3" max="100" step="1">
           </label>
-          <p class="hint">Quanti giri di strumenti può fare Mia prima di fermarsi (3-40). Più alto = lavori più lunghi, ma più richieste al modello.</p>
+          <p class="hint">Quanti giri di strumenti può fare Mia prima di fermarsi (3-100). Più alto = lavori più lunghi, ma più richieste al modello e più crediti gratuiti consumati: oltre 40 conviene solo con un modello forte e per lavori semplici e ripetitivi.</p>
           <div class="mcp-box">
             <strong>Connettori (MCP)</strong>
             <p class="hint">Collega servizi esterni che offrono un server MCP «HTTP» (indirizzo https://…). Mia ne scopre gli strumenti e li usa; ogni azione che non è di sola lettura chiede conferma. Puoi anche collegare il tuo computer con «Mia Bridge» (vedi README). Nel browser il server deve accettare richieste CORS; nell'APK Android di solito non serve.</p>
