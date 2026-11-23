@@ -34,7 +34,7 @@ const sse = (parts) => 'data: ' + JSON.stringify({candidates:[{content:{parts}}]
     return j({message:'Not Found'},404);
   });
   await page.addInitScript(() => {
-    localStorage.setItem('miaai_v1_settings', JSON.stringify({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.5-flash',baseUrl:'https://generativelanguage.googleapis.com/v1beta'}},agentEnabled:true,githubToken:'tok',autoFallback:false,favorites:[],theme:'dark',systemPrompt:'x',temperature:0.7}));
+    localStorage.setItem('miaai_v1_settings', JSON.stringify({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.5-flash',baseUrl:'https://generativelanguage.googleapis.com/v1beta'}},agentEnabled:true,githubToken:'tok',githubRepo:'mario/app',autoFallback:false,favorites:[],theme:'dark',systemPrompt:'x',temperature:0.7}));
   });
   await page.goto('http://localhost:8099/');
 
@@ -70,7 +70,7 @@ const sse = (parts) => 'data: ' + JSON.stringify({candidates:[{content:{parts}}]
   // Scenario 3: scrittura rifiutata
   ghCalls.length = 0;
   script = [
-    [{functionCall:{name:'github_create_repo',args:{name:'nuovo'}}}],
+    [{functionCall:{name:'github_write_file',args:{path:'altro.md',content:'x',message:'altro'}}}],
     [{text:'Ok, non lo creo.'}]
   ];
   await page.fill('#input','crea repo nuovo');

@@ -232,5 +232,15 @@ module.exports = {
     /riduzione −20% → scritto \| scritture = 1/, /file sotto i 2000 caratteri → scritto/, /file nuovo → scritto/,
     /1ª domanda: Scrivi «data\.js» in mario\/flash .* mostra la lunghezza = true/, /2ª domanda: ATTENZIONE: «data\.js» passa da 329880 a 18 caratteri \(−100%\) \| avviso rosso = true/,
     /nessuna scrittura = true \| il modello riceve il motivo = true/, /^ERRORS \[\]/m
+  ],
+  '29-solo-repository-selezionato.js': [
+    /si completano\) → OK File a\.txt .*GET \/repos\/mario\/flash\/contents\/a\.txt/, /maiuscole diverse → OK/,
+    /altro repository dello stesso utente → ERR Repository non consentito: «mario\/segreto».*richieste a GitHub = 0/, /altro proprietario → ERR Repository non consentito: «altro\/flash».*richieste a GitHub = 0/,
+    /scrittura in un altro repository → ERR .*richieste = 0/, /modifica in un altro repository → ERR .*richieste = 0/, /eliminazione in un altro repository → ERR .*richieste = 0/, /pull request di un altro repository → ERR .*richieste = 0/,
+    /repo omesso → OK File aggiornato: n\.md .*PUT \/repos\/mario\/flash\/contents\/n\.md/, /limitata a questo repository = true/, /forzata su questo = true/,
+    /elenco dei repository → OK L'agente lavora solo sul repository selezionato: mario\/flash\. \| richieste = 0/, /creazione di un repository → ERR Non consentito/,
+    /lettura → ERR Nessun repository selezionato.*richieste = 0/, /altro repository → OK File a\.txt .*richieste = 1/,
+    /nessuna domanda di conferma = true \| richieste di scrittura = 0 \| il modello riceve il motivo = true/, /il modello sa quale repository usare = true/,
+    /casella attiva di serie = true/, /salvata = true/, /^ERRORS \[\]/m
   ]
 };

@@ -30,6 +30,33 @@
     return { owner, repo, base: '/repos/' + owner + '/' + repo };
   }
 
+  // ─── Limite al repository selezionato ─────────────────────
+  // Con ctx.repoLock l'agente può usare GitHub SOLO sul repository scelto nelle Impostazioni (ctx.repoScope = «proprietario/nome»):
+  // owner/repo omessi si completano, un altro repository viene rifiutato, la ricerca nel codice è sempre limitata a quel repository.
+  const REPO_SCOPED = ['github_read_file', 'github_write_file', 'github_delete_file', 'github_create_branch', 'github_list_branches_commits', 'github_issues', 'github_pull_requests', 'github_actions', 'github_edit_file'];
+  function applyScope(name, args, ctx) {
+    if (!ctx || !ctx.repoLock || !/^github_/.test(name)) return args;
+    const sel = str(ctx.repoScope).trim();
+    if (!/^[\w.-]+\/[\w.-]+$/.test(sel))
+      throw new Error('Nessun repository selezionato: l\'agente usa GitHub solo sul repository scelto in Impostazioni → GitHub. Chiedi all\'utente di sceglierlo.');
+    const [owner, repo] = sel.split('/');
+    if (name === 'github_create_repo') throw new Error('Non consentito: l\'agente può lavorare solo sul repository selezionato (' + sel + ') e non può crearne altri.');
+    if (name === 'github_list_repos') return args;
+    const a = Object.assign({}, args);
+    if (name === 'github_search_code') {
+      a.owner = owner;
+      a.repo = repo;
+      return a;
+    }
+    if (REPO_SCOPED.includes(name)) {
+      if (!str(a.owner).trim()) a.owner = owner;
+      if (!str(a.repo).trim()) a.repo = repo;
+      if (str(a.owner).toLowerCase() !== owner.toLowerCase() || str(a.repo).toLowerCase() !== repo.toLowerCase())
+        throw new Error('Repository non consentito: «' + str(a.owner) + '/' + str(a.repo) + '». L\'agente può leggere e modificare solo il repository selezionato (' + sel + ').');
+    }
+    return a;
+  }
+
   function encPath(p) {
     return str(p)
       .replace(/^\/+|\/+$/g, '')
@@ -153,6 +180,7 @@
     },
     title: () => 'Elenca i tuoi repository',
     async run(args, ctx) {
+      if (ctx.repoLock) return 'L\'agente lavora solo sul repository selezionato: ' + (str(ctx.repoScope) || '(nessuno: sceglilo in Impostazioni → GitHub)') + '.';
       const per = Math.min(100, Math.max(1, Number(args.limit) || 30));
       const vis = ['all', 'public', 'private'].includes(args.visibility) ? args.visibility : 'all';
       const list = await gh(ctx, '/user/repos?sort=updated&per_page=' + per + '&visibility=' + vis);
@@ -2328,11 +2356,12 @@
     const t = get(name);
     if (!t) throw new Error('Strumento sconosciuto: ' + name);
     if (ctx && ctx.signal && ctx.signal.aborted) throw abortError();
-    const out = await t.run(args || {}, ctx || {});
+    args = applyScope(name, args || {}, ctx);
+    const out = await t.run(args, ctx || {});
     const max = t.maxResult || MAX_RESULT; // github_read_file gestisce da sé i tagli e li segnala («FILE INCOMPLETO»)
     if (out && typeof out === 'object' && typeof out.text === 'string') return { text: clip(out.text, max), files: out.files || [], imageUrl: out.imageUrl };
     return { text: clip(out, max), files: [] };
   }
 
-  global.MiaTools = { ocrImages, definitions, connectorWeb, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
+  global.MiaTools = { applyScope, ocrImages, definitions, connectorWeb, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
 })(window);

@@ -71,6 +71,7 @@ In **Impostazioni → Modalità agente** Mia può usare 24 strumenti (più quell
 | `github_issues` | elenca/legge issue; crea issue o commenta | solo crea/commenta |
 | `read_webpage` | legge il testo di una pagina web | no |
 | `notes` | note salvate sul telefono (salva, elenca, leggi, elimina, **cerca**) | solo elimina |
+| *(limite)* | Con «L'agente usa GitHub solo sul repository selezionato» (attivo di serie) tutti gli strumenti GitHub lavorano **solo** sul repository scelto in Impostazioni → GitHub: gli altri sono rifiutati, non si possono creare repository e senza repository selezionato GitHub resta bloccato. Non vale per i connettori MCP | — |
 | `search_chats` | cerca nelle conversazioni salvate (titoli, messaggi, nomi degli allegati) | no |
 | `memory` | Memoria personale: aggiunge, elenca, toglie fatti da ricordare | aggiungi e togli |
 | `github_edit_file` | modifica un file con «trova e sostituisci» esatto (non lo riscrive per intero), con commit | **sì** |
