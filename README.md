@@ -236,6 +236,12 @@ Test end-to-end con Playwright, servizi esterni simulati (circa 1 minuto). Detta
 - `js/app-fix.js` — gestione classe `sheet-open` per bloccare lo scroll dello sfondo
 
 
+## Velocità dei modelli e risposta «a poco a poco»
+- Sotto ogni risposta di Mia, accanto al modello, compare il **tempo** (per esempio «4,2 s · 1° testo 0,8 s · ~18 parole/s»). Il «1° testo» c'è solo se la risposta è arrivata a poco a poco; le «parole al secondo» si calcolano su risposte di almeno 15 parole. Si spegne in Impostazioni.
+- In Impostazioni, «Velocità misurate dei modelli» elenca i modelli dal più veloce, con la media sulle tue ultime risposte (si può azzerare).
+- **Su Android**, per Gemini, Groq, Mistral e OpenRouter la risposta arriva ora a poco a poco: Mia usa il canale normale del browser invece di quello nativo (che restituisce tutto alla fine). Se quel canale fallisce (per esempio perché il servizio blocca le richieste del browser), Mia ripiega da sola sul canale nativo e se lo ricorda per la sessione. NVIDIA e gli altri provider restano sul canale nativo.
+- Non provato su Android vero: il comportamento reale dipende dal dispositivo e dal servizio.
+
 ## Secondo parere e riepilogo (condivisione con altre app)
 Sotto ogni risposta di Mia ci sono due pulsanti nuovi, senza chiavi né richieste a pagamento:
 - **Secondo parere**: prepara un testo completo (la tua richiesta, le modifiche fatte con i commit, la risposta e una domanda già scritta: «ci sono errori, cose dimenticate o rischi?») e apre il pannello «Condividi» di Android, così lo mandi all'app di un'altra AI. Se il testo è lungo (oltre ~7500 caratteri) lo condivide come file `secondo-parere.md`. Nel browser copia il testo o scarica il file.

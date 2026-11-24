@@ -80,7 +80,7 @@
       model: '',
       needsKey: true,
       keyUrl: 'https://huggingface.co/settings/tokens',
-      hint: 'Token da huggingface.co/settings/tokens con il permesso «Make calls to Inference Providers». I crediti gratuiti mensili sono limitati.'
+      hint: 'Token da huggingface.co/settings/tokens (inizia con «hf_»): se è «fine-grained» deve avere il permesso «Make calls to Inference Providers». Poi premi «Carica modelli» e scegli un modello dall\'elenco: il nome va scritto esatto (per esempio «Qwen/Qwen2.5-72B-Instruct»). I crediti gratuiti mensili sono limitati e alcuni provider sono a pagamento.'
     },
     custom: {
       label: 'Personalizzato (compatibile OpenAI)',
@@ -99,10 +99,23 @@
     return String(u || '').trim().replace(/\/+$/, '');
   }
 
+  const oneLineMsg = (t) => String(t).replace(/\s+/g, ' ').slice(0, 140);
+
   function friendlyError(e, providerLabel) {
     const m = String((e && e.message) || e || '');
     const who = providerLabel || 'Provider';
     if (e && e.attachmentError) return m;
+    // Hugging Face (Inference Providers): errori tipici e cosa fare
+    if (/Hugging ?Face|huggingface/i.test(who + ' ' + m) && !isConnectionError(e)) {
+      if (/\b402\b|credits|exceeded|payment required/i.test(m))
+        return who + ': i crediti gratuiti mensili di Hugging Face sono finiti, oppure il modello scelto usa un provider a pagamento. Prova un altro modello o un altro provider.';
+      if (/sufficient permissions|permission|\b403\b/i.test(m))
+        return who + ': il token non ha il permesso «Make calls to Inference Providers». Apri huggingface.co/settings/tokens, modifica il token e attiva quel permesso (oppure crea un token nuovo con quel permesso), poi incollalo qui.';
+      if (/\b401\b|invalid (username|token|credentials)|unauthori[sz]ed/i.test(m))
+        return who + ': token non valido o scaduto. Copialo di nuovo per intero da huggingface.co/settings/tokens (inizia con «hf_», senza spazi né a capo).';
+      if (/not supported|model_not_supported|not found|does not exist|no provider|\b404\b|\b400\b/i.test(m))
+        return who + ': il modello scelto non è disponibile con i tuoi provider (' + oneLineMsg(m) + '). Premi «Carica modelli» nelle Impostazioni e scegline uno dall\'elenco.';
+    }
     if (/tool|function.?call/i.test(m) && /support|endpoint|enabled|not (available|allowed)|invalid/i.test(m))
       return who + ': questo modello non supporta gli strumenti (modalità agente). Scegline un altro (es. Gemini) o disattiva la modalità agente in Impostazioni.';
     if (/image|vision|multimodal|image_url|inline_?data|mime|pdf|file/i.test(m) && /support|invalid|not|unsupported|allowed/i.test(m))
@@ -239,6 +252,30 @@
     return out;
   }
 
+  /**
+   * Su Android con CapacitorHttp il fetch normale passa dal canale nativo, che restituisce la risposta solo a richiesta finita (niente testo «a poco a poco»).
+   * Per i provider che accettano richieste dal browser (CORS) si usa il fetch originale del browser (window.CapacitorWebFetch), che fa arrivare il testo in streaming.
+   * Se fallisce prima di ricevere una risposta (CORS o rete) si ripiega sul canale nativo e si ricorda l'host per il resto della sessione.
+   */
+  const WEB_STREAM_HOSTS = /^(generativelanguage\.googleapis\.com|api\.groq\.com|api\.mistral\.ai|openrouter\.ai)$/;
+  const nativeOnly = new Set();
+  async function streamFetch(url, init) {
+    const web = typeof window !== 'undefined' && window.CapacitorWebFetch;
+    let host = '';
+    try {
+      host = new URL(url).host;
+    } catch (_) {}
+    if (typeof web === 'function' && WEB_STREAM_HOSTS.test(host) && !nativeOnly.has(host)) {
+      try {
+        return await web.call(window, url, init);
+      } catch (e) {
+        if (e && e.name === 'AbortError') throw e;
+        nativeOnly.add(host);
+      }
+    }
+    return fetch(url, init);
+  }
+
   async function streamGemini(cfg, messages, onText, signal, tools) {
     const body = {
       contents: geminiContents(cfg, messages),
@@ -259,7 +296,7 @@
 
     const url =
       trimSlash(cfg.baseUrl) + '/models/' + encodeURIComponent(cfg.model) + ':streamGenerateContent?alt=sse';
-    const res = await fetch(url, {
+    const res = await streamFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.apiKey },
       body: JSON.stringify(body),
@@ -371,7 +408,7 @@
       reqBody.tools = tools.map((t) => ({ type: 'function', function: t }));
       reqBody.tool_choice = 'auto';
     }
-    const res = await fetch(trimSlash(cfg.baseUrl) + '/chat/completions', {
+    const res = await streamFetch(trimSlash(cfg.baseUrl) + '/chat/completions', {
       method: 'POST',
       headers: openaiHeaders(cfg),
       body: JSON.stringify(reqBody),
@@ -460,6 +497,29 @@
    * opts.tools: schemi degli strumenti ({ name, description, parameters }) per la modalità agente.
    * Restituisce il testo; con opts.full = true restituisce { text, toolCalls: [{ id, name, args }] }.
    */
+  /**
+   * Rende interrompibile una promessa: quando il segnale scatta, la promessa restituita fallisce subito con un AbortError,
+   * anche se la richiesta sotto non si interrompe (su Android CapacitorHttp ignora l'AbortSignal e risponde solo a richiesta finita).
+   */
+  function raceAbort(promise, signal) {
+    if (!signal) return promise;
+    return new Promise((resolve, reject) => {
+      const stop = () => reject(Object.assign(new Error('Interrotto'), { name: 'AbortError' }));
+      if (signal.aborted) return stop();
+      signal.addEventListener('abort', stop, { once: true });
+      promise.then(
+        (v) => {
+          signal.removeEventListener('abort', stop);
+          resolve(v);
+        },
+        (e) => {
+          signal.removeEventListener('abort', stop);
+          reject(e);
+        }
+      );
+    });
+  }
+
   async function chat(cfg, messages, onText, opts) {
     const preset = PRESETS[cfg.provider] || PRESETS.custom;
     if (preset.needsKey && !cfg.apiKey) throw new Error('Inserisci la chiave API in Impostazioni.');
@@ -470,7 +530,7 @@
     try {
       const fn = preset.type === 'gemini' ? streamGemini : streamOpenAI;
       const cb = onText || function () {};
-      const out = await fn(cfg, messages, (full) => cb(cleanText(full)), signal, opts && opts.tools);
+      const out = await raceAbort(fn(cfg, messages, (full) => cb(cleanText(full)), signal, opts && opts.tools), signal);
       const text = cleanText(out.text);
       if (!text.trim() && !out.toolCalls.length) throw new Error('Risposta vuota dal modello.');
       // Senza opts.full restituisce solo il testo (come prima): così funzionano anche le chiamate che si aspettano una stringa.
@@ -526,5 +586,5 @@
     return !(e && e.attachmentError) && /429|quota|rate.?limit|overload|capacity|unavailable|50[234]|no endpoints/i.test(m);
   }
 
-  global.MiaProviders = { PRESETS, chat, listModels, abort, friendlyError, isBusyError, isConnectionError, cleanText, isSpecialized };
+  global.MiaProviders = { raceAbort, PRESETS, chat, listModels, abort, friendlyError, isBusyError, isConnectionError, cleanText, isSpecialized };
 })(window);

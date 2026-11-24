@@ -143,6 +143,16 @@
         <small class="hint">Quando il modello scelto è occupato, ha raggiunto il limite o la connessione cade, Mia prova questi in ordine (al massimo 4). Con le frecce cambi l'ordine; i modelli senza chiave vengono saltati. Questo elenco è separato dai preferiti del cambio rapido.</small>
       </div>
 
+      <div class="field">
+        <span>Velocità misurate dei modelli</span>
+        <ul class="speed-list" id="speedList"></ul>
+        <button type="button" class="btn ghost" id="speedReset">Azzera le misure</button>
+        <small class="hint">Misurate sulle tue risposte (media delle ultime). «Parole al secondo» e «1° testo»: i modelli più alti nell'elenco sono i più veloci. Dove manca il «1° testo» (senza streaming) la risposta arriva tutta insieme alla fine.</small>
+      </div>
+      <label class="field check-field">
+        <input type="checkbox" id="showSpeed">
+        <span>Mostra il tempo di ogni risposta sotto il messaggio</span>
+      </label>
       <label class="field check-field">
         <input type="checkbox" id="keepAwake">
         <span>Tieni lo schermo acceso mentre Mia lavora</span>
