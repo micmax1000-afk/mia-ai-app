@@ -73,7 +73,7 @@ const NATIVE = `
   console.log('   un errore di connessione resta quello di connessione =', /connessione è caduta/.test(await fe('Failed to fetch')));
   console.log('   gli altri provider non cambiano (OpenRouter 402) =', /crediti esauriti.*:free/.test(await fe('402 payment required','OpenRouter (x)')), '| (NVIDIA 401) =', /chiave API non valida o non autorizzata/.test(await fe('401 Unauthorized','NVIDIA (x)')));
   await page.evaluate(()=>{ const s=JSON.parse(localStorage.getItem('miaai_v1_settings')); s.provider='huggingface'; s.profiles.huggingface={apiKey:'token-sbagliato',model:'Qwen/x',baseUrl:'https://router.huggingface.co/v1'}; localStorage.setItem('miaai_v1_settings',JSON.stringify(s)); }); await page.reload(); await page.waitForSelector('#input');
-  await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]'); await page.waitForSelector('#closeSettings'); await page.click('#closeSettings'); await page.waitForTimeout(200);
+  await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#closeSettings'); await page.click('#closeSettings'); await page.waitForTimeout(200);
   console.log('   token che non inizia con «hf_» → avviso =', /inizia con «hf_»/.test(await page.locator('#toast').textContent())); await page.close();
   console.log('ERRORS', errs);
   await b.close(); web.close();

@@ -236,6 +236,11 @@ Test end-to-end con Playwright, servizi esterni simulati (circa 1 minuto). Detta
 - `js/app-fix.js` — gestione classe `sheet-open` per bloccare lo scroll dello sfondo
 
 
+## Impostazioni a sezioni e versione dell'app
+- Le Impostazioni sono divise in **sezioni a tendina** (di serie solo «Modello e chiave» è aperta): *Istruzioni, memoria e aspetto*, *Ripiego, velocità e lavoro in background*, *GitHub*, *Modalità agente e strumenti* (con immagini, ricerca web e connettori in sotto-tendine), *Sincronizzazione e dati*. Accanto a ogni titolo c'è una riga di riassunto (per esempio «2 modelli di ripiego · ripresa automatica sì»). L'app ricorda quali sezioni hai aperto. I campi nelle sezioni chiuse vengono salvati lo stesso.
+- In fondo, nella sezione dei dati, c'è la **versione** («Mia AI · versione 0.3.0.57 (build 57)»). A ogni build dell'APK il numero di build aumenta da solo (`versionCode` = numero dell'esecuzione del workflow), così l'APK nuovo si installa **sopra** quello vecchio senza perdere le chat.
+- **Modelli di ripiego**: fino a **8**. Un modello che risponde «limite raggiunto / occupato» viene saltato per 2 minuti (1 ora se il limite è giornaliero): Mia passa subito al successivo. Se tutti falliscono il messaggio elenca ogni modello provato e il motivo.
+
 ## Velocità dei modelli e risposta «a poco a poco»
 - Sotto ogni risposta di Mia, accanto al modello, compare il **tempo** (per esempio «4,2 s · 1° testo 0,8 s · ~18 parole/s»). Il «1° testo» c'è solo se la risposta è arrivata a poco a poco; le «parole al secondo» si calcolano su risposte di almeno 15 parole. Si spegne in Impostazioni.
 - In Impostazioni, «Velocità misurate dei modelli» elenca i modelli dal più veloce, con la media sulle tue ultime risposte (si può azzerare).

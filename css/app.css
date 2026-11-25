@@ -509,3 +509,17 @@ html[data-offline='1'] .net-dot {
 
 .speed-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .speed-list li { padding: 6px 8px; border: 1px solid var(--border, rgba(128,128,128,.35)); border-radius: 10px; overflow-wrap: anywhere; }
+
+/* Impostazioni a tendine */
+details.set-sec { border: 1px solid var(--border, rgba(128,128,128,.35)); border-radius: 14px; margin: 10px 0; background: transparent; }
+details.set-sec > summary, details.set-sub > summary { list-style: none; cursor: pointer; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; position: relative; padding-right: 34px; }
+details.set-sec > summary::-webkit-details-marker, details.set-sub > summary::-webkit-details-marker { display: none; }
+details.set-sec > summary::after, details.set-sub > summary::after { content: '▾'; position: absolute; right: 14px; top: 12px; opacity: .6; transition: transform .15s; }
+details.set-sec[open] > summary::after, details.set-sub[open] > summary::after { transform: rotate(180deg); }
+details.set-sec .set-title { font-weight: 600; }
+details.set-sec .set-sum, details.set-sub .set-sum { opacity: .65; font-size: 12px; overflow-wrap: anywhere; }
+details.set-sec > .set-body { padding: 0 14px 12px; }
+details.set-sub { border-top: 1px dashed var(--border, rgba(128,128,128,.35)); margin-top: 8px; }
+details.set-sub > summary { padding: 10px 0; padding-right: 22px; flex-direction: row; align-items: baseline; gap: 8px; }
+details.set-sub > summary::after { right: 2px; top: 10px; }
+details.set-sub > .set-body { padding: 0 0 8px; }

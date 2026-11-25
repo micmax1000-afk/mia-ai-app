@@ -92,7 +92,7 @@ reset();
   console.log('   modifica piccola:', (await page.textContent('#confirmTitle')).slice(0,40), '| righe =', /Righe: −1 \/ \+1/.test(await page.textContent('#confirmDetails')), '| avviso rosso =', await page.locator('#confirmWarn').isVisible());
   await page.click('#confirmNo'); await page.waitForSelector('.msg.assistant .bubble:has-text("Fine.") >> nth=1',{timeout:15000});
   console.log('— impostazioni');
-  await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]'); await page.waitForSelector('#githubUseBranch',{state:'attached'});
+  await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#githubUseBranch',{state:'attached'});
   console.log('   branch di lavoro attivo di serie =', await page.locator('#githubUseBranch').isChecked(), '| nome =', await page.inputValue('#githubWorkBranch'));
   await page.fill('#githubWorkBranch','prove'); await page.click('#closeSettings');
   console.log('   nome salvato =', await page.evaluate(()=>JSON.parse(localStorage.getItem('miaai_v1_settings')).githubWorkBranch));

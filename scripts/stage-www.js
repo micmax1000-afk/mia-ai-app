@@ -29,4 +29,11 @@ for (const dir of ['css', 'js', 'icons']) {
   if (fs.existsSync(s)) copyDir(s, path.join(www, dir));
 }
 
+// versione mostrata nelle Impostazioni della versione web (su Android la dà il sistema)
+const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+fs.writeFileSync(
+  path.join(www, 'version.json'),
+  JSON.stringify({ version: pkg.version, build: process.env.GITHUB_RUN_NUMBER || '', sha: (process.env.GITHUB_SHA || '').slice(0, 7) })
+);
+
 console.log('www/ pronto per Capacitor');

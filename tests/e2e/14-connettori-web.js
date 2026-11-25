@@ -44,7 +44,7 @@ const TOOLS=[{name:'web_search',description:'Cerca sul web',inputSchema:{type:'o
   await page.fill('#input','cerca le notizie di oggi'); await page.click('#sendBtn'); await page.waitForSelector('.bubble:has-text("Ecco le notizie")',{timeout:15000});
   console.log('6) chat senza nominare Parallel: chiamate al connettore =', mcpCalls.filter(x=>x.startsWith('tools/call')).join(','), '| scheda:', (await page.locator('.tool-card summary').first().textContent()).trim(), '| nessuna conferma =', await page.locator('#confirm').isHidden());
   // impostazioni
-  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]'); await page.waitForSelector('#settings:not([hidden])');
+  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#settings:not([hidden])');
   console.log('7) casella in Impostazioni selezionata:', await page.isChecked('#preferMcpWeb')); await page.uncheck('#preferMcpWeb'); await page.click('#closeSettings');
   console.log('   salvata:', await page.evaluate(()=>JSON.parse(localStorage.getItem('miaai_v1_settings')).preferMcpWeb));
   console.log('ERRORS', errs);

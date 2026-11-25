@@ -75,7 +75,7 @@ const cors={'access-control-allow-origin':'*','access-control-allow-headers':'*'
   console.log('   errore mostrato:', (await page.locator('.msg.error .bubble').textContent()).slice(0,210)); pol.mode='ok';
 
   console.log('— impostazioni');
-  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]'); await page.waitForSelector('#settings:not([hidden])');
+  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#settings:not([hidden])');
   console.log('   scelte:', await page.evaluate(()=>[...document.querySelectorAll('#imageProvider option')].map(o=>o.value).join(', ')));
   console.log('ERRORS', errs);
   await b.close(); web.close();

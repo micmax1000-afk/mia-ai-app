@@ -50,7 +50,7 @@ const calls = [];
   console.log('   nessuna domanda di conferma =', await page.locator('#confirm').isHidden(), '| richieste di scrittura =', calls.filter(c=>c.startsWith('PUT')).length, '| il modello riceve il motivo =', /Repository non consentito/.test(gemBodies[1]||''));
   console.log('   il modello sa quale repository usare =', /SOLO sul repository «mario\/flash»/.test(gemBodies[0]));
   console.log('— impostazione nel pannello');
-  await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]'); await page.waitForSelector('#githubScope',{state:'attached'});
+  await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#githubScope',{state:'attached'});
   console.log('   casella attiva di serie =', await page.locator('#githubScope').isChecked());
   await page.locator('#githubScope').uncheck(); await page.click('#closeSettings');
   console.log('   salvata =', await page.evaluate(()=>JSON.parse(localStorage.getItem('miaai_v1_settings')).githubScope===false));

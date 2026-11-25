@@ -43,6 +43,13 @@ jobs:
           npx cap add android
           npx cap sync android
 
+      - name: Versione dell'app (aumenta a ogni build, così si installa sopra)
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          sed -i "s/versionCode [0-9]*/versionCode ${GITHUB_RUN_NUMBER}/; s/versionName \"[^\"]*\"/versionName \"${VERSION}.${GITHUB_RUN_NUMBER}\"/" android/app/build.gradle
+          grep -n "versionCode\|versionName" android/app/build.gradle
+          grep -q "versionCode ${GITHUB_RUN_NUMBER}" android/app/build.gradle
+
       - name: Applica icone e schermata di avvio
         run: |
           cp -r resources/android-res/. android/app/src/main/res/

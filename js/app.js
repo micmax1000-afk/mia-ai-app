@@ -16,7 +16,7 @@
   const MAX_HISTORY = 60; // messaggi inviati al modello come contesto
   const MAX_HISTORY_HARD = 220; // limite assoluto quando si tengono nel contesto le ultime richieste dell'utente
   const PIN_USER_MESSAGES = 3; // ultime richieste dell'utente sempre nel contesto
-  const MAX_FALLBACKS = 4; // modelli di ripiego provati al massimo
+  const MAX_FALLBACKS = 8; // modelli di ripiego provati al massimo
   const RESUME_WINDOW = 15 * 60 * 1000; // un lavoro interrotto si riprende da solo solo se è recente
   const KEEP_TOOL_RESULTS = 6; // risultati di strumenti recenti inviati per intero (i più vecchi vengono accorciati)
   const MAX_TEXT_FILE = 200 * 1024; // caratteri massimi di un file di testo
@@ -1091,6 +1091,28 @@
     return bubble;
   }
 
+  // ─── Pausa dei modelli che hanno raggiunto il limite ─────────
+  // Un modello che risponde «occupato / limite raggiunto» viene saltato per qualche minuto (un'ora se il limite è giornaliero):
+  // Mia passa subito al successivo invece di riprovarlo a ogni passo.
+  const coolUntil = {}; // 'provider|modello' → istante in cui si riprova
+  const modelKey = (a) => a.provider + '|' + a.model;
+  const inPause = (a) => (coolUntil[modelKey(a)] || 0) > Date.now();
+  function pauseModel(a, err) {
+    const m = String((err && err.message) || err || '');
+    coolUntil[modelKey(a)] = Date.now() + (/per-day|per day|daily|giornalier/i.test(m) ? 60 : 2) * 60 * 1000;
+  }
+  /** Prima i modelli disponibili (nell'ordine scelto), poi quelli in pausa, dal primo a ripartire. */
+  function orderByPause(list) {
+    const ok = list.filter((a) => !inPause(a));
+    const paused = list.filter(inPause).sort((x, y) => coolUntil[modelKey(x)] - coolUntil[modelKey(y)]);
+    return ok.concat(paused);
+  }
+  function whyFailed(err) {
+    if (P.isBusyError(err)) return 'limite raggiunto o occupato';
+    if (P.isConnectionError(err)) return 'connessione caduta';
+    return P.friendlyError(err, '').replace(/^[^:]*:\s*/, '').slice(0, 70);
+  }
+
   async function runAssistant(c, pick) {
     const cfg = chatConfig(pick);
     // rimuovi eventuali errori precedenti in coda
@@ -1120,6 +1142,7 @@
     }
 
     let tag = modelLabel(cfg.provider, cfg.model);
+    let triedLog = []; // modelli provati in questo passo e perché hanno fallito
     let partial = '';
     let frame = 0;
     try {
@@ -1154,8 +1177,11 @@
         const history = buildHistory(c);
         partial = '';
         let result = null;
-        for (let i = 0; i < attempts.length && result === null; i++) {
-          const a = attempts[i];
+        const ordered = orderByPause(attempts);
+        triedLog = [];
+        if (ordered.length > 1 && ordered[0] !== attempts[0] && inPause(attempts[0])) toast(attempts[0].model + ' è in pausa (limite raggiunto): uso ' + ordered[0].model);
+        for (let i = 0; i < ordered.length && result === null; i++) {
+          const a = ordered[i];
           tag = modelLabel(a.provider, a.model);
           try {
             result = await chatWithRetry(
@@ -1179,7 +1205,9 @@
             );
             addFavorite(a.provider, a.model);
           } catch (err) {
-            const next = attempts[i + 1];
+            const next = ordered[i + 1];
+            if (err && err.name !== 'AbortError') triedLog.push({ model: a.model, why: whyFailed(err) });
+            if (P.isBusyError(err)) pauseModel(a, err);
             if (!next || partial || !(P.isBusyError(err) || P.isConnectionError(err))) throw err;
             toast(a.model + (P.isConnectionError(err) ? ': connessione caduta, provo ' : ' è occupato: provo ') + next.model);
           }
@@ -1224,7 +1252,7 @@
         if (partial.trim()) c.messages.push({ role: 'assistant', content: partial, model: tag });
         const label = (P.PRESETS[cfg.provider] || {}).label + ' (' + cfg.model + ')';
         let msg = '⚠️ ' + P.friendlyError(e, label);
-        if (attempts.length > 1 && P.isBusyError(e)) msg += ' Ho provato anche: ' + attempts.slice(1).map((a) => a.model).join(', ') + '.';
+        if (triedLog.length > 1) msg = '⚠️ Nessun modello ha risposto.\n\nHo provato: ' + triedLog.map((t) => t.model + ' (' + t.why.replace(/\.$/, '') + ')').join(', ') + '.';
         else if (attempts.length === 1 && P.isBusyError(e))
           msg += ' Suggerimento: aggiungi un secondo modello (es. Gemini) e l\'app passerà da sola a quello quando questo è occupato.';
         const resumable = P.isConnectionError(e);
@@ -1619,6 +1647,63 @@
     runAssistant(c, pick);
   }
 
+  // ─── Impostazioni a sezioni (tendine) ─────────────────────
+  const SEC_KEY = 'miaai_set_open';
+  /** Ricorda quali sezioni erano aperte (di serie solo la prima). */
+  function restoreSections() {
+    let st = {};
+    try {
+      st = JSON.parse(localStorage.getItem(SEC_KEY) || '{}') || {};
+    } catch (_) {}
+    document.querySelectorAll('details.set-sec, details.set-sub').forEach((d) => {
+      if (d.id in st) d.open = !!st[d.id];
+      d.addEventListener('toggle', () => {
+        st[d.id] = d.open;
+        try {
+          localStorage.setItem(SEC_KEY, JSON.stringify(st));
+        } catch (_) {}
+      });
+    });
+  }
+
+  /** Una riga di riassunto accanto al titolo di ogni sezione, così non serve aprirla per sapere come è impostata. */
+  function updateSummaries() {
+    const set = (id, t) => {
+      const el = document.querySelector('[data-sum="' + id + '"]');
+      if (el) el.textContent = t;
+    };
+    const preset = P.PRESETS[settings.provider] || P.PRESETS.custom;
+    const prof = profile();
+    set('model', (preset.short || preset.label) + ' · ' + (prof.model || 'nessun modello') + (!preset.needsKey || prof.apiKey ? '' : ' · manca la chiave'));
+    const memLines = String(settings.memory || '').split('\n').filter((l) => l.trim()).length;
+    set('istr', 'Memoria: ' + (memLines ? memLines + (memLines === 1 ? ' riga' : ' righe') : 'vuota') + ' · tema ' + ({ auto: 'automatico', dark: 'scuro', light: 'chiaro' }[settings.theme] || settings.theme));
+    set('fall', (settings.autoFallback !== false ? settings.fallbacks.length + ' modelli di ripiego' : 'ripiego spento') + ' · ripresa automatica ' + (settings.autoResume !== false ? 'sì' : 'no'));
+    set('gh', settings.githubRepo ? settings.githubRepo : settings.githubToken ? 'token inserito, nessun repository scelto' : 'nessun token');
+    set('agent', settings.agentEnabled ? 'attiva · ' + (settings.githubUseBranch !== false ? 'branch di lavoro ' + workBranch() : 'scrive sul principale') : 'spenta');
+    set('sync', settings.syncRepo ? settings.syncRepo + (settings.syncAuto ? ' · automatica' : '') : 'non configurata');
+  }
+
+  /** Versione dell'app (su Android dal sistema, altrimenti da version.json della versione web). */
+  async function showVersion() {
+    const el = $('#appVersion');
+    if (!el) return;
+    try {
+      const App = nativePlugin('App');
+      if (App && App.getInfo) {
+        const i = await App.getInfo();
+        el.textContent = 'Mia AI · versione ' + i.version + ' (build ' + i.build + ')';
+        return;
+      }
+    } catch (_) {}
+    try {
+      const r = await fetch('version.json', { cache: 'no-store' });
+      if (r.ok) {
+        const v = await r.json();
+        el.textContent = 'Mia AI · versione ' + v.version + (v.build ? ' (build ' + v.build + ')' : '');
+      }
+    } catch (_) {}
+  }
+
   // ─── Modelli di ripiego (in ordine) ───────────────────────
   function renderFallbacks() {
     const ol = $('#fallbackList');
@@ -1829,6 +1914,7 @@
     $('#githubUseBranch').checked = settings.githubUseBranch !== false;
     $('#githubReadFirst').checked = settings.githubReadFirst !== false;
     $('#keepAwake').checked = settings.keepAwake !== false;
+    updateSummaries();
     $('#showSpeed').checked = settings.showSpeed !== false;
     renderSpeedStats();
     $('#autoResume').checked = settings.autoResume !== false;
@@ -2372,6 +2458,8 @@
       await importChats(f);
     });
     bindFallbacks();
+    restoreSections();
+    showVersion();
     $('#speedReset').addEventListener('click', () => {
       settings.speedStats = {};
       save(LS_SETTINGS, settings);

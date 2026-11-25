@@ -51,7 +51,7 @@ const srv = http.createServer((q,r)=>{ let p=q.url.split('?')[0]; if(p==='/')p='
   const ping = gemBodies[0].tools[0].functionDeclarations.find(d=>d.name==='mcp_mockmcp_ping');
   console.log('ping senza parametri →', JSON.stringify(ping));
   // 7) UI impostazioni
-  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]');
+  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true)));
   await page.waitForSelector('.mcp-server');
   await page.click('.mcp-server .btn:has-text("Prova")');
   await page.waitForSelector('.mcp-status.ok');

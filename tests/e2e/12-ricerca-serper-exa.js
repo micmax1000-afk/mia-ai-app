@@ -34,7 +34,7 @@ const cors={'access-control-allow-origin':'*','access-control-allow-headers':'*'
   show('Brave (rimosso)', await run({searchProvider:'brave',searchKey:'x'}));
   // migrazione: chi aveva salvato «brave» passa a Google/Gemini
   await page.click('#menuBtn').catch(()=>{}); 
-  const opened = await page.locator('#settings').isVisible(); if(!opened){ await page.click('#drawer [data-open-settings]'); } await page.waitForSelector('#settings:not([hidden])');
+  const opened = await page.locator('#settings').isVisible(); if(!opened){ await page.click('#drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); } await page.waitForSelector('#settings:not([hidden])');
   console.log('impostazione salvata «brave» → il menu mostra:', await page.inputValue('#searchProvider'));
   console.log('voci del menu:', await page.evaluate(()=>[...document.querySelectorAll('#searchProvider option')].map(o=>o.value||'(disattivata)').join(', ')));
   const vis = async (v) => { await page.selectOption('#searchProvider', v); return await page.locator('#searchKeyField').isVisible(); };
@@ -42,7 +42,7 @@ const cors={'access-control-allow-origin':'*','access-control-allow-headers':'*'
   await page.selectOption('#searchProvider','serper'); await page.fill('#searchKey','sk-1'); await page.click('#closeSettings');
   console.log('salvato:', JSON.stringify(await page.evaluate(()=>{const s=JSON.parse(localStorage.getItem('miaai_v1_settings')); return [s.searchProvider,s.searchKey]})));
   // NVIDIA: testo corretto
-  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]'); await page.waitForSelector('#settings:not([hidden])'); await page.selectOption('#provider','nvidia');
+  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#settings:not([hidden])'); await page.selectOption('#provider','nvidia');
   console.log('guida NVIDIA:', (await page.textContent('#providerHint')).slice(0,170));
   console.log('provider nel menu:', await page.evaluate(()=>[...document.querySelectorAll('#provider option')].map(o=>o.textContent).join(' | ')));
   console.log('ERRORS', errs);

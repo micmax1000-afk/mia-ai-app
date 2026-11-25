@@ -89,7 +89,7 @@ const sse = (parts) => 'data: ' + JSON.stringify({candidates:[{content:{parts}}]
   await page.evaluate(()=>{ const s=JSON.parse(localStorage.getItem('miaai_v1_settings')); s.theme='light'; localStorage.setItem('miaai_v1_settings',JSON.stringify(s)); }); await page.reload();
   await page.screenshot({path: path.join(TMP,'ui-chat-light.png')});
   await page.evaluate(()=>{ const s=JSON.parse(localStorage.getItem('miaai_v1_settings')); s.theme='dark'; localStorage.setItem('miaai_v1_settings',JSON.stringify(s)); }); await page.reload();
-  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]'); await page.waitForSelector('#settings:not([hidden])');
+  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#settings:not([hidden])');
   await page.evaluate(()=>document.querySelector('.agent-box').scrollIntoView({block:'start'})); await page.waitForTimeout(300);
   await page.screenshot({path: path.join(TMP,'ui-settings-agent.png')});
   console.log('ERRORS:', errors);

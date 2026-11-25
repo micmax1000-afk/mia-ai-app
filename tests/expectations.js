@@ -291,7 +291,7 @@ module.exports = {
     /tolto il secondo → 1\. Groq · llama \| 2\. Mistral · mistral-large/, /doppione ignorato → 2 voci/, /senza chiave → 3\. OpenRouter · qualcosa:free \(manca la chiave\)/,
     /salvato nelle impostazioni = groq,mistral,openrouter \| preferiti intatti = true/,
     /ordine dei tentativi → nvidia → groq \| risposta = Risposta di groq\./, /ordine con più modelli occupati → nvidia → groq → mistral → gemini/,
-    /richieste totali = 5 \(1 \+ 4\), il quinto \(Gemini\) non viene provato = true/, /ripiego spento: nessun altro modello provato = nvidia/,
+    /richieste totali = 9 \(1 \+ 8\), il nono \(Gemini\) non viene provato = true/, /ripiego spento: nessun altro modello provato = nvidia/,
     /non finisce da solo nell'elenco di ripiego = true \| ma nei preferiti sì = true/,
     /mentre risponde: blocco attivo = true/, /tornando in primo piano lo riprende = true/, /a lavoro finito è rilasciato = true \| \{"req":2,"rel":2,"active":0\}/,
     /con l'opzione spenta non lo chiede mai = true/, /plugin nativo \(Android\): attivato mentre lavora = true \| riposo a fine lavoro = true/, /nessuna delle due funzioni: nessun errore = true/,
@@ -327,5 +327,15 @@ module.exports = {
     /risposta arrivata =  true \| web provato = 1 , nativo usato = 1/, /alla seconda richiesta non riprova il canale del browser = true \| nativo = 2/,
     /torna libero subito = true .* testo parziale conservato con «\(interrotto\)» = true/,
     /mostra modello, parole al secondo, tempo medio, 1° testo e numero di risposte = true/, /«Azzera le misure» = true/, /resta solo il modello = true/, /^ERRORS \[\]/m
+  ],
+  '38-impostazioni-pausa-versione.js': [
+    /all'inizio = model:aperta istr:chiusa fall:chiusa gh:chiusa agent:chiusa sync:chiusa/, /riassunti: modello = NVIDIA · nvidia\/uno \| ripiego = 2 modelli di ripiego · ripresa automatica no \| agente = spenta \| sync = non configurata \| repository = nessun token/,
+    /mostra i suoi campi = true \| le altre sono nascoste = true/, /un clic sul titolo apre la sezione = true/, /un altro clic la chiude = true/,
+    /si ricorda cosa era aperto = model,fall,sync/, /sezione chiusa vengono salvati lo stesso = true/,
+    /1ª domanda: ordine = nvidia → groq \| risposta = Risposta di groq\./, /si parte da Groq → ordine = groq \| NVIDIA richieste totali = 1/,
+    /1ª volta = nvidia,groq,mistral \| 2ª volta = nvidia,groq,mistral/, /elenca i tre modelli con il motivo = true/, /con un solo modello non compare l'elenco = true/,
+    /versione web \(version\.json\) = Mia AI · versione 0\.3\.0 \(build 57\)/, /Android \(dal sistema\) = Mia AI · versione 0\.3\.0\.57 \(build 57\)/,
+    /aggiorna la versione: versionCode = true \| versionName = true \| esito = 0/, /il passo fallisce \(si vede subito\) = true/,
+    /text\/plain = true \| text\/\* = true \| pdf = true \| immagini = true \| secondo passaggio senza duplicati = true/, /www\/version\.json = .* corretto = true/, /^ERRORS \[\]/m
   ]
 };

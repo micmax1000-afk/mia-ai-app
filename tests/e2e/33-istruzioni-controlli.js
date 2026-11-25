@@ -99,7 +99,7 @@ reset();
   await page.fill('#input','ancora una'); await page.click('#sendBtn'); await page.waitForSelector('#confirm:not([hidden])'); await page.click('#confirmYes'); await page.waitForFunction(()=>[...document.querySelectorAll('.msg.assistant .bubble')].filter(b=>b.textContent.includes('Fine.')).length>=3,null,{timeout:20000});
   console.log('        scritto senza rileggere =', gh.puts.join(',')==='piccolo.js');
   console.log('— impostazioni');
-  await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]'); await page.waitForSelector('#githubReadFirst',{state:'attached'});
+  await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#githubReadFirst',{state:'attached'});
   console.log('   casella «leggere prima di modificare» attiva =', await page.locator('#githubReadFirst').isChecked());
   await page.locator('#githubReadFirst').uncheck(); await page.click('#closeSettings'); console.log('   salvata =', await page.evaluate(()=>JSON.parse(localStorage.getItem('miaai_v1_settings')).githubReadFirst===false));
   console.log('ERRORS', errs);
