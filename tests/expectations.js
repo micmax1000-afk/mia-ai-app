@@ -337,5 +337,15 @@ module.exports = {
     /versione web \(version\.json\) = Mia AI · versione 0\.3\.0 \(build 57\)/, /Android \(dal sistema\) = Mia AI · versione 0\.3\.0\.57 \(build 57\)/,
     /aggiorna la versione: versionCode = true \| versionName = true \| esito = 0/, /il passo fallisce \(si vede subito\) = true/,
     /text\/plain = true \| text\/\* = true \| pdf = true \| immagini = true \| secondo passaggio senza duplicati = true/, /www\/version\.json = .* corretto = true/, /^ERRORS \[\]/m
+  ],
+  '39-repository-per-chat-token.js': [
+    /chat esistente \(senza repository salvato\) → resta sul repository di prima = 📁 mario\/flash/, /chat nuova → parte senza repository = 📁 nessun repository \| riquadro tratteggiato = true/,
+    /gli strumenti GitHub sono bloccati = true \| nessuna richiesta di lettura a GitHub = true/, /scelto dal riquadro \(prima del primo messaggio\) = 📁 mario\/flash/,
+    /salvato nella chat e usato dall'agente = true \| lettura eseguita = true/, /un'altra chat nuova riparte senza repository = 📁 nessun repository/, /normalizzato = 📁 mario\/altro/,
+    /avviso, il riquadro resta aperto = true true/, /«Carica i miei repository» = \(nessuno\), mario\/flash, mario\/altro, mario\/terzo/, /scelta dall'elenco = 📁 mario\/terzo/, /«Nessun repository» = 📁 nessun repository/,
+    /riappare il suo repository = 📁 mario\/flash/, /partono dal repository predefinito» = 📁 mario\/flash/, /il riquadro del repository non compare = true/,
+    /all'inizio = 0 token/, /"in":1200,"out":400,"think":100,"est":false/, /barra = 1,6k token \| etichetta del messaggio = Gemini · gemini-3\.5-flash · .* · 1,2k→400 tk/,
+    /il costo è = \$0,0024 \| barra = 1,6k token · \$0,0024/, /"in":5000,"out":700,"think":0,"est":false\} \| barra = 5,7k token/,
+    /stima = true .*barra con ≈ = true ≈ \d+ token/, /modelli senza prezzo → «senza prezzo», nessun costo inventato = true/, /«Azzera il mese» svuota il mese = true \| questa chat conserva il suo conteggio = true/, /^ERRORS \[\]/m
   ]
 };

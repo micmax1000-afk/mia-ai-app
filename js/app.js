@@ -40,7 +40,11 @@
     autoFallback: true, // se il modello è occupato, prova da solo gli altri dell'elenco
     agentEnabled: false, // modalità agente: il modello può usare gli strumenti (GitHub, web, note, file, codice)
     githubToken: '',
-    githubRepo: '',
+    githubRepo: '', // repository predefinito (Impostazioni → GitHub); ogni chat ha poi il suo (c.repo)
+    githubNewChatRepo: false, // le chat nuove partono dal repository predefinito (di serie: senza repository)
+    recentRepos: [], // ultimi repository scelti nelle chat
+    prices: {}, // { 'provider|modello': { in, out } } — dollari per milione di token
+    usageStats: {}, // { 'AAAA-MM': { 'provider|modello': { n, in, out, est } } }
     githubReadFirst: true, // l'agente deve aver letto un file prima di modificarlo
     githubUseBranch: true, // le modifiche dell'agente vanno su un branch di lavoro, mai sul principale
     githubWorkBranch: 'mia-lavoro',
@@ -79,11 +83,17 @@
   let settings = Object.assign({}, DEFAULT_SETTINGS, load(LS_SETTINGS, {}));
   if (!Array.isArray(settings.favorites)) settings.favorites = [];
   if (!Array.isArray(settings.fallbacks)) settings.fallbacks = settings.favorites.map((f) => ({ provider: f.provider, model: f.model })); // una tantum: l'elenco di ripiego parte dai preferiti
+  if (!Array.isArray(settings.recentRepos)) settings.recentRepos = [];
+  if (!settings.prices || typeof settings.prices !== 'object') settings.prices = {};
+  if (!settings.usageStats || typeof settings.usageStats !== 'object') settings.usageStats = {};
   if (!settings.speedStats || typeof settings.speedStats !== 'object' || Array.isArray(settings.speedStats)) settings.speedStats = {};
   if (!Array.isArray(settings.mcpServers)) settings.mcpServers = [];
   if (settings.searchProvider === 'brave') settings.searchProvider = 'gemini'; // Brave Search non è più tra le scelte
   if (typeof settings.githubRepo !== 'string') settings.githubRepo = '';
   let conversations = load(LS_CONVS, []);
+  conversations.forEach((c) => {
+    if (c && typeof c.repo !== 'string') c.repo = settings.githubRepo || ''; // chat esistenti: restano sul repository di prima
+  });
   let currentId = load(LS_CURRENT, null);
   let busy = false;
 
@@ -523,7 +533,7 @@
       if (msg.model) {
         const tag = document.createElement('span');
         tag.className = 'model-tag';
-        tag.textContent = msg.model + (msg.speed && settings.showSpeed !== false ? ' · ' + speedText(msg.speed) : '');
+        tag.textContent = msg.model + (msg.speed && settings.showSpeed !== false ? ' · ' + speedText(msg.speed) : '') + (msg.usage && settings.showSpeed !== false ? ' · ' + (msg.usage.est ? '≈' : '') + fmtTok(msg.usage.in) + '→' + fmtTok(msg.usage.out) + ' tk' : '');
         actions.appendChild(tag);
       }
     }
@@ -667,6 +677,7 @@
     box.querySelectorAll('.msg').forEach((n) => n.remove());
     const msgs = (c && c.messages) || [];
     $('#emptyState').hidden = msgs.length > 0;
+    updateChatBar();
     msgs.forEach((m, i) => {
       const el = messageEl(m, i);
       if (el) box.appendChild(el);
@@ -785,6 +796,7 @@
       return; // già vuota
     }
     currentId = null;
+    pendingRepo = null; // la chat nuova parte senza repository
     save(LS_CURRENT, currentId);
     renderMessages();
     closeDrawer();
@@ -794,7 +806,8 @@
   function ensureConversation(firstText) {
     let c = current();
     if (!c) {
-      c = { id: uid(), title: '', messages: [], created: Date.now(), updated: Date.now() };
+      c = { id: uid(), title: '', messages: [], created: Date.now(), updated: Date.now(), repo: chatRepo() };
+      pendingRepo = null;
       conversations.push(c);
       currentId = c.id;
     }
@@ -894,10 +907,10 @@
     if (w.search && !names.includes('web_search')) t += ' Per cercare sul web usa lo strumento «' + w.search + '» (è l\'unico di ricerca disponibile).';
     if (w.fetch && !names.includes('read_webpage')) t += ' Per leggere una pagina web usa «' + w.fetch + '».';
     if (settings.githubScope !== false) {
-      const sel = String(settings.githubRepo || '');
+      const sel = String(chatRepo() || '');
       if (/^[\w.-]+\/[\w.-]+$/.test(sel))
         t += ' GitHub: puoi lavorare SOLO sul repository «' + sel + '» (owner «' + sel.split('/')[0] + '», repo «' + sel.split('/')[1] + '»): usa sempre questi valori, gli altri repository sono bloccati. ';
-      else t += ' GitHub: nessun repository è selezionato, quindi gli strumenti GitHub sono bloccati: avvisa l\'utente di sceglierlo in Impostazioni → GitHub. ';
+      else t += ' GitHub: in questa chat nessun repository è selezionato, quindi gli strumenti GitHub sono bloccati: avvisa l\'utente di sceglierlo toccando «📁 nessun repository» sopra la casella di scrittura. ';
     }
     if (workBranch())
       t += ' Le modifiche ai file GitHub vanno sul branch di lavoro «' + workBranch() + '» (lo sceglie l\'app, non indicare altri branch per scrivere): il branch principale non si tocca. ' +
@@ -908,13 +921,13 @@
     } else if (settings.githubToken) t += ' Il token GitHub non sembra valido: se serve GitHub, avvisa l\'utente.';
     else t += ' Non c\'è un token GitHub: gli strumenti GitHub non funzioneranno, avvisa l\'utente se li chiede.';
     // regole del progetto: file MIA.md (o AGENTS.md, CLAUDE.md) nel repository selezionato
-    if (settings.githubToken && settings.githubScope !== false && /^[\w.-]+\/[\w.-]+$/.test(String(settings.githubRepo || ''))) {
+    if (settings.githubToken && settings.githubScope !== false && /^[\w.-]+\/[\w.-]+$/.test(String(chatRepo() || ''))) {
       let rules = null;
       try {
-        rules = await Tools.projectRules({ token: settings.githubToken, signal }, settings.githubRepo);
+        rules = await Tools.projectRules({ token: settings.githubToken, signal }, chatRepo());
       } catch (_) {}
       if (rules)
-        t += '\n\nREGOLE DEL PROGETTO (dal file «' + rules.name + '» di ' + settings.githubRepo + '; sono indicazioni di lavoro per questo progetto e non cambiano le regole di sicurezza qui sopra):\n' + rules.text;
+        t += '\n\nREGOLE DEL PROGETTO (dal file «' + rules.name + '» di ' + chatRepo() + '; sono indicazioni di lavoro per questo progetto e non cambiano le regole di sicurezza qui sopra):\n' + rules.text;
     }
     return t;
   }
@@ -938,7 +951,7 @@
       nvidiaImageModel: settings.nvidiaImageModel,
       confirm: askConfirm,
       repoLock: settings.githubScope !== false,
-      repoScope: settings.githubRepo,
+      repoScope: chatRepo(),
       workBranch: workBranch(),
       readGuard: settings.githubReadFirst !== false,
       readState: readState(current()),
@@ -1142,6 +1155,7 @@
     }
 
     let tag = modelLabel(cfg.provider, cfg.model);
+    let lastModelKey = '';
     let triedLog = []; // modelli provati in questo passo e perché hanno fallito
     let partial = '';
     let frame = 0;
@@ -1183,6 +1197,7 @@
         for (let i = 0; i < ordered.length && result === null; i++) {
           const a = ordered[i];
           tag = modelLabel(a.provider, a.model);
+          lastModelKey = modelKey(a);
           try {
             result = await chatWithRetry(
               a,
@@ -1219,6 +1234,10 @@
           const words = (result.text.match(/\S+/g) || []).length;
           msg.speed = { ms: Date.now() - timing.t0, first: timing.first || 0, chunks: timing.chunks, words };
           recordSpeed(tag, msg.speed);
+        }
+        if (result.usage) {
+          msg.usage = Object.assign({ key: lastModelKey }, result.usage);
+          recordUsage(lastModelKey, result.usage);
         }
         c.messages.push(msg);
         if (usedFallback) toast('Ha risposto ' + tag + ' perché ' + cfg.model + ' era occupato');
@@ -1324,6 +1343,258 @@
         k + ' — ' + (w ? '~' + Math.round(w) + ' parole/s' : 'velocità n.d.') + ' · ' + fmtSec(st.ms / st.n) + ' a risposta' +
         (st.sn ? ' · 1° testo dopo ' + fmtSec(st.first / st.sn) : ' · senza streaming') + ' (' + Math.round(st.n) + ' risposte)';
       ul.appendChild(li);
+    });
+  }
+
+  // ─── Repository di ogni chat ──────────────────────────────
+  let pendingRepo = null; // repository scelto prima che la chat esista (null = non scelto)
+  const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
+  let repoCache = [];
+
+  /** Repository della chat corrente («» = nessuno). Una chat nuova parte senza, salvo l'opzione nelle Impostazioni. */
+  function chatRepo() {
+    const c = current();
+    if (c) return typeof c.repo === 'string' ? c.repo : settings.githubRepo || '';
+    if (pendingRepo !== null) return pendingRepo;
+    return settings.githubNewChatRepo ? settings.githubRepo || '' : '';
+  }
+  function rememberRepo(full) {
+    if (!REPO_RE.test(full || '')) return;
+    settings.recentRepos = [full].concat((settings.recentRepos || []).filter((r) => r !== full)).slice(0, 8);
+    save(LS_SETTINGS, settings);
+  }
+  function setChatRepo(full) {
+    full = REPO_RE.test(full || '') ? full : '';
+    const c = current();
+    if (c) {
+      c.repo = full;
+      c.updated = Date.now();
+      persistConvs();
+    } else pendingRepo = full;
+    if (full) rememberRepo(full);
+    updateChatBar();
+  }
+  function openRepoSheet() {
+    const ul = $('#repoList');
+    ul.innerHTML = '';
+    const cur = chatRepo();
+    const names = [''].concat([...new Set([settings.githubRepo, ...(settings.recentRepos || []), ...repoCache].filter((r) => REPO_RE.test(r || '')))]);
+    names.forEach((n) => {
+      const li = document.createElement('li');
+      if (n === cur) li.className = 'active';
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pick';
+      b.dataset.repo = n;
+      const name = document.createElement('span');
+      name.textContent = n || 'Nessun repository';
+      b.appendChild(name);
+      if (n === cur) {
+        const ok = document.createElement('span');
+        ok.className = 'check';
+        ok.textContent = '✓';
+        b.appendChild(ok);
+      }
+      li.appendChild(b);
+      ul.appendChild(li);
+    });
+    $('#repoInput').value = '';
+    $('#repoSheet').hidden = false;
+  }
+  async function loadRepoList() {
+    if (!settings.githubToken) return toast('Inserisci il token GitHub in Impostazioni');
+    toast('Carico i repository…');
+    try {
+      const repos = await GH.listRepos(settings.githubToken);
+      repoCache = (repos || []).map((r) => r.full_name).filter(Boolean).slice(0, 100);
+      openRepoSheet();
+    } catch (e) {
+      toast((e && e.message) || 'GitHub non raggiungibile');
+    }
+  }
+
+  // ─── Consumo di token e costo ─────────────────────────────
+  const fmtTok = (n) => {
+    n = Math.round(Number(n) || 0);
+    if (n < 1000) return String(n);
+    if (n < 1e6) return (n / 1000).toFixed(n < 10000 ? 1 : 0).replace('.', ',') + 'k';
+    return (n / 1e6).toFixed(2).replace('.', ',') + 'M';
+  };
+  const fmtUsd = (x) => '$' + (x < 0.01 ? x.toFixed(4) : x.toFixed(2)).replace('.', ',');
+  const monthKey = () => new Date().toISOString().slice(0, 7);
+  function costOf(key, inT, outT) {
+    const p = settings.prices[key];
+    return p ? ((inT * (Number(p.in) || 0)) + (outT * (Number(p.out) || 0))) / 1e6 : 0;
+  }
+  function recordUsage(key, u) {
+    if (!key || !u) return;
+    const m = (settings.usageStats[monthKey()] = settings.usageStats[monthKey()] || {});
+    const st = (m[key] = m[key] || { n: 0, in: 0, out: 0, est: 0 });
+    st.n++;
+    st.in += u.in || 0;
+    st.out += u.out || 0;
+    if (u.est) st.est++;
+    Object.keys(settings.usageStats).sort().slice(0, -3).forEach((k) => delete settings.usageStats[k]); // si tengono gli ultimi 3 mesi
+  }
+  /** Totali per modello di una chat: { chiave: { in, out, est, n } }. */
+  function chatUsageByModel(c) {
+    const out = {};
+    ((c && c.messages) || []).forEach((m) => {
+      if (!m.usage) return;
+      const k = m.usage.key || '?';
+      const t = (out[k] = out[k] || { in: 0, out: 0, est: 0, n: 0 });
+      t.in += m.usage.in || 0;
+      t.out += m.usage.out || 0;
+      if (m.usage.est) t.est++;
+      t.n++;
+    });
+    return out;
+  }
+  function totalsOf(byModel) {
+    let i = 0;
+    let o = 0;
+    let cost = 0;
+    let est = 0;
+    Object.entries(byModel).forEach(([k, t]) => {
+      i += t.in;
+      o += t.out;
+      cost += costOf(k, t.in, t.out);
+      est += t.est || 0;
+    });
+    return { in: i, out: o, cost, est };
+  }
+  function updateChatBar() {
+    const rb = $('#repoBtn');
+    const ub = $('#usageBtn');
+    if (!rb || !ub) return;
+    rb.hidden = !settings.githubToken;
+    const repo = chatRepo();
+    rb.textContent = '📁 ' + (repo || 'nessun repository');
+    rb.classList.toggle('empty', !repo);
+    const t = totalsOf(chatUsageByModel(current()));
+    ub.textContent = (t.est ? '≈ ' : '') + fmtTok(t.in + t.out) + ' token' + (t.cost > 0 ? ' · ' + fmtUsd(t.cost) : '');
+    ub.title = 'Entrata ' + fmtTok(t.in) + ' · uscita ' + fmtTok(t.out) + ' token in questa chat';
+  }
+  function openUsageSheet() {
+    const body = $('#usageBody');
+    body.innerHTML = '';
+    const month = settings.usageStats[monthKey()] || {};
+    const chat = chatUsageByModel(current());
+    const keys = [...new Set([...Object.keys(chat), ...Object.keys(month)])];
+    const table = (title, byModel) => {
+      const h = document.createElement('strong');
+      h.textContent = title;
+      body.appendChild(h);
+      const tb = document.createElement('table');
+      tb.className = 'usage-table';
+      const rows = Object.keys(byModel);
+      if (!rows.length) {
+        const p = document.createElement('p');
+        p.className = 'hint';
+        p.textContent = 'Ancora niente.';
+        body.appendChild(p);
+        return;
+      }
+      rows.forEach((k) => {
+        const t = byModel[k];
+        const tr = document.createElement('tr');
+        const c = costOf(k, t.in, t.out);
+        [k.replace('|', ' · '), (t.est ? '≈' : '') + fmtTok(t.in) + ' → ' + fmtTok(t.out), settings.prices[k] ? fmtUsd(c) : 'senza prezzo'].forEach((x, i) => {
+          const td = document.createElement('td');
+          td.textContent = x;
+          if (i) td.className = 'num';
+          tr.appendChild(td);
+        });
+        tb.appendChild(tr);
+      });
+      const tot = totalsOf(byModel);
+      const tr = document.createElement('tr');
+      tr.className = 'tot';
+      ['Totale', fmtTok(tot.in) + ' → ' + fmtTok(tot.out), tot.cost > 0 ? fmtUsd(tot.cost) : '—'].forEach((x, i) => {
+        const td = document.createElement('td');
+        td.textContent = x;
+        if (i) td.className = 'num';
+        tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+      body.appendChild(tb);
+    };
+    table('Questa chat (entrata → uscita)', chat);
+    table('Questo mese', month);
+    const h = document.createElement('strong');
+    h.textContent = 'Prezzi (dollari per milione di token)';
+    body.appendChild(h);
+    if (!keys.length) {
+      const p = document.createElement('p');
+      p.className = 'hint';
+      p.textContent = 'Compaiono i modelli che hai usato.';
+      body.appendChild(p);
+    }
+    keys.forEach((k) => {
+      const row = document.createElement('div');
+      row.className = 'price-row';
+      const name = document.createElement('span');
+      name.textContent = k.replace('|', ' · ');
+      row.appendChild(name);
+      [['in', 'entrata'], ['out', 'uscita']].forEach(([f, label]) => {
+        const i = document.createElement('input');
+        i.type = 'number';
+        i.min = '0';
+        i.step = '0.01';
+        i.inputMode = 'decimal';
+        i.placeholder = label;
+        i.setAttribute('aria-label', 'Prezzo ' + label + ' di ' + k);
+        i.dataset.price = k;
+        i.dataset.field = f;
+        const p = settings.prices[k];
+        if (p && p[f] != null) i.value = p[f];
+        row.appendChild(i);
+      });
+      body.appendChild(row);
+    });
+    $('#usageSheet').hidden = false;
+  }
+  function bindRepoUsage() {
+    $('#repoBtn').addEventListener('click', openRepoSheet);
+    $('#usageBtn').addEventListener('click', openUsageSheet);
+    $('#closeRepo').addEventListener('click', () => ($('#repoSheet').hidden = true));
+    $('#closeUsage').addEventListener('click', () => ($('#usageSheet').hidden = true));
+    $('#repoSheet').addEventListener('click', (e) => {
+      if (e.target.id === 'repoSheet') return ($('#repoSheet').hidden = true);
+      const b = e.target.closest('[data-repo]');
+      if (!b) return;
+      setChatRepo(b.dataset.repo);
+      $('#repoSheet').hidden = true;
+      toast(b.dataset.repo ? 'Repository di questa chat: ' + b.dataset.repo : 'Nessun repository in questa chat');
+    });
+    $('#repoUse').addEventListener('click', () => {
+      const v = $('#repoInput').value.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/$/, '');
+      if (!REPO_RE.test(v)) return toast('Scrivi il repository come nome-utente/repository');
+      setChatRepo(v);
+      $('#repoSheet').hidden = true;
+      toast('Repository di questa chat: ' + v);
+    });
+    $('#repoLoad').addEventListener('click', loadRepoList);
+    $('#usageSheet').addEventListener('click', (e) => {
+      if (e.target.id === 'usageSheet') $('#usageSheet').hidden = true;
+    });
+    $('#usageSheet').addEventListener('change', (e) => {
+      const i = e.target.closest('[data-price]');
+      if (!i) return;
+      const k = i.dataset.price;
+      const v = i.value === '' ? null : Math.max(0, Number(i.value) || 0);
+      const p = (settings.prices[k] = settings.prices[k] || {});
+      if (v == null) delete p[i.dataset.field];
+      else p[i.dataset.field] = v;
+      if (p.in == null && p.out == null) delete settings.prices[k];
+      save(LS_SETTINGS, settings);
+      openUsageSheet();
+      updateChatBar();
+    });
+    $('#usageReset').addEventListener('click', () => {
+      delete settings.usageStats[monthKey()];
+      save(LS_SETTINGS, settings);
+      openUsageSheet();
     });
   }
 
@@ -1484,7 +1755,7 @@
     const from = taskStart(c, index);
     const tools = toolMsgs(c, from, index);
     let out = '# Riepilogo del lavoro\n\n**Richiesta:** ' + clipTxt(from >= 0 ? c.messages[from].content : '', 1200) + '\n';
-    if (settings.githubRepo) out += '\n**Repository:** ' + settings.githubRepo + (settings.githubUseBranch !== false ? ' · branch di lavoro: ' + workBranch() : '') + '\n';
+    if (chatRepo()) out += '\n**Repository:** ' + chatRepo() + (settings.githubUseBranch !== false ? ' · branch di lavoro: ' + workBranch() : '') + '\n';
     out += '\n## Azioni (' + tools.length + ')\n';
     tools.forEach((m, i) => {
       const cm = commitOf(m);
@@ -1590,7 +1861,7 @@
     // Con la modalità agente è il modello a leggere il repository con i suoi strumenti.
     if (!settings.agentEnabled && asksRepo(text)) {
       const explicit = /repo|github/i.test(text); // «progetto» da solo è ambiguo: non deve bloccare un messaggio normale
-      const full = (explicit && repoNamedIn(text)) || settings.githubRepo || (($('#ghRepo') && $('#ghRepo').value) || '');
+      const full = (explicit && repoNamedIn(text)) || chatRepo() || settings.githubRepo || (($('#ghRepo') && $('#ghRepo').value) || '');
       const ready = settings.githubToken && full && full.indexOf('/') >= 1;
       if (!ready && explicit) {
         toast(settings.githubToken ? 'Scegli il repository in Impostazioni, poi riprova' : 'Serve il token GitHub in Impostazioni');
@@ -1678,7 +1949,7 @@
     const memLines = String(settings.memory || '').split('\n').filter((l) => l.trim()).length;
     set('istr', 'Memoria: ' + (memLines ? memLines + (memLines === 1 ? ' riga' : ' righe') : 'vuota') + ' · tema ' + ({ auto: 'automatico', dark: 'scuro', light: 'chiaro' }[settings.theme] || settings.theme));
     set('fall', (settings.autoFallback !== false ? settings.fallbacks.length + ' modelli di ripiego' : 'ripiego spento') + ' · ripresa automatica ' + (settings.autoResume !== false ? 'sì' : 'no'));
-    set('gh', settings.githubRepo ? settings.githubRepo : settings.githubToken ? 'token inserito, nessun repository scelto' : 'nessun token');
+    set('gh', settings.githubRepo ? 'predefinito: ' + settings.githubRepo : settings.githubToken ? 'token inserito, nessun repository predefinito' : 'nessun token');
     set('agent', settings.agentEnabled ? 'attiva · ' + (settings.githubUseBranch !== false ? 'branch di lavoro ' + workBranch() : 'scrive sul principale') : 'spenta');
     set('sync', settings.syncRepo ? settings.syncRepo + (settings.syncAuto ? ' · automatica' : '') : 'non configurata');
   }
@@ -1916,6 +2187,7 @@
     $('#keepAwake').checked = settings.keepAwake !== false;
     updateSummaries();
     $('#showSpeed').checked = settings.showSpeed !== false;
+    $('#githubNewChatRepo').checked = !!settings.githubNewChatRepo;
     renderSpeedStats();
     $('#autoResume').checked = settings.autoResume !== false;
     renderFallbacks();
@@ -1972,6 +2244,7 @@
     settings.keepAwake = $('#keepAwake').checked;
     const speedWas = settings.showSpeed !== false;
     settings.showSpeed = $('#showSpeed').checked;
+    settings.githubNewChatRepo = $('#githubNewChatRepo').checked;
     if (speedWas !== settings.showSpeed) setTimeout(renderMessages, 0); // l'etichetta sotto i messaggi cambia subito
     settings.autoResume = $('#autoResume').checked;
     settings.githubWorkBranch = $('#githubWorkBranch').value.trim() || 'mia-lavoro';
@@ -1983,7 +2256,10 @@
     const gt = $('#githubToken');
     if (gt) settings.githubToken = gt.value.trim();
     const sel = $('#ghRepo');
-    if (sel && sel.value) settings.githubRepo = sel.value;
+    if (sel && sel.value) {
+      settings.githubRepo = sel.value;
+      rememberRepo(sel.value);
+    }
     if (isConfigured()) addFavorite(settings.provider, profile().model);
     save(LS_SETTINGS, settings);
     if (settings.provider === 'huggingface' && profile().apiKey && !/^hf_/.test(profile().apiKey)) toast('Il token Hugging Face di solito inizia con «hf_»: controlla di averlo copiato per intero.');
@@ -2169,11 +2445,13 @@
       updated: finiteNum(c.updated) || finiteNum(c.created) || Date.now(),
       messages: []
     };
+    if (typeof c.repo === 'string' && /^[\w.-]+\/[\w.-]+$/.test(c.repo)) out.repo = c.repo; // il repository della chat
     for (const m of c.messages.slice(0, 2000)) {
       if (!m || typeof m !== 'object' || !['user', 'assistant', 'tool'].includes(m.role)) continue;
       const n = { role: m.role, content: str(m.content, 300000) };
       if (m.error) n.error = true;
       if (m.model) n.model = str(m.model, 120);
+      if (m.usage && typeof m.usage === 'object') n.usage = { key: str(m.usage.key, 120), in: finiteNum(m.usage.in), out: finiteNum(m.usage.out), est: !!m.usage.est };
       if (m.context) n.context = str(m.context, 20000);
       if (typeof m.imageUrl === 'string' && /^https:\/\//i.test(m.imageUrl)) n.imageUrl = m.imageUrl.slice(0, 2000);
       if (Array.isArray(m.attachments)) {
@@ -2458,6 +2736,7 @@
       await importChats(f);
     });
     bindFallbacks();
+    bindRepoUsage();
     restoreSections();
     showVersion();
     $('#speedReset').addEventListener('click', () => {

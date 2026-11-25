@@ -34,7 +34,7 @@ const sse = (parts) => 'data: ' + JSON.stringify({candidates:[{content:{parts}}]
     return j({message:'Not Found'},404);
   });
   await page.addInitScript(() => {
-    localStorage.setItem('miaai_v1_settings', JSON.stringify({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.5-flash',baseUrl:'https://generativelanguage.googleapis.com/v1beta'}},agentEnabled:true,githubToken:'tok',githubRepo:'mario/app',githubUseBranch:false,autoFallback:false,favorites:[],theme:'dark',systemPrompt:'x',temperature:0.7}));
+    localStorage.setItem('miaai_v1_settings', JSON.stringify({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.5-flash',baseUrl:'https://generativelanguage.googleapis.com/v1beta'}},agentEnabled:true,githubToken:'tok',githubNewChatRepo:true,githubRepo:'mario/app',githubUseBranch:false,autoFallback:false,favorites:[],theme:'dark',systemPrompt:'x',temperature:0.7}));
   });
   await page.goto('http://localhost:8099/');
 

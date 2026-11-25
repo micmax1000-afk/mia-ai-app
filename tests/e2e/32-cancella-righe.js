@@ -55,7 +55,7 @@ reset();
   console.log('— dall\'app: Gemini cancella il mazzo, conferma rossa');
   const gem=[]; let script=[];
   await ctx.route('https://generativelanguage.googleapis.com/**', async route => { const q=route.request(); if(q.method()==='OPTIONS') return route.fulfill({status:204,headers:cors}); gem.push((q.postDataBuffer()||Buffer.from('')).toString('utf8')); const parts=script.shift()||[{text:'Fine.'}]; route.fulfill({status:200,headers:{...cors,'content-type':'text/event-stream'},body:'data: '+JSON.stringify({candidates:[{content:{parts}}]})+'\n\n'}); });
-  await page.evaluate(()=>localStorage.setItem('miaai_v1_settings',JSON.stringify({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.5-flash',baseUrl:'https://generativelanguage.googleapis.com/v1beta'}},agentEnabled:true,githubToken:'tok',githubRepo:'mario/flash',githubReadFirst:false,autoFallback:false,favorites:[],theme:'dark',systemPrompt:'x',temperature:0.7})));
+  await page.evaluate(()=>localStorage.setItem('miaai_v1_settings',JSON.stringify({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.5-flash',baseUrl:'https://generativelanguage.googleapis.com/v1beta'}},agentEnabled:true,githubToken:'tok',githubNewChatRepo:true,githubRepo:'mario/flash',githubReadFirst:false,autoFallback:false,favorites:[],theme:'dark',systemPrompt:'x',temperature:0.7})));
   await page.reload(); await page.waitForSelector('#input'); reset();
   script=[[{functionCall:{name:'github_delete_lines',args:{path:'data.js',from_line:FROM,to_line:TO,expect_first:'{',expect_last:'}',message:'togli il tedesco'}}}],[{text:'Fine.'}]];
   await page.fill('#input','togli il tedesco'); await page.click('#sendBtn'); await page.waitForSelector('#confirm:not([hidden])');

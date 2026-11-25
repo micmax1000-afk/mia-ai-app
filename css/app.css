@@ -523,3 +523,16 @@ details.set-sub { border-top: 1px dashed var(--border, rgba(128,128,128,.35)); m
 details.set-sub > summary { padding: 10px 0; padding-right: 22px; flex-direction: row; align-items: baseline; gap: 8px; }
 details.set-sub > summary::after { right: 2px; top: 10px; }
 details.set-sub > .set-body { padding: 0 0 8px; }
+
+/* Barra della chat: repository e consumo di token */
+.chat-bar { display: flex; gap: 8px; padding: 4px 16px 0; background: var(--bg); flex-wrap: wrap; }
+.chat-bar .bar-btn { border: 1px solid var(--border, rgba(128,128,128,.35)); background: transparent; color: inherit; font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 999px; cursor: pointer; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .85; }
+.chat-bar .bar-btn.empty { opacity: .6; border-style: dashed; }
+.chat-bar #usageBtn { margin-left: auto; }
+.usage-table { width: 100%; border-collapse: collapse; margin: 6px 0 14px; font-size: 13px; }
+.usage-table td { padding: 4px 6px; border-bottom: 1px solid var(--border, rgba(128,128,128,.25)); overflow-wrap: anywhere; }
+.usage-table td.num { text-align: right; white-space: nowrap; }
+.usage-table tr.tot td { font-weight: 600; }
+.price-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; font-size: 13px; }
+.price-row span { flex: 1 1 100%; }
+.price-row input { flex: 1 1 110px; min-width: 0; padding: 7px; border-radius: 10px; border: 1px solid var(--border, rgba(128,128,128,.35)); background: transparent; color: inherit; font: inherit; }

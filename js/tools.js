@@ -58,7 +58,7 @@
     if (!ctx || !ctx.repoLock || !/^github_/.test(name)) return args;
     const sel = str(ctx.repoScope).trim();
     if (!/^[\w.-]+\/[\w.-]+$/.test(sel))
-      throw new Error('Nessun repository selezionato: l\'agente usa GitHub solo sul repository scelto in Impostazioni → GitHub. Chiedi all\'utente di sceglierlo.');
+      throw new Error('Nessun repository selezionato in questa chat: l\'agente usa GitHub solo sul repository scelto (riquadro «📁» sopra la casella di scrittura). Chiedi all\'utente di sceglierlo.');
     const [owner, repo] = sel.split('/');
     if (name === 'github_create_repo') throw new Error('Non consentito: l\'agente può lavorare solo sul repository selezionato (' + sel + ') e non può crearne altri.');
     if (name === 'github_list_repos') return args;
