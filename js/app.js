@@ -673,7 +673,15 @@
     renderPending();
   }
 
+  /** Prepara in background la mappa del progetto della chat (così l'agente la trova pronta, senza aspettare). */
+  function preloadMap() {
+    if (!settings.agentEnabled || !settings.githubToken || settings.githubScope === false) return;
+    const sel = String(chatRepo() || '');
+    if (/^[\w.-]+\/[\w.-]+$/.test(sel)) Tools.projectMap({ token: settings.githubToken }, sel, { noWait: true }).catch(() => {});
+  }
+
   function renderMessages() {
+    preloadMap();
     const box = $('#messages');
     const c = current();
     box.querySelectorAll('.msg').forEach((n) => n.remove());
@@ -942,7 +950,7 @@
       // mappa del progetto: file e contenuto dei file di codice più grandi, così il modello non spreca passi a esplorare
       let map = '';
       try {
-        map = await Tools.projectMap({ token: settings.githubToken, signal }, chatRepo());
+        map = await Tools.projectMap({ token: settings.githubToken }, chatRepo(), { noWait: true }); // non si aspetta: è preparata in anticipo (preloadMap)
       } catch (_) {}
       if (map) t += '\n\nMAPPA DEL PROGETTO (dati preparati dall\'app dal branch principale; per i dettagli usa github_outline, poi leggi solo la parte che serve):\n' + map;
     }

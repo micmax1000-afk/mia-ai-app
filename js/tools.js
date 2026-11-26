@@ -3474,10 +3474,21 @@
 
   // ─── Mappa del progetto (per non far esplorare il repository a ogni chat) ─
   const mapCache = {};
-  async function projectMap(ctx, sel) {
-    if (!/^[\w.-]+\/[\w.-]+$/.test(str(sel)) || !ctx.token) return '';
+  const mapPending = {};
+  /** Mappa del progetto. Con opts.noWait restituisce subito quella già pronta (o '') e, se manca, la prepara in background. */
+  function projectMap(ctx, sel, opts) {
+    if (!/^[\w.-]+\/[\w.-]+$/.test(str(sel)) || !ctx.token) return Promise.resolve('');
     const hit = mapCache[sel];
-    if (hit && Date.now() - hit.t < 600000) return hit.v;
+    if (hit && Date.now() - hit.t < 600000) return Promise.resolve(hit.v);
+    if (!mapPending[sel])
+      mapPending[sel] = buildMap({ token: ctx.token }, sel).finally(() => delete mapPending[sel]); // senza il signal della chat: «Stop» non la interrompe
+    if (opts && opts.noWait) {
+      mapPending[sel].catch(() => {});
+      return Promise.resolve(hit ? hit.v : '');
+    }
+    return mapPending[sel];
+  }
+  async function buildMap(ctx, sel) {
     let v = '';
     try {
       const base = '/repos/' + sel;
