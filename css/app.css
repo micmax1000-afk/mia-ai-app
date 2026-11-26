@@ -472,7 +472,7 @@ html[data-offline='1'] .net-dot {
 .diff .d-del { background: rgba(248, 81, 73, 0.18); }
 .diff .d-gap { color: var(--muted); text-align: center; }
 .diff .d-no { display: inline-block; min-width: 3.2em; color: var(--muted); user-select: none; }
-.confirm-check.bad, .confirm-review.bad { color: var(--danger); font-weight: 600; }
+.confirm-check.bad { color: var(--danger); font-weight: 600; }
 .confirm-actions { margin-top: 14px; }
 .confirm-actions .btn { flex: 1; }
 .confirm-actions .btn.danger-btn { background: var(--danger); color: #fff; }
