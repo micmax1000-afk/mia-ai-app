@@ -377,5 +377,13 @@ module.exports = {
     /nessuna richiesta all'altro modello = true/, /file nuovo → • nuovo\.txt \(branch mia-lavoro\): elimina \(era nuovo\)/, /eliminato = true/,
     /cambiato dopo → avviso = true \| rossa = true/, /rifiutato → file intatto = true/,
     /richieste a Gemini = 2 \| poi Groq = 1 \| risposta di Groq con ↪ = true/, /errori non di fila \(in mezzo una lettura riuscita\) → resta Gemini = true/, /^ERRORS \[\]/m
+  ],
+  '42-parere-altra-app.js': [
+    /pulsanti = true true \| «Decido dopo» = true \| revisore interno assente = true/,
+    /testo condiviso: richiesta = true \| differenze con numeri = true \| prova del codice = true \| domanda OK\/ATTENZIONE = true/, /in attesa = true \| nessuna scrittura = true/,
+    /parere condiviso verso Mia → nel riquadro, in rosso = true \| la casella di scrittura resta vuota = true/, /rifiutato → il modello riceve il parere = true \| file intatto = en:3 fr:3 de:3/,
+    /nuova proposta: parere azzerato = true/, /parere incollato → verde = true \| casella nascosta = true/, /consentito → scritto = en:3 fr:3 \| l'esito dice che il parere era stato letto = true/,
+    /il parere viene chiesto da solo = true \| nessuna scrittura = true \| il lavoro si ferma senza chiamare il modello = true/, /messaggio = ⏸ Mi fermo: «Modifica la struttura di «data\.js»/, /Mia libera = true/,
+    /parere arrivato dopo \(conferma chiusa\) → nella casella come parere = true/, /«procedi»: il modello vede la proposta e il fermo = true/, /scritto dopo «procedi» = en:3 fr:3$/m, /^ERRORS \[\]/m
   ]
 };

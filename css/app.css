@@ -473,6 +473,16 @@ html[data-offline='1'] .net-dot {
 .diff .d-gap { color: var(--muted); text-align: center; }
 .diff .d-no { display: inline-block; min-width: 3.2em; color: var(--muted); user-select: none; }
 .confirm-check.bad { color: var(--danger); font-weight: 600; }
+.confirm-ask { margin: 10px 0 0; padding: 10px; border: 1px dashed var(--border); border-radius: 12px; }
+.confirm-ask .ask-row { gap: 8px; flex-wrap: wrap; }
+.confirm-ask .ask-row .btn { flex: 1; min-width: 140px; }
+.confirm-ask .hint { margin: 8px 0 0; }
+.paste-box { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.paste-box textarea { width: 100%; box-sizing: border-box; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: inherit; padding: 8px; font: inherit; }
+.confirm-opinion { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--code-bg); font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow: auto; }
+.confirm-opinion.bad { background: rgba(248, 81, 73, 0.14); }
+.confirm-opinion.good { background: rgba(46, 160, 67, 0.14); }
+.later-btn { width: 100%; margin-top: 8px; }
 .confirm-actions { margin-top: 14px; }
 .confirm-actions .btn { flex: 1; }
 .confirm-actions .btn.danger-btn { background: var(--danger); color: #fff; }

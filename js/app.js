@@ -853,6 +853,12 @@
       $('#confirmWarn').hidden = !d.danger;
       $('#confirmYes').className = 'btn' + (d.danger ? ' danger-btn' : '');
       $('#confirmExtra').hidden = true;
+      $('#confirmAsk').hidden = !d.ask;
+      $('#confirmLater').hidden = !d.ask;
+      $('#pasteBox').hidden = true;
+      $('#pasteText').value = '';
+      $('#confirmOpinion').hidden = true;
+      $('#confirmOpinion').className = 'confirm-opinion';
       $('#confirmDiff').textContent = '';
       $('#confirmDiffHead').textContent = '';
       ['#confirmCheck'].forEach((q) => {
@@ -868,6 +874,7 @@
   function answerConfirm(ok) {
     const r = confirmResolve;
     confirmResolve = null;
+    reviewCtx = null;
     $('#confirm').hidden = true;
     if (r) r(ok);
   }
@@ -1005,24 +1012,38 @@
       return { ok: false, content: 'Errore: ' + ((e && e.message) || e) };
     }
     const d = Tools.describe(tc.name, tc.args);
+    let opinion = '';
     if (Tools.needsConfirm(tc.name, tc.args)) {
-      const asked = askConfirm(d);
-      const extra = { done: false, check: null };
+      const asked = askConfirm(Object.assign({ ask: true }, d));
+      const extra = { done: false, check: null, diff: null };
+      reviewCtx = { tc, extra, asked: false };
       confirmExtras(tc, ctx, extra); // differenze e prova del codice arrivano mentre il riquadro è aperto
       const yes = await asked;
       extra.done = true;
+      opinion = extra.opinion || '';
+      if (yes === 'later')
+        return {
+          ok: false,
+          denied: true,
+          deferred: true,
+          content:
+            'L\'utente vuole chiedere il parere di un\'altra app prima di questa modifica: NON è stata fatta. Fermati qui: non chiamare altri strumenti. ' +
+            'Rispondi in una riga che aspetti: l\'utente scriverà «procedi» (allora rifai esattamente la stessa chiamata) oppure ti manderà il parere o delle correzioni.'
+        };
       if (!yes)
         return {
           ok: false,
           denied: true,
-          content: 'L\'utente ha rifiutato questa azione. Non riprovare: chiedi cosa preferisce.' + (extra.check && !extra.check.ok ? ' ' + extra.check.text : '')
+          content: opinion
+            ? 'L\'utente ha rifiutato questa modifica dopo aver letto il parere di un\'altra app (è un suggerimento: verificalo nei file prima di seguirlo): «' + opinion.slice(0, 2000) + '». Correggi la modifica tenendone conto e riproponila; se non sei d\'accordo con il parere, spiega perché.'
+            : 'L\'utente ha rifiutato questa azione. Non riprovare: chiedi cosa preferisce.' + (extra.check && !extra.check.ok ? ' ' + extra.check.text : '')
         };
     }
     const commits = [];
     ctx.onCommit = (cm) => commits.push(cm);
     try {
       const out = await Tools.run(tc.name, tc.args, ctx);
-      return { ok: true, content: out.text, files: out.files, commits };
+      return { ok: true, content: out.text + (opinion ? '\n\n[L\'utente ha consentito la modifica dopo aver letto il parere di un\'altra app: «' + opinion.slice(0, 1000) + '»]' : ''), files: out.files, commits };
     } catch (e) {
       if (e && e.name === 'AbortError') return { ok: false, content: 'Interrotto dall\'utente.', commits };
       return { ok: false, content: 'Errore: ' + ((e && e.message) || e), commits };
@@ -1056,6 +1077,59 @@
       box.appendChild(more);
     }
   }
+  // ─── Parere di un'altra app sulla modifica (ChatGPT, Gemini, Claude… tramite Condividi) ───
+  let reviewCtx = null; // { tc, extra, asked } mentre il riquadro di conferma è aperto
+  function opinionRequestText(r) {
+    const tc = r.tc;
+    const ex = r.extra;
+    const d = Tools.describe(tc.name, tc.args);
+    let out =
+      'Vorrei un parere su una modifica al codice che un assistente AI (Mia) vuole fare per me. Controlla solo se la modifica è corretta e fa quello che ho chiesto, senza togliere o rompere altro.\n\n' +
+      '## La mia richiesta\n' + String((activeRun && activeRun.task) || '(non disponibile)').slice(0, 2000) + '\n\n' +
+      '## Modifica proposta\n' + d.title + '\n';
+    if (ex.diff) out += '\nDifferenze (righe con «-» tolte, con «+» aggiunte, con il numero di riga):\n```\n' + Tools.diffText(ex.diff, 6000) + '\n```\n';
+    else
+      try {
+        out += '\n```\n' + JSON.stringify(tc.args, null, 2).slice(0, 5000) + '\n```\n';
+      } catch (_) {}
+    if (ex.check) out += '\n' + ex.check.text + '\n';
+    out += '\n## Domanda\nLa modifica è corretta? Rispondi in italiano, al massimo 5 righe, iniziando con «OK» oppure con «ATTENZIONE» e il problema (con la correzione esatta, se serve).';
+    return out;
+  }
+  async function askOtherApp() {
+    const r = reviewCtx;
+    if (!r) return;
+    r.asked = true;
+    const c = current();
+    if (c) {
+      c.opinionAt = Date.now(); // se Mia viene chiusa, il parere che torna va nella casella di scrittura come «Parere di un'altra app»
+      persistConvs();
+    }
+    const el = $('#confirmOpinion');
+    if (!r.extra.opinion) {
+      el.hidden = false;
+      el.className = 'confirm-opinion';
+      el.textContent = '⏳ In attesa del parere… Condividi la risposta verso Mia, oppure copiala e tocca «Incolla il parere».';
+    }
+    const text = opinionRequestText(r);
+    if (text.length > 7500) await shareDoc(text, 'parere-modifica.md');
+    else await shareText(text);
+  }
+  function setOpinion(text) {
+    const r = reviewCtx;
+    if (!r) return false;
+    const t = String(text || '').trim().slice(0, 4000);
+    r.extra.opinion = t;
+    const el = $('#confirmOpinion');
+    el.hidden = false;
+    const ok = /^\W*ok\b/i.test(t);
+    const bad = /^\W*attenzione\b/i.test(t);
+    el.className = 'confirm-opinion' + (ok ? ' good' : bad ? ' bad' : '');
+    el.textContent = '💬 Parere di un\'altra app\n' + t;
+    toast('Parere ricevuto: decidi se consentire la modifica');
+    return true;
+  }
+
   async function confirmExtras(tc, ctx, extra) {
     let pv = null;
     try {
@@ -1063,6 +1137,8 @@
     } catch (_) {}
     if (extra.done || !pv || pv.error) return;
     const diff = Tools.lineDiff(pv.before, pv.after, 3, 300);
+    extra.diff = diff;
+    extra.path = pv.path;
     $('#confirmExtra').hidden = false;
     $('#confirmDiffHead').textContent =
       (pv.after == null ? 'Il file verrà eliminato' : pv.before == null ? 'File nuovo' : 'Differenze') + ' · «' + pv.path + '»' + (pv.branch ? ' (branch ' + pv.branch + ')' : '') + ' · righe −' + diff.del + ' / +' + diff.add;
@@ -1111,6 +1187,7 @@
         ok: res.ok,
         denied: !!res.denied
       };
+      if (res.deferred) tm.deferred = true;
       if (saved.length) tm.files = saved;
       if (res.commits && res.commits.length) tm.commits = res.commits;
       c.messages.push(tm);
@@ -1347,6 +1424,16 @@
           renderMessages();
           bubble = addStreamBubble();
         });
+        // «Decido dopo»: si ferma l'app (non si chiede al modello, che potrebbe andare avanti lo stesso)
+        const waiting = c.messages.slice(before).find((m) => m.deferred);
+        if (waiting) {
+          c.messages.push({
+            role: 'assistant',
+            content: '⏸ Mi fermo: «' + (waiting.title || waiting.name) + '» non è stata fatta. Chiedi il parere all\'altra app, poi scrivi «procedi» per farla così com\'è, oppure condividi o incolla qui il parere o le correzioni.',
+            model: tag
+          });
+          break;
+        }
         // stesso strumento sbagliato 2 volte di fila: si passa al modello successivo dell'elenco di ripiego
         let stuck = '';
         c.messages.slice(before).forEach((m) => {
@@ -2892,6 +2979,25 @@
     });
     $('#confirmYes').addEventListener('click', () => answerConfirm(true));
     $('#confirmNo').addEventListener('click', () => answerConfirm(false));
+    $('#confirmLater').addEventListener('click', async () => {
+      if (reviewCtx && !reviewCtx.asked) await askOtherApp(); // se il parere non è ancora stato chiesto, lo si chiede adesso
+      answerConfirm('later');
+    });
+    $('#askOtherApp').addEventListener('click', () => askOtherApp());
+    $('#pasteOpinion').addEventListener('click', async () => {
+      $('#pasteBox').hidden = false;
+      try {
+        const t = navigator.clipboard && navigator.clipboard.readText ? await navigator.clipboard.readText() : '';
+        if (t && !$('#pasteText').value) $('#pasteText').value = t;
+      } catch (_) {}
+      $('#pasteText').focus();
+    });
+    $('#pasteUse').addEventListener('click', () => {
+      const t = $('#pasteText').value.trim();
+      if (!t) return toast('Incolla prima il parere');
+      setOpinion(t);
+      $('#pasteBox').hidden = true;
+    });
     $('#temperature').addEventListener('input', (e) => {
       $('#tempValue').textContent = Number(e.target.value).toFixed(1);
     });
@@ -3406,7 +3512,9 @@
     try {
       await ST.addListener('shareReceived', async (event) => {
         const texts = ((event && event.texts) || []).map((t) => String(t || '').trim()).filter(Boolean);
-        if (texts.length) {
+        if (texts.length && reviewCtx && !$('#confirm').hidden) {
+          setOpinion(texts.join('\n'));
+        } else if (texts.length) {
           const input = $('#input');
           const cur = current();
           // se hai appena chiesto un secondo parere, il testo che arriva è quel parere: lo si segna come suggerimento
