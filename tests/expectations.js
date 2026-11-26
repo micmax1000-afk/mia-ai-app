@@ -361,6 +361,6 @@ module.exports = {
     /due corrispondenze senza all → /, /con all = ac \| virgola finale conservata = true/, /ultimo con virgola finale → ancora valido = true \| elementi = 1/, /json: tolto = 1$/m, /json: aggiunto = 1,3/, /file già rotto → Impossibile analizzare/,
     /window\.DECKS dentro \(function\(\)\{…\}\)\(\) = en$/m, /anteprima: branch creato = false \| scritture = 0 \| esito = ok/, /scrittura → ok \| principale intatto = true \| branch di lavoro = en:200 fr:200$/m, /altro repository → Repository non consentito/,
     /senza lettura → Non ho modificato nulla = true \| scritture = 0/, /anteprima senza lettura → ok = true/, /dopo la mappa\/lettura → scritto = true \| mazzi = en:200 fr:200/,
-    /conferma: Modifica la struttura di «data\.js».* mostra l'operazione = true/, /il modello conosce gli strumenti = true \| dopo la mappa, la modifica non è stata rifiutata = true \| mazzi = en:200 fr:200/, /istruzioni: mappa invece di rileggere = true/, /^ERRORS \[\]/m
+    /conferma: Modifica la struttura di «data\.js».* mostra l'operazione = true/, /il modello conosce gli strumenti = true \| dopo la mappa, la modifica non è stata rifiutata = true \| mazzi = en:200 fr:200/, /istruzioni: mappa invece di rileggere = true/, /errore ripetuto o esterno → cerca sul web \(web_search\), errore nel codice → rileggi = true/, /^ERRORS \[\]/m
   ]
 };

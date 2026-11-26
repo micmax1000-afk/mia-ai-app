@@ -120,6 +120,7 @@ reset();
   await page.click('#confirmYes'); await page.waitForSelector('.msg.assistant .bubble:has-text("Fine.")',{timeout:15000});
   console.log('    il modello conosce gli strumenti =', /github_outline/.test(gem[0]) && /github_edit_structure/.test(gem[0]), '| dopo la mappa, la modifica non è stata rifiutata =', !/Non ho modificato nulla/.test(gem[2]||''), '| mazzi =', decks(gh.branches.main.files['data.js']));
   console.log('    istruzioni: mappa invece di rileggere =', /github_outline/.test(gem[0]) && /non rileggere/i.test(gem[0]));
+  console.log('    errore ripetuto o esterno → cerca sul web (web_search), errore nel codice → rileggi =', /ripete due volte/.test(gem[0]) && /web_search il messaggio esatto/.test(gem[0]) && /invece di cercare sul web/.test(gem[0]));
   console.log('ERRORS', errs);
   await b.close(); web.close();
 })().catch(e=>{console.error('FAIL',e);process.exit(1)});
