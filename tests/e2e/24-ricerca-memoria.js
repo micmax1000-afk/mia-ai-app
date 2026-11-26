@@ -42,7 +42,7 @@ const cors={'access-control-allow-origin':'*','access-control-allow-headers':'*'
   console.log('   notes search nel titolo «idee» →', JSON.stringify(await run('notes',{action:'search',query:'idee'})));
 
   console.log('— Memoria');
-  await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]');
+  await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true)));
   await page.waitForSelector('#memory',{state:'visible'}); await page.fill('#memory','Mi chiamo Marco.\nPreferisco risposte brevi.');
   await page.click('#closeSettings'); await page.waitForTimeout(300);
   await page.fill('#input','ciao'); await page.click('#sendBtn'); await page.waitForSelector('.msg.assistant .bubble:has-text("Ok.")',{timeout:15000});

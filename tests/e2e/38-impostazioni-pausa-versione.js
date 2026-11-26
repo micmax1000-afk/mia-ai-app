@@ -1,0 +1,86 @@
+/* Test end-to-end di Mia AI. Tutti i servizi esterni sono simulati: nessuna chiamata reale. Vedi tests/README.md */
+const { chromium } = require('playwright');
+const http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process');
+const root = path.resolve(__dirname, '..', '..');
+const mime = { '.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.webmanifest':'application/json' };
+const web = http.createServer((q,r)=>{ let p=q.url.split('?')[0]; if(p==='/')p='/index.html'; const f=path.join(root,p); fs.readFile(f,(e,d)=>{ if(e){r.writeHead(404);r.end();return;} r.writeHead(200,{'content-type':mime[path.extname(f)]||'application/octet-stream'}); r.end(d);});}).listen(8090);
+const cors={'access-control-allow-origin':'*','access-control-allow-headers':'*','access-control-allow-methods':'*'};
+const sse=(t)=>'data: '+JSON.stringify({choices:[{delta:{content:t}}]})+'\n\ndata: [DONE]\n\n';
+(async () => {
+  const b = await chromium.launch(); const ctx = await b.newContext({viewport:{width:390,height:844}}); const errs=[];
+  const svc = { nvidia:{mode:'ok',calls:0}, groq:{mode:'ok',calls:0}, mistral:{mode:'ok',calls:0} }; const order=[];
+  const handle = (name, host) => ctx.route(host, async route => { const r=route.request(); if(r.method()==='OPTIONS') return route.fulfill({status:204,headers:cors}); const s=svc[name]; s.calls++; order.push(name);
+    if (s.mode==='busy') return route.fulfill({status:429,headers:{...cors,'content-type':'application/json'},body:JSON.stringify({error:{message:'rate limit exceeded'}})});
+    if (s.mode==='down') return route.abort('connectionreset');
+    if (s.mode==='auth') return route.fulfill({status:401,headers:{...cors,'content-type':'application/json'},body:JSON.stringify({error:{message:'Invalid API key'}})});
+    route.fulfill({status:200,headers:{...cors,'content-type':'text/event-stream'},body:sse('Risposta di '+name+'.')}); });
+  await handle('nvidia','https://integrate.api.nvidia.com/**'); await handle('groq','https://api.groq.com/**'); await handle('mistral','https://api.mistral.ai/**');
+  await ctx.route('**/version.json', r => r.fulfill({status:200,headers:{'content-type':'application/json'},body:JSON.stringify({version:'0.3.0',build:'57'})}));
+  const S = (extra) => Object.assign({provider:'nvidia',profiles:{nvidia:{apiKey:'n',model:'nvidia/uno',baseUrl:'https://integrate.api.nvidia.com/v1'},groq:{apiKey:'g',model:'llama',baseUrl:'https://api.groq.com/openai/v1'},mistral:{apiKey:'m',model:'mistral-large',baseUrl:'https://api.mistral.ai/v1'},gemini:{apiKey:'k',model:'gemini-3.5-flash',baseUrl:'https://generativelanguage.googleapis.com/v1beta'}},theme:'dark',autoFallback:true,autoResume:false,keepAwake:false,agentEnabled:false,systemPrompt:'x',temperature:0.7,fallbacks:[{provider:'groq',model:'llama'},{provider:'mistral',model:'mistral-large'}]}, extra||{});
+  const open = async (s, init) => { const page = await ctx.newPage(); page.on('pageerror', e => errs.push(e.message)); await page.addInitScript(([s,i])=>{ if(!sessionStorage.getItem('init')){ sessionStorage.setItem('init','1'); localStorage.clear(); localStorage.setItem('miaai_v1_settings',JSON.stringify(s)); } if(i) eval(i); }, [s, init||null]); await page.goto('http://localhost:8090/'); await page.waitForSelector('#input'); return page; };
+  const reset = () => { Object.values(svc).forEach(s=>{ s.mode='ok'; s.calls=0; }); order.length=0; };
+  const openSet = async (page) => { await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]'); await page.waitForSelector('#sec-model',{state:'attached'}); await page.waitForTimeout(150); };
+  const ask = async (page, t, until, n) => { const before = await page.locator('.msg.assistant').count(); await page.fill('#input',t); await page.click('#sendBtn'); await page.waitForFunction(([b,sel])=>document.querySelectorAll(sel).length>b,[before,until||'.msg.assistant'],{timeout:30000}); await page.waitForTimeout(250); };
+
+  console.log('— Impostazioni a sezioni');
+  let page = await open(S()); await openSet(page);
+  const opens = await page.evaluate(()=>[...document.querySelectorAll('details.set-sec')].map(d=>d.id.replace('sec-','')+':'+(d.open?'aperta':'chiusa')).join(' '));
+  console.log('   all\'inizio =', opens);
+  const sums = await page.evaluate(()=>Object.fromEntries([...document.querySelectorAll('details.set-sec .set-sum')].map(e=>[e.dataset.sum,e.textContent])));
+  console.log('   riassunti: modello =', sums.model, '| ripiego =', sums.fall, '| agente =', sums.agent, '| sync =', sums.sync, '| repository =', sums.gh);
+  console.log('   la sezione «Modello e chiave» mostra i suoi campi =', await page.locator('#provider').isVisible(), '| le altre sono nascoste =', !(await page.locator('#fallbackList').isVisible()) && !(await page.locator('#githubToken').isVisible()) && !(await page.locator('#syncNow').isVisible()));
+  await page.click('#sec-agent > summary'); await page.waitForTimeout(100);
+  console.log('   un clic sul titolo apre la sezione =', await page.locator('#agentEnabled').isVisible());
+  await page.click('#sec-agent > summary'); await page.waitForTimeout(100); console.log('   un altro clic la chiude =', !(await page.locator('#agentEnabled').isVisible()));
+  await page.click('#sec-fall > summary'); await page.click('#sec-sync > summary'); await page.waitForTimeout(100);
+  await page.click('#closeSettings'); await page.reload(); await page.waitForSelector('#input'); await openSet(page);
+  console.log('   dopo la chiusura e il ricaricamento si ricorda cosa era aperto =', await page.evaluate(()=>[...document.querySelectorAll('details.set-sec')].filter(d=>d.open).map(d=>d.id.replace('sec-','')).join(',')));
+  await page.evaluate(()=>{ const d=document.querySelector('#sec-agent'); d.open=false; document.querySelector('#githubWorkBranch').value='prove-lavoro'; document.querySelector('#maxSteps').value='33'; document.querySelector('#imageProvider').value='gemini'; });
+  await page.click('#closeSettings'); const st = await page.evaluate(()=>JSON.parse(localStorage.getItem('miaai_v1_settings')));
+  console.log('   i campi di una sezione chiusa vengono salvati lo stesso =', st.githubWorkBranch==='prove-lavoro' && st.maxSteps===33 && st.imageProvider==='gemini');
+  await page.close();
+
+  console.log('— Modelli di ripiego: pausa del modello che ha raggiunto il limite');
+  reset(); svc.nvidia.mode='busy'; page = await open(S());
+  await ask(page,'prima domanda'); console.log('   1ª domanda: ordine =', order.join(' → '), '| risposta =', (await page.locator('.msg.assistant .bubble').last().textContent()).trim());
+  order.length=0; await ask(page,'seconda domanda'); console.log('   2ª domanda: NVIDIA è in pausa, si parte da Groq → ordine =', order.join(' → '), '| NVIDIA richieste totali =', svc.nvidia.calls);
+  console.log('   avviso mostrato =', /è in pausa \(limite raggiunto\)/.test(await page.locator('#toast').textContent().catch(()=>'')) || 'visto durante la risposta');
+  await page.close();
+  reset(); svc.nvidia.mode='busy'; svc.groq.mode='busy'; svc.mistral.mode='busy'; page = await open(S());
+  await ask(page,'tutto occupato','.msg.error'); const first = order.join(',');
+  order.length=0; await ask(page,'ancora','.msg.error'); console.log('   tutti occupati: li prova comunque (non resta fermo) → 1ª volta =', first, '| 2ª volta =', order.join(','), '| (partono dal primo che si libera)');
+  await page.close();
+
+  console.log('— messaggio d\'errore con l\'elenco dei modelli provati');
+  reset(); svc.nvidia.mode='busy'; svc.groq.mode='down'; svc.mistral.mode='auth'; page = await open(S());
+  await page.fill('#input','tutti falliscono'); await page.click('#sendBtn'); await page.waitForSelector('.msg.error',{timeout:30000}); const em = (await page.locator('.msg.error .bubble').last().textContent()).replace(/\s+/g,' ');
+  console.log('   ', em.slice(0,330));
+  console.log('   elenca i tre modelli con il motivo =', /^⚠️ Nessun modello ha risposto\. Ho provato: nvidia\/uno \(limite raggiunto o occupato\), llama \(connessione caduta\), mistral-large \(.*chiave.*\)\.$/.test(em));
+  await page.close();
+  reset(); svc.nvidia.mode='auth'; page = await open(S({autoFallback:false})); await page.fill('#input','solo uno'); await page.click('#sendBtn'); await page.waitForSelector('.msg.error',{timeout:15000});
+  console.log('   con un solo modello non compare l\'elenco =', !/Ho provato:/.test(await page.locator('.msg.error .bubble').last().textContent())); await page.close();
+
+  console.log('— versione dell\'app');
+  page = await open(S()); await openSet(page); await page.click('#sec-sync > summary'); await page.waitForTimeout(400);
+  console.log('   versione web (version.json) =', (await page.locator('#appVersion').textContent()).trim()); await page.close();
+  page = await open(S(), "window.Capacitor={isNativePlatform:()=>false,Plugins:{App:{getInfo:async()=>({name:'Mia AI',id:'x',version:'0.3.0.57',build:'57'})}}};"); await openSet(page); await page.waitForTimeout(400);
+  console.log('   Android (dal sistema) =', (await page.locator('#appVersion').textContent()).trim()); await page.close();
+
+  console.log('— costruzione dell\'APK');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(),'mia-apk-')); fs.mkdirSync(path.join(tmp,'android/app/src/main'),{recursive:true});
+  fs.writeFileSync(path.join(tmp,'android/app/build.gradle'),'android {\n  defaultConfig {\n    applicationId "it.privato.miaai"\n    versionCode 1\n    versionName "1.0"\n  }\n}\n');
+  const yml = fs.readFileSync(path.join(root,'.github/workflows/build-apk.yml'),'utf8'); const step = yml.slice(yml.indexOf("- name: Versione dell'app"), yml.indexOf('- name: Applica icone'));
+  const script = step.split('run: |\n')[1].split('\n').map(l=>l.replace(/^ {10}/,'')).join('\n').replace(/node -p "require\('\.\/package\.json'\)\.version"/, "echo 0.3.0");
+  const out = cp.spawnSync('bash',['-c',script],{cwd:tmp,env:{...process.env,GITHUB_RUN_NUMBER:'57'},encoding:'utf8'});
+  const gr = fs.readFileSync(path.join(tmp,'android/app/build.gradle'),'utf8');
+  console.log('   il passo del workflow aggiorna la versione: versionCode =', /versionCode 57\b/.test(gr), '| versionName =', /versionName "0\.3\.0\.57"/.test(gr), '| esito =', out.status);
+  const bad = cp.spawnSync('bash',['-c',script.replace('android/app/build.gradle','android/app/inesistente.gradle')],{cwd:tmp,env:{...process.env,GITHUB_RUN_NUMBER:'58'},encoding:'utf8'}); console.log('   se il file non si può aggiornare il passo fallisce (si vede subito) =', bad.status!==0);
+  fs.writeFileSync(path.join(tmp,'android/app/src/main/AndroidManifest.xml'),'<manifest><application><activity android:name=".MainActivity">\n</activity></application></manifest>');
+  const run = () => cp.spawnSync('python3',[path.join(root,'scripts/patch-android-manifest.py')],{cwd:tmp,encoding:'utf8'}).status;
+  const m1 = run(); const man = fs.readFileSync(path.join(tmp,'android/app/src/main/AndroidManifest.xml'),'utf8'); const m2 = run();
+  console.log('   filtri di condivisione nel manifest: text/plain =', /text\/plain/.test(man), '| text/* =', /text\/\*/.test(man), '| pdf =', /application\/pdf/.test(man), '| immagini =', /image\/\*/.test(man), '| secondo passaggio senza duplicati =', m1===0 && m2===0 && (fs.readFileSync(path.join(tmp,'android/app/src/main/AndroidManifest.xml'),'utf8').match(/application\/pdf/g)||[]).length===1);
+  const sw = cp.spawnSync('node',[path.join(root,'scripts/stage-www.js')],{cwd:root,env:{...process.env,GITHUB_RUN_NUMBER:'57',GITHUB_SHA:'abcdef1234567890'},encoding:'utf8'}); const ver = JSON.parse(fs.readFileSync(path.join(root,'www/version.json'),'utf8'));
+  console.log('   www/version.json =', JSON.stringify(ver), '| corretto =', ver.version==='0.3.0' && ver.build==='57' && ver.sha==='abcdef1');
+  console.log('ERRORS', errs);
+  await b.close(); web.close();
+})().catch(e=>{console.error('FAIL',e);process.exit(1)});

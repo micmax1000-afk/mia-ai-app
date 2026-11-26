@@ -1,4 +1,4 @@
-"""Aggiunge i filtri per ricevere testo e immagini da altre app."""
+"""Aggiunge i filtri per ricevere testo, file di testo, PDF e immagini da altre app."""
 from pathlib import Path
 
 p = Path("android/app/src/main/AndroidManifest.xml")
@@ -15,6 +15,16 @@ snippet = """
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
             </intent-filter>
 """
 updated = text.replace("</activity>", snippet + "        </activity>", 1)

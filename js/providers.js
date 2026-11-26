@@ -252,6 +252,27 @@
     return out;
   }
 
+  // ─── Conteggio dei token ──────────────────────────────────
+  // Se il servizio li dichiara (Gemini sempre, gli altri di solito nell'ultimo pezzo) si usano quelli veri; altrimenti si stimano dal testo (≈ 3,6 caratteri per token).
+  const estimateTokens = (t) => Math.ceil(String(t || '').length / 3.6);
+  function estimateInput(cfg, messages, tools) {
+    let chars = String(cfg.systemPrompt || '').length + (tools && tools.length ? JSON.stringify(tools).length : 0);
+    let extra = 0;
+    (messages || []).forEach((m) => {
+      chars += String(m.content || '').length;
+      (m.toolCalls || []).forEach((t) => (chars += JSON.stringify(t.args || {}).length + String(t.name || '').length));
+      (m.attachments || []).forEach((a) => {
+        if (a.text) chars += a.text.length;
+        else if (a.kind === 'image' && a.data) extra += 800; // un'immagine pesa circa 800 token
+      });
+    });
+    return Math.ceil(chars / 3.6) + extra;
+  }
+  const finishUsage = (u, cfg, messages, tools, outText, toolCalls) =>
+    u && u.in > 0
+      ? { in: u.in, out: u.out || 0, think: u.think || 0, est: false }
+      : { in: estimateInput(cfg, messages, tools), out: estimateTokens(outText + JSON.stringify((toolCalls || []).map((t) => t.args))), think: 0, est: true };
+
   /**
    * Su Android con CapacitorHttp il fetch normale passa dal canale nativo, che restituisce la risposta solo a richiesta finita (niente testo «a poco a poco»).
    * Per i provider che accettano richieste dal browser (CORS) si usa il fetch originale del browser (window.CapacitorWebFetch), che fa arrivare il testo in streaming.
@@ -306,10 +327,12 @@
 
     let full = '';
     const toolCalls = [];
+    let meta = null;
     await readSSE(res, (payload) => {
       try {
         const json = JSON.parse(payload);
         if (json.error) throw new Error(json.error.message || 'Errore Gemini');
+        if (json.usageMetadata) meta = { in: json.usageMetadata.promptTokenCount, out: (json.usageMetadata.candidatesTokenCount || 0) + (json.usageMetadata.thoughtsTokenCount || 0), think: json.usageMetadata.thoughtsTokenCount || 0 };
         const parts = (json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts) || [];
         for (const p of parts) {
           if (p.functionCall) {
@@ -324,7 +347,7 @@
         throw e;
       }
     });
-    return { text: full, toolCalls };
+    return { text: full, toolCalls, usage: finishUsage(meta, cfg, messages, tools, full, toolCalls) };
   }
 
   async function listGeminiModels(cfg) {
@@ -433,15 +456,20 @@
         name: c.function && c.function.name,
         args: c.function && c.function.arguments
       }));
-      return { text, toolCalls: finishCalls(calls) };
+      const fc = finishCalls(calls);
+      const du = d.usage ? { in: d.usage.prompt_tokens, out: d.usage.completion_tokens } : null;
+      return { text, toolCalls: fc, usage: finishUsage(du, cfg, messages, tools, text, fc) };
     }
 
     let full = '';
+    let meta = null;
     const acc = []; // chiamate a strumenti ricevute a pezzi
     await readSSE(res, (payload) => {
       try {
         const json = JSON.parse(payload);
         if (json.error) throw new Error(json.error.message || 'Errore API');
+        const uu = json.usage || (json.x_groq && json.x_groq.usage);
+        if (uu && (uu.prompt_tokens || uu.completion_tokens)) meta = { in: uu.prompt_tokens, out: uu.completion_tokens };
         const delta = json.choices && json.choices[0] && json.choices[0].delta;
         if (!delta) return;
         if (delta.content) {
@@ -462,7 +490,8 @@
         throw e;
       }
     });
-    return { text: full, toolCalls: finishCalls(acc) };
+    const fcalls = finishCalls(acc);
+    return { text: full, toolCalls: fcalls, usage: finishUsage(meta, cfg, messages, tools, full, fcalls) };
   }
 
   async function listOpenAIModels(cfg) {
@@ -534,7 +563,7 @@
       const text = cleanText(out.text);
       if (!text.trim() && !out.toolCalls.length) throw new Error('Risposta vuota dal modello.');
       // Senza opts.full restituisce solo il testo (come prima): così funzionano anche le chiamate che si aspettano una stringa.
-      return opts && opts.full ? { text, toolCalls: out.toolCalls } : text;
+      return opts && opts.full ? { text, toolCalls: out.toolCalls, usage: out.usage } : text;
     } finally {
       if (controller && controller.signal === signal) controller = null;
     }

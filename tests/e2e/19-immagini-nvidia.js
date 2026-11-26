@@ -52,7 +52,7 @@ const cors={'access-control-allow-origin':'*','access-control-allow-headers':'*'
   show('nessuna chiave', await run(C({nvidiaKey:'',geminiKey:''})));
   show('nvidia esplicito senza chiave', await run(C({imageProvider:'nvidia',nvidiaKey:''})));
   // impostazioni
-  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]'); await page.waitForSelector('#settings:not([hidden])');
+  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#settings:not([hidden])');
   console.log('— impostazioni: scelte =', await page.evaluate(()=>[...document.querySelectorAll('#imageProvider option')].map(o=>o.value).join(',')), '| predefinita =', await page.inputValue('#imageProvider'));
   await page.selectOption('#imageProvider','nvidia');
   // modelli NVIDIA

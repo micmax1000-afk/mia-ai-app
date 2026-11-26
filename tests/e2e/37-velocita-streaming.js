@@ -63,7 +63,7 @@ const SIM = `
 
   console.log('— velocità misurate nelle Impostazioni');
   page = await mk({}, "window.__installWeb();"); for (const q of ['uno','due']) { await page.fill('#input',q); await page.click('#sendBtn'); await page.waitForFunction((n)=>document.querySelectorAll('.msg.assistant').length>=n && /ventidue/.test([...document.querySelectorAll('.msg.assistant .bubble')].pop().textContent),q==='uno'?1:2,{timeout:12000}); await page.waitForTimeout(500); }
-  await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]'); await page.waitForSelector('#speedList',{state:'attached'});
+  await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#speedList',{state:'attached'});
   const row = (await page.locator('#speedList li').first().textContent()).trim(); console.log('   riga =', row);
   console.log('   mostra modello, parole al secondo, tempo medio, 1° testo e numero di risposte =', /Gemini · gemini-3\.5-flash — ~\d+ parole\/s · \d+,\d s a risposta · 1° testo dopo \d+,\d s \(2 risposte\)/.test(row));
   await page.click('#speedReset'); console.log('   «Azzera le misure» =', /Ancora nessuna misura/.test(await page.locator('#speedList').textContent()));

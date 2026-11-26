@@ -17,7 +17,7 @@ const convA = (upd)=>({id:'chat-a',title:'Chat A',created:T-5000,updated:upd,mes
       {id:'chat-a',title:'Chat A',created:T-5000,updated:T,messages:[{role:'user',content:'ciao A',attachments:[{kind:'text',name:'n.txt',mime:'text/plain',text:'contenuto'}]},{role:'assistant',content:'risposta A',model:'Gemini · x'}]},
       {id:'chat-b',title:'Chat B con strumenti',created:T-4000,updated:T-1000,messages:[{role:'user',content:'crea un file'},{role:'assistant',content:'',toolCalls:[{id:'c1',name:'create_file',args:{filename:'a.txt',content:'x'},sig:'SIG'}]},{role:'tool',toolCallId:'c1',name:'create_file',title:'Crea a.txt',preview:'{}',content:'File creato',ok:true,files:[{id:'f1',name:'a.txt',mime:'text/plain',size:1}]},{role:'assistant',content:'Fatto.',model:'NVIDIA · y'}]}]));} }, T);
   await p1.goto('http://localhost:8077/'); await p1.waitForSelector('#input');
-  await p1.click('#menuBtn'); await p1.click('#drawer [data-open-settings]'); await p1.waitForSelector('#settings:not([hidden])');
+  await p1.click('#menuBtn'); await p1.click('#drawer [data-open-settings]').then(()=>p1.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await p1.waitForSelector('#settings:not([hidden])');
   const [dl] = await Promise.all([p1.waitForEvent('download'), p1.click('#exportBtn')]);
   const file = path.join(OUT, dl.suggestedFilename()); await dl.saveAs(file);
   const exported = JSON.parse(fs.readFileSync(file,'utf8'));
@@ -30,7 +30,7 @@ const convA = (upd)=>({id:'chat-a',title:'Chat A',created:T-5000,updated:upd,mes
   const c2 = await b.newContext({viewport:{width:390,height:844}}); const p2 = await c2.newPage(); const errs=[]; p2.on('pageerror',e=>errs.push(e.message));
   await p2.addInitScript(() => { if (!localStorage.getItem('miaai_v1_settings')) localStorage.setItem('miaai_v1_settings', JSON.stringify({provider:'gemini',profiles:{},theme:'dark',favorites:[]})); });
   await p2.goto('http://localhost:8077/'); await p2.waitForSelector('#input');
-  const open = async () => { if (await p2.locator('#settings').isHidden()) { await p2.click('#menuBtn'); await p2.click('#drawer [data-open-settings]'); await p2.waitForSelector('#settings:not([hidden])'); } };
+  const open = async () => { if (await p2.locator('#settings').isHidden()) { await p2.click('#menuBtn'); await p2.click('#drawer [data-open-settings]').then(()=>p2.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await p2.waitForSelector('#settings:not([hidden])'); } };
   const imp = async (f) => { await open(); await p2.setInputFiles('#importInput', f); await p2.waitForTimeout(400); return (await p2.textContent('#toast')).trim(); };
   const conv = async () => p2.evaluate(()=>JSON.parse(localStorage.getItem('miaai_v1_conversations')||'[]').map(c=>c.id+':'+c.title+':'+c.messages.length+(c.updated?'':'')));
   console.log('\nIMPORTAZIONE su un dispositivo vuoto:');
@@ -66,7 +66,7 @@ const convA = (upd)=>({id:'chat-a',title:'Chat A',created:T-5000,updated:upd,mes
   // ---------- Android (simulato): l'esportazione apre il pannello Condividi
   const c3 = await b.newContext({viewport:{width:390,height:844}}); const p3 = await c3.newPage();
   await p3.addInitScript(() => { window.__calls=[]; window.Capacitor={isNativePlatform:()=>true,Plugins:{Filesystem:{writeFile:async(o)=>{window.__calls.push(['write',o.path,o.directory,atob(o.data).slice(0,40)]); return {uri:'file:///cache/'+o.path};}},Share:{share:async(o)=>{window.__calls.push(['share',JSON.stringify(o)]);}}}}; localStorage.setItem('miaai_v1_settings', JSON.stringify({provider:'gemini',profiles:{},favorites:[]})); localStorage.setItem('miaai_v1_conversations', JSON.stringify([{id:'z',title:'Z',created:1,updated:1,messages:[{role:'user',content:'ciao'}]}])); });
-  await p3.goto('http://localhost:8077/'); await p3.waitForSelector('#input'); await p3.click('#menuBtn'); await p3.click('#drawer [data-open-settings]'); await p3.click('#exportBtn'); await p3.waitForTimeout(500);
+  await p3.goto('http://localhost:8077/'); await p3.waitForSelector('#input'); await p3.click('#menuBtn'); await p3.click('#drawer [data-open-settings]').then(()=>p3.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await p3.click('#exportBtn'); await p3.waitForTimeout(500);
   const calls = await p3.evaluate(()=>window.__calls);
   console.log('\nANDROID (simulato): file scritto in cache =', JSON.stringify(calls[0]), '\n   pannello Condividi aperto con =', calls[1][1]);
   await b.close(); web.close();

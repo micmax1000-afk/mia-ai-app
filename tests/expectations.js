@@ -291,7 +291,7 @@ module.exports = {
     /tolto il secondo → 1\. Groq · llama \| 2\. Mistral · mistral-large/, /doppione ignorato → 2 voci/, /senza chiave → 3\. OpenRouter · qualcosa:free \(manca la chiave\)/,
     /salvato nelle impostazioni = groq,mistral,openrouter \| preferiti intatti = true/,
     /ordine dei tentativi → nvidia → groq \| risposta = Risposta di groq\./, /ordine con più modelli occupati → nvidia → groq → mistral → gemini/,
-    /richieste totali = 5 \(1 \+ 4\), il quinto \(Gemini\) non viene provato = true/, /ripiego spento: nessun altro modello provato = nvidia/,
+    /richieste totali = 9 \(1 \+ 8\), il nono \(Gemini\) non viene provato = true/, /ripiego spento: nessun altro modello provato = nvidia/,
     /non finisce da solo nell'elenco di ripiego = true \| ma nei preferiti sì = true/,
     /mentre risponde: blocco attivo = true/, /tornando in primo piano lo riprende = true/, /a lavoro finito è rilasciato = true \| \{"req":2,"rel":2,"active":0\}/,
     /con l'opzione spenta non lo chiede mai = true/, /plugin nativo \(Android\): attivato mentre lavora = true \| riposo a fine lavoro = true/, /nessuna delle due funzioni: nessun errore = true/,
@@ -327,5 +327,40 @@ module.exports = {
     /risposta arrivata =  true \| web provato = 1 , nativo usato = 1/, /alla seconda richiesta non riprova il canale del browser = true \| nativo = 2/,
     /torna libero subito = true .* testo parziale conservato con «\(interrotto\)» = true/,
     /mostra modello, parole al secondo, tempo medio, 1° testo e numero di risposte = true/, /«Azzera le misure» = true/, /resta solo il modello = true/, /^ERRORS \[\]/m
+  ],
+  '38-impostazioni-pausa-versione.js': [
+    /all'inizio = model:aperta istr:chiusa fall:chiusa gh:chiusa agent:chiusa sync:chiusa/, /riassunti: modello = NVIDIA · nvidia\/uno \| ripiego = 2 modelli di ripiego · ripresa automatica no \| agente = spenta \| sync = non configurata \| repository = nessun token/,
+    /mostra i suoi campi = true \| le altre sono nascoste = true/, /un clic sul titolo apre la sezione = true/, /un altro clic la chiude = true/,
+    /si ricorda cosa era aperto = model,fall,sync/, /sezione chiusa vengono salvati lo stesso = true/,
+    /1ª domanda: ordine = nvidia → groq \| risposta = Risposta di groq\./, /si parte da Groq → ordine = groq \| NVIDIA richieste totali = 1/,
+    /1ª volta = nvidia,groq,mistral \| 2ª volta = nvidia,groq,mistral/, /elenca i tre modelli con il motivo = true/, /con un solo modello non compare l'elenco = true/,
+    /versione web \(version\.json\) = Mia AI · versione 0\.3\.0 \(build 57\)/, /Android \(dal sistema\) = Mia AI · versione 0\.3\.0\.57 \(build 57\)/,
+    /aggiorna la versione: versionCode = true \| versionName = true \| esito = 0/, /il passo fallisce \(si vede subito\) = true/,
+    /text\/plain = true \| text\/\* = true \| pdf = true \| immagini = true \| secondo passaggio senza duplicati = true/, /www\/version\.json = .* corretto = true/, /^ERRORS \[\]/m
+  ],
+  '39-repository-per-chat-token.js': [
+    /chat esistente \(senza repository salvato\) → resta sul repository di prima = 📁 mario\/flash/, /chat nuova → parte senza repository = 📁 nessun repository \| riquadro tratteggiato = true/,
+    /gli strumenti GitHub sono bloccati = true \| nessuna richiesta di lettura a GitHub = true/, /scelto dal riquadro \(prima del primo messaggio\) = 📁 mario\/flash/,
+    /salvato nella chat e usato dall'agente = true \| lettura eseguita = true/, /un'altra chat nuova riparte senza repository = 📁 nessun repository/, /normalizzato = 📁 mario\/altro/,
+    /avviso, il riquadro resta aperto = true true/, /«Carica i miei repository» = \(nessuno\), mario\/flash, mario\/altro, mario\/terzo/, /scelta dall'elenco = 📁 mario\/terzo/, /«Nessun repository» = 📁 nessun repository/,
+    /riappare il suo repository = 📁 mario\/flash/, /partono dal repository predefinito» = 📁 mario\/flash/, /il riquadro del repository non compare = true/,
+    /all'inizio = 0 token/, /"in":1200,"out":400,"think":100,"est":false/, /barra = 1,6k token \| etichetta del messaggio = Gemini · gemini-3\.5-flash · .* · 1,2k→400 tk/,
+    /il costo è = \$0,0024 \| barra = 1,6k token · \$0,0024/, /"in":5000,"out":700,"think":0,"est":false\} \| barra = 5,7k token/,
+    /stima = true .*barra con ≈ = true ≈ \d+ token/, /modelli senza prezzo → «senza prezzo», nessun costo inventato = true/, /«Azzera il mese» svuota il mese = true \| questa chat conserva il suo conteggio = true/, /^ERRORS \[\]/m
+  ],
+  '40-mappa-struttura-acorn.js': [
+    /acorn caricato = true/, /modulo valido → null/, /errore con posizione → riga 4, colonna 6/, /modulo rotto → riga 2/, /await al primo livello \(script\) → null/, /file json → null \| json rotto = string/,
+    /intestazione = «data\.js» — 634 righe.* sola lettura \(scritture\) = 0/, /array DECKS = 3 elementi con id = true \| righe del mazzo tedesco = 414–619/,
+    /funzione e costante trovate = true \| classe con metodi = true \| oggetto con chiavi = true/, /non chiede conferma = false/, /con symbol: solo DECKS = true/,
+    /array lungo \(100 carte\) → taglio con primi e ultimi = true/, /modulo con export = true/, /json = radice con 2 elementi/, /markdown = true/, /file rotto → Impossibile analizzare «rotto\.js»: .*riga 1, colonna 11/, /altro repository → Repository non consentito/,
+    /anteprima: ANTEPRIMA \(non ho scritto nulla\).*tolti 1 elementi da «DECKS» \(3 → 2\).*righe 414–619 id=de \| scritture = 0 \| conferma richiesta = false/, /dopo l'anteprima il file è intatto = en:200 fr:200 de:200/,
+    /elemento inesistente → Operazione 1 \(remove_element\): Nessun elemento corrisponde/, /variabile inesistente → Operazione 1 \(remove_element\): Non trovo «NONESISTE»/, /nessuna corrispondenza → rifiutato/, /non è un array → «CONFIG» non è un array/,
+    /must_count non rispettato → rifiutato \| scritture = 0/, /toglie il mazzo centrale \(fr\) = en:200 de:200 \| scritture = 1/, /toglie l'ultimo \(de\) = en:200$/m, /il resto del file è intatto = true/,
+    /aggiunge un mazzo in fondo = en:200 it:0/, /doppione → non aggiungo un doppione/, /elemento non valido → rifiutato/, /aggiunge all'inizio = pt:0 en:200 it:0/, /aggiunge dopo "en" = pt:0 en:200 ru:0 it:0/,
+    /toglie una proprietà dall'oggetto = tolta \| CONFIG ok = prova/, /toglie una funzione = tolta \| LIMITE ancora = true/, /dichiarazione inesistente → Non trovo una funzione/, /operazione sconosciuta → remove_element/, /il file finale è valido = true/,
+    /due corrispondenze senza all → /, /con all = ac \| virgola finale conservata = true/, /ultimo con virgola finale → ancora valido = true \| elementi = 1/, /json: tolto = 1$/m, /json: aggiunto = 1,3/, /file già rotto → Impossibile analizzare/,
+    /window\.DECKS dentro \(function\(\)\{…\}\)\(\) = en$/m, /anteprima: branch creato = false \| scritture = 0 \| esito = ok/, /scrittura → ok \| principale intatto = true \| branch di lavoro = en:200 fr:200$/m, /altro repository → Repository non consentito/,
+    /senza lettura → Non ho modificato nulla = true \| scritture = 0/, /anteprima senza lettura → ok = true/, /dopo la mappa\/lettura → scritto = true \| mazzi = en:200 fr:200/,
+    /conferma: Modifica la struttura di «data\.js».* mostra l'operazione = true/, /il modello conosce gli strumenti = true \| dopo la mappa, la modifica non è stata rifiutata = true \| mazzi = en:200 fr:200/, /istruzioni: mappa invece di rileggere = true/, /errore ripetuto o esterno → cerca sul web \(web_search\), errore nel codice → rileggi = true/, /^ERRORS \[\]/m
   ]
 };

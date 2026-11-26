@@ -26,7 +26,7 @@ const sse = (parts) => 'data: ' + JSON.stringify({candidates:[{content:{parts}}]
   });
   await ctx.route('https://api.tavily.com/**', async route => { const r=route.request(); if (r.method()==='OPTIONS') return route.fulfill({status:204,headers:cors}); const auth=r.headers()['authorization']; if (auth!=='Bearer buona') return route.fulfill({status:401,headers:{...cors,'content-type':'application/json'},body:'{"detail":{"error":"Unauthorized"}}'}); route.fulfill({status:200,headers:{...cors,'content-type':'application/json'},body:JSON.stringify({answer:'Roma ha 2,8 milioni di abitanti.',results:[{title:'Roma - Wikipedia',url:'https://it.wikipedia.org/wiki/Roma',content:'Roma è la capitale d\'Italia…'}]})}); });
 
-  const base = {provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.6-flash'}},autoFallback:false,favorites:[],theme:'dark',githubToken:'tok',githubRepo:'mario/app',agentEnabled:true};
+  const base = {provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.6-flash'}},autoFallback:false,favorites:[],theme:'dark',githubToken:'tok',githubNewChatRepo:true,githubRepo:'mario/app',agentEnabled:true};
   await page.addInitScript((s) => { if (!localStorage.getItem('miaai_v1_settings')) localStorage.setItem('miaai_v1_settings', JSON.stringify(s)); }, base);
   await page.goto('http://localhost:8087/');
   const run = (name,args,c={}) => page.evaluate(async ([name,args,c]) => { try { const r = await MiaTools.run(name,args,{token:'tok',...c}); return {ok:true,text:r.text}; } catch(e){ return {ok:false,error:e.message}; } }, [name,args,c]);

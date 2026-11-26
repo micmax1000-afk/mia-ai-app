@@ -16,7 +16,7 @@
   const MAX_HISTORY = 60; // messaggi inviati al modello come contesto
   const MAX_HISTORY_HARD = 220; // limite assoluto quando si tengono nel contesto le ultime richieste dell'utente
   const PIN_USER_MESSAGES = 3; // ultime richieste dell'utente sempre nel contesto
-  const MAX_FALLBACKS = 4; // modelli di ripiego provati al massimo
+  const MAX_FALLBACKS = 8; // modelli di ripiego provati al massimo
   const RESUME_WINDOW = 15 * 60 * 1000; // un lavoro interrotto si riprende da solo solo se è recente
   const KEEP_TOOL_RESULTS = 6; // risultati di strumenti recenti inviati per intero (i più vecchi vengono accorciati)
   const MAX_TEXT_FILE = 200 * 1024; // caratteri massimi di un file di testo
@@ -40,7 +40,11 @@
     autoFallback: true, // se il modello è occupato, prova da solo gli altri dell'elenco
     agentEnabled: false, // modalità agente: il modello può usare gli strumenti (GitHub, web, note, file, codice)
     githubToken: '',
-    githubRepo: '',
+    githubRepo: '', // repository predefinito (Impostazioni → GitHub); ogni chat ha poi il suo (c.repo)
+    githubNewChatRepo: false, // le chat nuove partono dal repository predefinito (di serie: senza repository)
+    recentRepos: [], // ultimi repository scelti nelle chat
+    prices: {}, // { 'provider|modello': { in, out } } — dollari per milione di token
+    usageStats: {}, // { 'AAAA-MM': { 'provider|modello': { n, in, out, est } } }
     githubReadFirst: true, // l'agente deve aver letto un file prima di modificarlo
     githubUseBranch: true, // le modifiche dell'agente vanno su un branch di lavoro, mai sul principale
     githubWorkBranch: 'mia-lavoro',
@@ -79,11 +83,17 @@
   let settings = Object.assign({}, DEFAULT_SETTINGS, load(LS_SETTINGS, {}));
   if (!Array.isArray(settings.favorites)) settings.favorites = [];
   if (!Array.isArray(settings.fallbacks)) settings.fallbacks = settings.favorites.map((f) => ({ provider: f.provider, model: f.model })); // una tantum: l'elenco di ripiego parte dai preferiti
+  if (!Array.isArray(settings.recentRepos)) settings.recentRepos = [];
+  if (!settings.prices || typeof settings.prices !== 'object') settings.prices = {};
+  if (!settings.usageStats || typeof settings.usageStats !== 'object') settings.usageStats = {};
   if (!settings.speedStats || typeof settings.speedStats !== 'object' || Array.isArray(settings.speedStats)) settings.speedStats = {};
   if (!Array.isArray(settings.mcpServers)) settings.mcpServers = [];
   if (settings.searchProvider === 'brave') settings.searchProvider = 'gemini'; // Brave Search non è più tra le scelte
   if (typeof settings.githubRepo !== 'string') settings.githubRepo = '';
   let conversations = load(LS_CONVS, []);
+  conversations.forEach((c) => {
+    if (c && typeof c.repo !== 'string') c.repo = settings.githubRepo || ''; // chat esistenti: restano sul repository di prima
+  });
   let currentId = load(LS_CURRENT, null);
   let busy = false;
 
@@ -121,7 +131,7 @@
       } else if (t.name === 'github_write_file') {
         st.read.add(k);
         st.full.add(k);
-      } else if (t.name === 'github_edit_file' || t.name === 'github_delete_lines') st.read.add(k);
+      } else if (t.name === 'github_edit_file' || t.name === 'github_delete_lines' || t.name === 'github_edit_structure' || t.name === 'github_outline') st.read.add(k);
     });
     return st;
   }
@@ -523,7 +533,7 @@
       if (msg.model) {
         const tag = document.createElement('span');
         tag.className = 'model-tag';
-        tag.textContent = msg.model + (msg.speed && settings.showSpeed !== false ? ' · ' + speedText(msg.speed) : '');
+        tag.textContent = msg.model + (msg.speed && settings.showSpeed !== false ? ' · ' + speedText(msg.speed) : '') + (msg.usage && settings.showSpeed !== false ? ' · ' + (msg.usage.est ? '≈' : '') + fmtTok(msg.usage.in) + '→' + fmtTok(msg.usage.out) + ' tk' : '');
         actions.appendChild(tag);
       }
     }
@@ -667,6 +677,7 @@
     box.querySelectorAll('.msg').forEach((n) => n.remove());
     const msgs = (c && c.messages) || [];
     $('#emptyState').hidden = msgs.length > 0;
+    updateChatBar();
     msgs.forEach((m, i) => {
       const el = messageEl(m, i);
       if (el) box.appendChild(el);
@@ -785,6 +796,7 @@
       return; // già vuota
     }
     currentId = null;
+    pendingRepo = null; // la chat nuova parte senza repository
     save(LS_CURRENT, currentId);
     renderMessages();
     closeDrawer();
@@ -794,7 +806,8 @@
   function ensureConversation(firstText) {
     let c = current();
     if (!c) {
-      c = { id: uid(), title: '', messages: [], created: Date.now(), updated: Date.now() };
+      c = { id: uid(), title: '', messages: [], created: Date.now(), updated: Date.now(), repo: chatRepo() };
+      pendingRepo = null;
       conversations.push(c);
       currentId = c.id;
     }
@@ -873,8 +886,10 @@
       '2. Non inventare mai nomi di repository, file, righe o risultati: se non sei sicuro, leggi o cerca prima.\n' +
       '3. Un passo alla volta: una modifica, poi controlla l\'esito che ti mostra lo strumento. Se il risultato non è quello atteso FERMATI: dillo e correggi o chiedi, non andare avanti sperando.\n' +
       '4. Le azioni che modificano qualcosa chiedono già conferma all\'utente tramite l\'app: chiama direttamente lo strumento, non chiedere conferma a parole. Se l\'utente rifiuta un\'azione, non ripeterla: chiedi cosa preferisce.\n\n' +
+      '5. Se lo stesso errore si ripete due volte, o viene da una libreria o da un servizio esterno (messaggio di un\'API, versione, formato), non riprovare a caso: cerca con web_search il messaggio esatto, leggi la pagina giusta e dimmi cosa hai trovato prima di riprovare. Se l\'errore è nel codice o nei file del progetto, rileggi la parte giusta (github_outline, find) invece di cercare sul web.\n' +
       'FILE E CODICE (GitHub)\n' +
-      '- Prima di cambiare un file esistente cerca con find e leggi solo la parte che serve (github_read_file con start/length). Se la lettura dice FILE INCOMPLETO non hai visto tutto: non fare ipotesi su ciò che non hai letto.\n' +
+      '- Per orientarti in un file lungo usa PRIMA github_outline (mappa con funzioni, array, elementi con id e numeri di riga): non rileggere il file intero. Poi leggi solo la parte che serve (github_read_file con start/length oppure find). Se la lettura dice FILE INCOMPLETO non hai visto tutto: non fare ipotesi su ciò che non hai letto.\n' +
+      '- Per togliere o aggiungere un elemento di un array (un mazzo, una voce), una proprietà o una funzione in file .js/.json usa github_edit_structure: indichi l\'elemento per id (per esempio match {"id":"de"}), prima con dry_run e poi senza; è più sicuro delle righe e non devi ricopiare nulla. Dopo ogni modifica rifai github_outline invece di rileggere il file.\n' +
       '- Non riscrivere mai un file esistente: cambia dei frammenti con github_edit_file; per togliere blocchi lunghi usa github_delete_lines (prima find, poi dry_run, poi la cancellazione; dopo ogni cancellazione i numeri di riga cambiano: rifai find).\n' +
       '- Quando sposti, copi o dividi dati (liste, carte, tabelle) copiali ESATTAMENTE: non correggere, non tradurre di nuovo, non aggiungere, non togliere. Per i file di dati usa must_count (per esempio il numero di «front:») e alla fine confronta i conteggi con github_compare.\n' +
       '- Se cancelli, sposti o rinomini un file, cerca con github_search_code dove è usato (import, elenchi di file in cache, manifest) e aggiorna anche quei punti.\n' +
@@ -894,10 +909,10 @@
     if (w.search && !names.includes('web_search')) t += ' Per cercare sul web usa lo strumento «' + w.search + '» (è l\'unico di ricerca disponibile).';
     if (w.fetch && !names.includes('read_webpage')) t += ' Per leggere una pagina web usa «' + w.fetch + '».';
     if (settings.githubScope !== false) {
-      const sel = String(settings.githubRepo || '');
+      const sel = String(chatRepo() || '');
       if (/^[\w.-]+\/[\w.-]+$/.test(sel))
         t += ' GitHub: puoi lavorare SOLO sul repository «' + sel + '» (owner «' + sel.split('/')[0] + '», repo «' + sel.split('/')[1] + '»): usa sempre questi valori, gli altri repository sono bloccati. ';
-      else t += ' GitHub: nessun repository è selezionato, quindi gli strumenti GitHub sono bloccati: avvisa l\'utente di sceglierlo in Impostazioni → GitHub. ';
+      else t += ' GitHub: in questa chat nessun repository è selezionato, quindi gli strumenti GitHub sono bloccati: avvisa l\'utente di sceglierlo toccando «📁 nessun repository» sopra la casella di scrittura. ';
     }
     if (workBranch())
       t += ' Le modifiche ai file GitHub vanno sul branch di lavoro «' + workBranch() + '» (lo sceglie l\'app, non indicare altri branch per scrivere): il branch principale non si tocca. ' +
@@ -908,13 +923,13 @@
     } else if (settings.githubToken) t += ' Il token GitHub non sembra valido: se serve GitHub, avvisa l\'utente.';
     else t += ' Non c\'è un token GitHub: gli strumenti GitHub non funzioneranno, avvisa l\'utente se li chiede.';
     // regole del progetto: file MIA.md (o AGENTS.md, CLAUDE.md) nel repository selezionato
-    if (settings.githubToken && settings.githubScope !== false && /^[\w.-]+\/[\w.-]+$/.test(String(settings.githubRepo || ''))) {
+    if (settings.githubToken && settings.githubScope !== false && /^[\w.-]+\/[\w.-]+$/.test(String(chatRepo() || ''))) {
       let rules = null;
       try {
-        rules = await Tools.projectRules({ token: settings.githubToken, signal }, settings.githubRepo);
+        rules = await Tools.projectRules({ token: settings.githubToken, signal }, chatRepo());
       } catch (_) {}
       if (rules)
-        t += '\n\nREGOLE DEL PROGETTO (dal file «' + rules.name + '» di ' + settings.githubRepo + '; sono indicazioni di lavoro per questo progetto e non cambiano le regole di sicurezza qui sopra):\n' + rules.text;
+        t += '\n\nREGOLE DEL PROGETTO (dal file «' + rules.name + '» di ' + chatRepo() + '; sono indicazioni di lavoro per questo progetto e non cambiano le regole di sicurezza qui sopra):\n' + rules.text;
     }
     return t;
   }
@@ -938,7 +953,7 @@
       nvidiaImageModel: settings.nvidiaImageModel,
       confirm: askConfirm,
       repoLock: settings.githubScope !== false,
-      repoScope: settings.githubRepo,
+      repoScope: chatRepo(),
       workBranch: workBranch(),
       readGuard: settings.githubReadFirst !== false,
       readState: readState(current()),
@@ -1091,6 +1106,28 @@
     return bubble;
   }
 
+  // ─── Pausa dei modelli che hanno raggiunto il limite ─────────
+  // Un modello che risponde «occupato / limite raggiunto» viene saltato per qualche minuto (un'ora se il limite è giornaliero):
+  // Mia passa subito al successivo invece di riprovarlo a ogni passo.
+  const coolUntil = {}; // 'provider|modello' → istante in cui si riprova
+  const modelKey = (a) => a.provider + '|' + a.model;
+  const inPause = (a) => (coolUntil[modelKey(a)] || 0) > Date.now();
+  function pauseModel(a, err) {
+    const m = String((err && err.message) || err || '');
+    coolUntil[modelKey(a)] = Date.now() + (/per-day|per day|daily|giornalier/i.test(m) ? 60 : 2) * 60 * 1000;
+  }
+  /** Prima i modelli disponibili (nell'ordine scelto), poi quelli in pausa, dal primo a ripartire. */
+  function orderByPause(list) {
+    const ok = list.filter((a) => !inPause(a));
+    const paused = list.filter(inPause).sort((x, y) => coolUntil[modelKey(x)] - coolUntil[modelKey(y)]);
+    return ok.concat(paused);
+  }
+  function whyFailed(err) {
+    if (P.isBusyError(err)) return 'limite raggiunto o occupato';
+    if (P.isConnectionError(err)) return 'connessione caduta';
+    return P.friendlyError(err, '').replace(/^[^:]*:\s*/, '').slice(0, 70);
+  }
+
   async function runAssistant(c, pick) {
     const cfg = chatConfig(pick);
     // rimuovi eventuali errori precedenti in coda
@@ -1120,6 +1157,8 @@
     }
 
     let tag = modelLabel(cfg.provider, cfg.model);
+    let lastModelKey = '';
+    let triedLog = []; // modelli provati in questo passo e perché hanno fallito
     let partial = '';
     let frame = 0;
     try {
@@ -1154,9 +1193,13 @@
         const history = buildHistory(c);
         partial = '';
         let result = null;
-        for (let i = 0; i < attempts.length && result === null; i++) {
-          const a = attempts[i];
+        const ordered = orderByPause(attempts);
+        triedLog = [];
+        if (ordered.length > 1 && ordered[0] !== attempts[0] && inPause(attempts[0])) toast(attempts[0].model + ' è in pausa (limite raggiunto): uso ' + ordered[0].model);
+        for (let i = 0; i < ordered.length && result === null; i++) {
+          const a = ordered[i];
           tag = modelLabel(a.provider, a.model);
+          lastModelKey = modelKey(a);
           try {
             result = await chatWithRetry(
               a,
@@ -1179,7 +1222,9 @@
             );
             addFavorite(a.provider, a.model);
           } catch (err) {
-            const next = attempts[i + 1];
+            const next = ordered[i + 1];
+            if (err && err.name !== 'AbortError') triedLog.push({ model: a.model, why: whyFailed(err) });
+            if (P.isBusyError(err)) pauseModel(a, err);
             if (!next || partial || !(P.isBusyError(err) || P.isConnectionError(err))) throw err;
             toast(a.model + (P.isConnectionError(err) ? ': connessione caduta, provo ' : ' è occupato: provo ') + next.model);
           }
@@ -1191,6 +1236,10 @@
           const words = (result.text.match(/\S+/g) || []).length;
           msg.speed = { ms: Date.now() - timing.t0, first: timing.first || 0, chunks: timing.chunks, words };
           recordSpeed(tag, msg.speed);
+        }
+        if (result.usage) {
+          msg.usage = Object.assign({ key: lastModelKey }, result.usage);
+          recordUsage(lastModelKey, result.usage);
         }
         c.messages.push(msg);
         if (usedFallback) toast('Ha risposto ' + tag + ' perché ' + cfg.model + ' era occupato');
@@ -1224,7 +1273,7 @@
         if (partial.trim()) c.messages.push({ role: 'assistant', content: partial, model: tag });
         const label = (P.PRESETS[cfg.provider] || {}).label + ' (' + cfg.model + ')';
         let msg = '⚠️ ' + P.friendlyError(e, label);
-        if (attempts.length > 1 && P.isBusyError(e)) msg += ' Ho provato anche: ' + attempts.slice(1).map((a) => a.model).join(', ') + '.';
+        if (triedLog.length > 1) msg = '⚠️ Nessun modello ha risposto.\n\nHo provato: ' + triedLog.map((t) => t.model + ' (' + t.why.replace(/\.$/, '') + ')').join(', ') + '.';
         else if (attempts.length === 1 && P.isBusyError(e))
           msg += ' Suggerimento: aggiungi un secondo modello (es. Gemini) e l\'app passerà da sola a quello quando questo è occupato.';
         const resumable = P.isConnectionError(e);
@@ -1296,6 +1345,258 @@
         k + ' — ' + (w ? '~' + Math.round(w) + ' parole/s' : 'velocità n.d.') + ' · ' + fmtSec(st.ms / st.n) + ' a risposta' +
         (st.sn ? ' · 1° testo dopo ' + fmtSec(st.first / st.sn) : ' · senza streaming') + ' (' + Math.round(st.n) + ' risposte)';
       ul.appendChild(li);
+    });
+  }
+
+  // ─── Repository di ogni chat ──────────────────────────────
+  let pendingRepo = null; // repository scelto prima che la chat esista (null = non scelto)
+  const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
+  let repoCache = [];
+
+  /** Repository della chat corrente («» = nessuno). Una chat nuova parte senza, salvo l'opzione nelle Impostazioni. */
+  function chatRepo() {
+    const c = current();
+    if (c) return typeof c.repo === 'string' ? c.repo : settings.githubRepo || '';
+    if (pendingRepo !== null) return pendingRepo;
+    return settings.githubNewChatRepo ? settings.githubRepo || '' : '';
+  }
+  function rememberRepo(full) {
+    if (!REPO_RE.test(full || '')) return;
+    settings.recentRepos = [full].concat((settings.recentRepos || []).filter((r) => r !== full)).slice(0, 8);
+    save(LS_SETTINGS, settings);
+  }
+  function setChatRepo(full) {
+    full = REPO_RE.test(full || '') ? full : '';
+    const c = current();
+    if (c) {
+      c.repo = full;
+      c.updated = Date.now();
+      persistConvs();
+    } else pendingRepo = full;
+    if (full) rememberRepo(full);
+    updateChatBar();
+  }
+  function openRepoSheet() {
+    const ul = $('#repoList');
+    ul.innerHTML = '';
+    const cur = chatRepo();
+    const names = [''].concat([...new Set([settings.githubRepo, ...(settings.recentRepos || []), ...repoCache].filter((r) => REPO_RE.test(r || '')))]);
+    names.forEach((n) => {
+      const li = document.createElement('li');
+      if (n === cur) li.className = 'active';
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pick';
+      b.dataset.repo = n;
+      const name = document.createElement('span');
+      name.textContent = n || 'Nessun repository';
+      b.appendChild(name);
+      if (n === cur) {
+        const ok = document.createElement('span');
+        ok.className = 'check';
+        ok.textContent = '✓';
+        b.appendChild(ok);
+      }
+      li.appendChild(b);
+      ul.appendChild(li);
+    });
+    $('#repoInput').value = '';
+    $('#repoSheet').hidden = false;
+  }
+  async function loadRepoList() {
+    if (!settings.githubToken) return toast('Inserisci il token GitHub in Impostazioni');
+    toast('Carico i repository…');
+    try {
+      const repos = await GH.listRepos(settings.githubToken);
+      repoCache = (repos || []).map((r) => r.full_name).filter(Boolean).slice(0, 100);
+      openRepoSheet();
+    } catch (e) {
+      toast((e && e.message) || 'GitHub non raggiungibile');
+    }
+  }
+
+  // ─── Consumo di token e costo ─────────────────────────────
+  const fmtTok = (n) => {
+    n = Math.round(Number(n) || 0);
+    if (n < 1000) return String(n);
+    if (n < 1e6) return (n / 1000).toFixed(n < 10000 ? 1 : 0).replace('.', ',') + 'k';
+    return (n / 1e6).toFixed(2).replace('.', ',') + 'M';
+  };
+  const fmtUsd = (x) => '$' + (x < 0.01 ? x.toFixed(4) : x.toFixed(2)).replace('.', ',');
+  const monthKey = () => new Date().toISOString().slice(0, 7);
+  function costOf(key, inT, outT) {
+    const p = settings.prices[key];
+    return p ? ((inT * (Number(p.in) || 0)) + (outT * (Number(p.out) || 0))) / 1e6 : 0;
+  }
+  function recordUsage(key, u) {
+    if (!key || !u) return;
+    const m = (settings.usageStats[monthKey()] = settings.usageStats[monthKey()] || {});
+    const st = (m[key] = m[key] || { n: 0, in: 0, out: 0, est: 0 });
+    st.n++;
+    st.in += u.in || 0;
+    st.out += u.out || 0;
+    if (u.est) st.est++;
+    Object.keys(settings.usageStats).sort().slice(0, -3).forEach((k) => delete settings.usageStats[k]); // si tengono gli ultimi 3 mesi
+  }
+  /** Totali per modello di una chat: { chiave: { in, out, est, n } }. */
+  function chatUsageByModel(c) {
+    const out = {};
+    ((c && c.messages) || []).forEach((m) => {
+      if (!m.usage) return;
+      const k = m.usage.key || '?';
+      const t = (out[k] = out[k] || { in: 0, out: 0, est: 0, n: 0 });
+      t.in += m.usage.in || 0;
+      t.out += m.usage.out || 0;
+      if (m.usage.est) t.est++;
+      t.n++;
+    });
+    return out;
+  }
+  function totalsOf(byModel) {
+    let i = 0;
+    let o = 0;
+    let cost = 0;
+    let est = 0;
+    Object.entries(byModel).forEach(([k, t]) => {
+      i += t.in;
+      o += t.out;
+      cost += costOf(k, t.in, t.out);
+      est += t.est || 0;
+    });
+    return { in: i, out: o, cost, est };
+  }
+  function updateChatBar() {
+    const rb = $('#repoBtn');
+    const ub = $('#usageBtn');
+    if (!rb || !ub) return;
+    rb.hidden = !settings.githubToken;
+    const repo = chatRepo();
+    rb.textContent = '📁 ' + (repo || 'nessun repository');
+    rb.classList.toggle('empty', !repo);
+    const t = totalsOf(chatUsageByModel(current()));
+    ub.textContent = (t.est ? '≈ ' : '') + fmtTok(t.in + t.out) + ' token' + (t.cost > 0 ? ' · ' + fmtUsd(t.cost) : '');
+    ub.title = 'Entrata ' + fmtTok(t.in) + ' · uscita ' + fmtTok(t.out) + ' token in questa chat';
+  }
+  function openUsageSheet() {
+    const body = $('#usageBody');
+    body.innerHTML = '';
+    const month = settings.usageStats[monthKey()] || {};
+    const chat = chatUsageByModel(current());
+    const keys = [...new Set([...Object.keys(chat), ...Object.keys(month)])];
+    const table = (title, byModel) => {
+      const h = document.createElement('strong');
+      h.textContent = title;
+      body.appendChild(h);
+      const tb = document.createElement('table');
+      tb.className = 'usage-table';
+      const rows = Object.keys(byModel);
+      if (!rows.length) {
+        const p = document.createElement('p');
+        p.className = 'hint';
+        p.textContent = 'Ancora niente.';
+        body.appendChild(p);
+        return;
+      }
+      rows.forEach((k) => {
+        const t = byModel[k];
+        const tr = document.createElement('tr');
+        const c = costOf(k, t.in, t.out);
+        [k.replace('|', ' · '), (t.est ? '≈' : '') + fmtTok(t.in) + ' → ' + fmtTok(t.out), settings.prices[k] ? fmtUsd(c) : 'senza prezzo'].forEach((x, i) => {
+          const td = document.createElement('td');
+          td.textContent = x;
+          if (i) td.className = 'num';
+          tr.appendChild(td);
+        });
+        tb.appendChild(tr);
+      });
+      const tot = totalsOf(byModel);
+      const tr = document.createElement('tr');
+      tr.className = 'tot';
+      ['Totale', fmtTok(tot.in) + ' → ' + fmtTok(tot.out), tot.cost > 0 ? fmtUsd(tot.cost) : '—'].forEach((x, i) => {
+        const td = document.createElement('td');
+        td.textContent = x;
+        if (i) td.className = 'num';
+        tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+      body.appendChild(tb);
+    };
+    table('Questa chat (entrata → uscita)', chat);
+    table('Questo mese', month);
+    const h = document.createElement('strong');
+    h.textContent = 'Prezzi (dollari per milione di token)';
+    body.appendChild(h);
+    if (!keys.length) {
+      const p = document.createElement('p');
+      p.className = 'hint';
+      p.textContent = 'Compaiono i modelli che hai usato.';
+      body.appendChild(p);
+    }
+    keys.forEach((k) => {
+      const row = document.createElement('div');
+      row.className = 'price-row';
+      const name = document.createElement('span');
+      name.textContent = k.replace('|', ' · ');
+      row.appendChild(name);
+      [['in', 'entrata'], ['out', 'uscita']].forEach(([f, label]) => {
+        const i = document.createElement('input');
+        i.type = 'number';
+        i.min = '0';
+        i.step = '0.01';
+        i.inputMode = 'decimal';
+        i.placeholder = label;
+        i.setAttribute('aria-label', 'Prezzo ' + label + ' di ' + k);
+        i.dataset.price = k;
+        i.dataset.field = f;
+        const p = settings.prices[k];
+        if (p && p[f] != null) i.value = p[f];
+        row.appendChild(i);
+      });
+      body.appendChild(row);
+    });
+    $('#usageSheet').hidden = false;
+  }
+  function bindRepoUsage() {
+    $('#repoBtn').addEventListener('click', openRepoSheet);
+    $('#usageBtn').addEventListener('click', openUsageSheet);
+    $('#closeRepo').addEventListener('click', () => ($('#repoSheet').hidden = true));
+    $('#closeUsage').addEventListener('click', () => ($('#usageSheet').hidden = true));
+    $('#repoSheet').addEventListener('click', (e) => {
+      if (e.target.id === 'repoSheet') return ($('#repoSheet').hidden = true);
+      const b = e.target.closest('[data-repo]');
+      if (!b) return;
+      setChatRepo(b.dataset.repo);
+      $('#repoSheet').hidden = true;
+      toast(b.dataset.repo ? 'Repository di questa chat: ' + b.dataset.repo : 'Nessun repository in questa chat');
+    });
+    $('#repoUse').addEventListener('click', () => {
+      const v = $('#repoInput').value.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/$/, '');
+      if (!REPO_RE.test(v)) return toast('Scrivi il repository come nome-utente/repository');
+      setChatRepo(v);
+      $('#repoSheet').hidden = true;
+      toast('Repository di questa chat: ' + v);
+    });
+    $('#repoLoad').addEventListener('click', loadRepoList);
+    $('#usageSheet').addEventListener('click', (e) => {
+      if (e.target.id === 'usageSheet') $('#usageSheet').hidden = true;
+    });
+    $('#usageSheet').addEventListener('change', (e) => {
+      const i = e.target.closest('[data-price]');
+      if (!i) return;
+      const k = i.dataset.price;
+      const v = i.value === '' ? null : Math.max(0, Number(i.value) || 0);
+      const p = (settings.prices[k] = settings.prices[k] || {});
+      if (v == null) delete p[i.dataset.field];
+      else p[i.dataset.field] = v;
+      if (p.in == null && p.out == null) delete settings.prices[k];
+      save(LS_SETTINGS, settings);
+      openUsageSheet();
+      updateChatBar();
+    });
+    $('#usageReset').addEventListener('click', () => {
+      delete settings.usageStats[monthKey()];
+      save(LS_SETTINGS, settings);
+      openUsageSheet();
     });
   }
 
@@ -1411,7 +1712,7 @@
 
   // ─── Secondo parere e riepilogo (condivisione con altre app) ───
   // Niente chiavi e niente richieste: si prepara un testo completo e si apre il pannello «Condividi» di Android (o si copia / scarica nel browser).
-  const CHANGE_TOOLS = new Set(['github_write_file', 'github_edit_file', 'github_delete_lines', 'github_delete_file', 'github_create_branch', 'create_file', 'create_zip', 'create_pdf', 'create_xlsx', 'create_svg']);
+  const CHANGE_TOOLS = new Set(['github_write_file', 'github_edit_file', 'github_delete_lines', 'github_edit_structure', 'github_delete_file', 'github_create_branch', 'create_file', 'create_zip', 'create_pdf', 'create_xlsx', 'create_svg']);
   const clipTxt = (t, n) => {
     t = String(t || '').trim();
     return t.length > n ? t.slice(0, n) + '\n[…tagliato…]' : t;
@@ -1456,7 +1757,7 @@
     const from = taskStart(c, index);
     const tools = toolMsgs(c, from, index);
     let out = '# Riepilogo del lavoro\n\n**Richiesta:** ' + clipTxt(from >= 0 ? c.messages[from].content : '', 1200) + '\n';
-    if (settings.githubRepo) out += '\n**Repository:** ' + settings.githubRepo + (settings.githubUseBranch !== false ? ' · branch di lavoro: ' + workBranch() : '') + '\n';
+    if (chatRepo()) out += '\n**Repository:** ' + chatRepo() + (settings.githubUseBranch !== false ? ' · branch di lavoro: ' + workBranch() : '') + '\n';
     out += '\n## Azioni (' + tools.length + ')\n';
     tools.forEach((m, i) => {
       const cm = commitOf(m);
@@ -1562,7 +1863,7 @@
     // Con la modalità agente è il modello a leggere il repository con i suoi strumenti.
     if (!settings.agentEnabled && asksRepo(text)) {
       const explicit = /repo|github/i.test(text); // «progetto» da solo è ambiguo: non deve bloccare un messaggio normale
-      const full = (explicit && repoNamedIn(text)) || settings.githubRepo || (($('#ghRepo') && $('#ghRepo').value) || '');
+      const full = (explicit && repoNamedIn(text)) || chatRepo() || settings.githubRepo || (($('#ghRepo') && $('#ghRepo').value) || '');
       const ready = settings.githubToken && full && full.indexOf('/') >= 1;
       if (!ready && explicit) {
         toast(settings.githubToken ? 'Scegli il repository in Impostazioni, poi riprova' : 'Serve il token GitHub in Impostazioni');
@@ -1617,6 +1918,63 @@
     while (c.messages.length && ['assistant', 'tool'].includes(c.messages[c.messages.length - 1].role)) c.messages.pop();
     if (!c.messages.length) return;
     runAssistant(c, pick);
+  }
+
+  // ─── Impostazioni a sezioni (tendine) ─────────────────────
+  const SEC_KEY = 'miaai_set_open';
+  /** Ricorda quali sezioni erano aperte (di serie solo la prima). */
+  function restoreSections() {
+    let st = {};
+    try {
+      st = JSON.parse(localStorage.getItem(SEC_KEY) || '{}') || {};
+    } catch (_) {}
+    document.querySelectorAll('details.set-sec, details.set-sub').forEach((d) => {
+      if (d.id in st) d.open = !!st[d.id];
+      d.addEventListener('toggle', () => {
+        st[d.id] = d.open;
+        try {
+          localStorage.setItem(SEC_KEY, JSON.stringify(st));
+        } catch (_) {}
+      });
+    });
+  }
+
+  /** Una riga di riassunto accanto al titolo di ogni sezione, così non serve aprirla per sapere come è impostata. */
+  function updateSummaries() {
+    const set = (id, t) => {
+      const el = document.querySelector('[data-sum="' + id + '"]');
+      if (el) el.textContent = t;
+    };
+    const preset = P.PRESETS[settings.provider] || P.PRESETS.custom;
+    const prof = profile();
+    set('model', (preset.short || preset.label) + ' · ' + (prof.model || 'nessun modello') + (!preset.needsKey || prof.apiKey ? '' : ' · manca la chiave'));
+    const memLines = String(settings.memory || '').split('\n').filter((l) => l.trim()).length;
+    set('istr', 'Memoria: ' + (memLines ? memLines + (memLines === 1 ? ' riga' : ' righe') : 'vuota') + ' · tema ' + ({ auto: 'automatico', dark: 'scuro', light: 'chiaro' }[settings.theme] || settings.theme));
+    set('fall', (settings.autoFallback !== false ? settings.fallbacks.length + ' modelli di ripiego' : 'ripiego spento') + ' · ripresa automatica ' + (settings.autoResume !== false ? 'sì' : 'no'));
+    set('gh', settings.githubRepo ? 'predefinito: ' + settings.githubRepo : settings.githubToken ? 'token inserito, nessun repository predefinito' : 'nessun token');
+    set('agent', settings.agentEnabled ? 'attiva · ' + (settings.githubUseBranch !== false ? 'branch di lavoro ' + workBranch() : 'scrive sul principale') : 'spenta');
+    set('sync', settings.syncRepo ? settings.syncRepo + (settings.syncAuto ? ' · automatica' : '') : 'non configurata');
+  }
+
+  /** Versione dell'app (su Android dal sistema, altrimenti da version.json della versione web). */
+  async function showVersion() {
+    const el = $('#appVersion');
+    if (!el) return;
+    try {
+      const App = nativePlugin('App');
+      if (App && App.getInfo) {
+        const i = await App.getInfo();
+        el.textContent = 'Mia AI · versione ' + i.version + ' (build ' + i.build + ')';
+        return;
+      }
+    } catch (_) {}
+    try {
+      const r = await fetch('version.json', { cache: 'no-store' });
+      if (r.ok) {
+        const v = await r.json();
+        el.textContent = 'Mia AI · versione ' + v.version + (v.build ? ' (build ' + v.build + ')' : '');
+      }
+    } catch (_) {}
   }
 
   // ─── Modelli di ripiego (in ordine) ───────────────────────
@@ -1829,7 +2187,9 @@
     $('#githubUseBranch').checked = settings.githubUseBranch !== false;
     $('#githubReadFirst').checked = settings.githubReadFirst !== false;
     $('#keepAwake').checked = settings.keepAwake !== false;
+    updateSummaries();
     $('#showSpeed').checked = settings.showSpeed !== false;
+    $('#githubNewChatRepo').checked = !!settings.githubNewChatRepo;
     renderSpeedStats();
     $('#autoResume').checked = settings.autoResume !== false;
     renderFallbacks();
@@ -1886,6 +2246,7 @@
     settings.keepAwake = $('#keepAwake').checked;
     const speedWas = settings.showSpeed !== false;
     settings.showSpeed = $('#showSpeed').checked;
+    settings.githubNewChatRepo = $('#githubNewChatRepo').checked;
     if (speedWas !== settings.showSpeed) setTimeout(renderMessages, 0); // l'etichetta sotto i messaggi cambia subito
     settings.autoResume = $('#autoResume').checked;
     settings.githubWorkBranch = $('#githubWorkBranch').value.trim() || 'mia-lavoro';
@@ -1897,7 +2258,10 @@
     const gt = $('#githubToken');
     if (gt) settings.githubToken = gt.value.trim();
     const sel = $('#ghRepo');
-    if (sel && sel.value) settings.githubRepo = sel.value;
+    if (sel && sel.value) {
+      settings.githubRepo = sel.value;
+      rememberRepo(sel.value);
+    }
     if (isConfigured()) addFavorite(settings.provider, profile().model);
     save(LS_SETTINGS, settings);
     if (settings.provider === 'huggingface' && profile().apiKey && !/^hf_/.test(profile().apiKey)) toast('Il token Hugging Face di solito inizia con «hf_»: controlla di averlo copiato per intero.');
@@ -2083,11 +2447,13 @@
       updated: finiteNum(c.updated) || finiteNum(c.created) || Date.now(),
       messages: []
     };
+    if (typeof c.repo === 'string' && /^[\w.-]+\/[\w.-]+$/.test(c.repo)) out.repo = c.repo; // il repository della chat
     for (const m of c.messages.slice(0, 2000)) {
       if (!m || typeof m !== 'object' || !['user', 'assistant', 'tool'].includes(m.role)) continue;
       const n = { role: m.role, content: str(m.content, 300000) };
       if (m.error) n.error = true;
       if (m.model) n.model = str(m.model, 120);
+      if (m.usage && typeof m.usage === 'object') n.usage = { key: str(m.usage.key, 120), in: finiteNum(m.usage.in), out: finiteNum(m.usage.out), est: !!m.usage.est };
       if (m.context) n.context = str(m.context, 20000);
       if (typeof m.imageUrl === 'string' && /^https:\/\//i.test(m.imageUrl)) n.imageUrl = m.imageUrl.slice(0, 2000);
       if (Array.isArray(m.attachments)) {
@@ -2372,6 +2738,9 @@
       await importChats(f);
     });
     bindFallbacks();
+    bindRepoUsage();
+    restoreSections();
+    showVersion();
     $('#speedReset').addEventListener('click', () => {
       settings.speedStats = {};
       save(LS_SETTINGS, settings);

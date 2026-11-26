@@ -33,6 +33,10 @@
     </div>
   </main>
 
+  <div class="chat-bar" id="chatBar">
+    <button type="button" class="bar-btn" id="repoBtn" aria-label="Repository di questa chat" hidden></button>
+    <button type="button" class="bar-btn" id="usageBtn" aria-label="Consumo di token"></button>
+  </div>
   <div class="pending-att" id="pendingAtt" hidden></div>
   <form class="composer" id="composer" autocomplete="off">
     <div class="composer-box">
@@ -75,6 +79,9 @@
       <button type="button" class="icon-btn" id="closeSettings" aria-label="Chiudi">✕</button>
     </div>
     <div class="sheet-body">
+<details class="set-sec" id="sec-model" open>
+<summary><span class="set-title">Modello e chiave</span><small class="set-sum" data-sum="model"></small></summary>
+<div class="set-body">
       <label class="field">
         <span>Provider AI</span>
         <select id="provider"></select>
@@ -110,6 +117,12 @@
         <ul class="model-results" id="modelResults"></ul>
       </div>
 
+
+</div>
+</details>
+<details class="set-sec" id="sec-istr">
+<summary><span class="set-title">Istruzioni, memoria e aspetto</span><small class="set-sum" data-sum="istr"></small></summary>
+<div class="set-body">
       <label class="field">
         <span>Istruzioni di sistema</span>
         <textarea id="systemPrompt" rows="3"></textarea>
@@ -126,6 +139,21 @@
         <input id="temperature" type="range" min="0" max="1.5" step="0.1">
       </label>
 
+      <label class="field">
+        <span>Tema</span>
+        <select id="theme">
+          <option value="auto">Automatico</option>
+          <option value="dark">Scuro</option>
+          <option value="light">Chiaro</option>
+        </select>
+      </label>
+
+
+</div>
+</details>
+<details class="set-sec" id="sec-fall">
+<summary><span class="set-title">Ripiego, velocità e lavoro in background</span><small class="set-sum" data-sum="fall"></small></summary>
+<div class="set-body">
       <label class="field check-field">
         <input type="checkbox" id="autoFallback">
         <span>Se il modello è occupato, prova gli altri dell'elenco</span>
@@ -140,7 +168,7 @@
           <datalist id="fbModels"></datalist>
           <button type="button" class="btn ghost" id="fbAdd">Aggiungi</button>
         </div>
-        <small class="hint">Quando il modello scelto è occupato, ha raggiunto il limite o la connessione cade, Mia prova questi in ordine (al massimo 4). Con le frecce cambi l'ordine; i modelli senza chiave vengono saltati. Questo elenco è separato dai preferiti del cambio rapido.</small>
+        <small class="hint">Quando il modello scelto è occupato, ha raggiunto il limite o la connessione cade, Mia prova questi in ordine (al massimo 8). Un modello che ha appena raggiunto il limite viene saltato per qualche minuto. Con le frecce cambi l'ordine; i modelli senza chiave vengono saltati. Questo elenco è separato dai preferiti del cambio rapido.</small>
       </div>
 
       <div class="field">
@@ -162,17 +190,12 @@
         <span>Riprendi da sola un lavoro interrotto (connessione caduta o app chiusa)</span>
       </label>
 
-      <label class="field">
-        <span>Tema</span>
-        <select id="theme">
-          <option value="auto">Automatico</option>
-          <option value="dark">Scuro</option>
-          <option value="light">Chiaro</option>
-        </select>
-      </label>
 
-      <hr style="margin:16px 0;border:none;border-top:1px solid var(--border);">
-
+</div>
+</details>
+<details class="set-sec" id="sec-gh">
+<summary><span class="set-title">GitHub</span><small class="set-sum" data-sum="gh"></small></summary>
+<div class="set-body">
       <label class="field">
         <span>Token GitHub</span>
         <div class="row">
@@ -180,6 +203,10 @@
           <button type="button" class="btn small ghost" id="testGithub">Testa</button>
         </div>
         <p class="hint">Resta solo su questo dispositivo. Token «classic»: permesso <code>repo</code>. Token «fine-grained»: Contents, Issues, Pull requests, Actions, Metadata in lettura/scrittura (per creare repository serve il «classic»).</p>
+        <label class="field check-field">
+          <input type="checkbox" id="githubNewChatRepo">
+          <span>Le chat nuove partono dal repository scelto qui sotto (di serie: partono senza repository e lo scegli in ogni chat)</span>
+        </label>
         <div class="gh-panel" id="ghPanel">
           <div class="row">
             <select id="ghRepo"><option value="">I miei repository…</option></select>
@@ -196,6 +223,12 @@
         </div>
       </label>
 
+
+</div>
+</details>
+<details class="set-sec" id="sec-agent">
+<summary><span class="set-title">Modalità agente e strumenti</span><small class="set-sum" data-sum="agent"></small></summary>
+<div class="set-body">
       <div class="agent-box">
         <label class="field check-field">
           <input type="checkbox" id="agentEnabled">
@@ -221,6 +254,9 @@
           </label>
           <p class="hint">Mia non scrive mai sul branch principale: crea da sola il branch di lavoro e ci mette le modifiche. Tu controlli su GitHub e unisci con una pull request. Se il branch non ha modifiche proprie, viene riallineato al principale da solo.</p>
           <p class="hint">Il repository si sceglie nella sezione GitHub qui sopra. Con questa opzione Mia non legge, non modifica e non crea altri repository, anche se il token può accedervi. Se non è selezionato nessun repository, gli strumenti GitHub restano bloccati.</p>
+<details class="set-sub" id="sub-img">
+<summary><b>Creazione di immagini</b><small class="set-sum">provider e modello</small></summary>
+<div class="set-body">
           <label class="field">
             <span>Creazione di immagini</span>
             <select id="imageProvider">
@@ -242,6 +278,11 @@
             <input id="imageModel" spellcheck="false" autocapitalize="off" placeholder="gemini-2.5-flash-image">
           </label>
           <p class="hint">Usano le chiavi dei provider NVIDIA e Google Gemini già inserite. NVIDIA dà crediti gratuiti di prova che si esauriscono (e può usare i testi inviati per migliorare i suoi modelli: niente dati sensibili); il piano gratuito di Gemini può non includere le immagini. In «Automatica», se un servizio fallisce passa al successivo; Pollinations è gratuito e senza chiave, ma è un progetto di comunità senza garanzie, e la descrizione viene inviata a quel servizio. Vale anche per «disegna…» nella chat.</p>
+</div>
+</details>
+<details class="set-sub" id="sub-web">
+<summary><b>Ricerca web</b><small class="set-sum">provider e chiave</small></summary>
+<div class="set-body">
           <label class="field">
             <span>Ricerca web</span>
             <select id="searchProvider">
@@ -262,22 +303,35 @@
             <input type="checkbox" id="preferMcpWeb">
             <span>Se un connettore (es. Parallel) offre la ricerca o la lettura di pagine web, usa quella al posto di quella di Mia, senza doverlo chiedere</span>
           </label>
+</div>
+</details>
           <label class="field">
             <span>Passaggi massimi per richiesta</span>
             <input id="maxSteps" type="number" inputmode="numeric" min="3" max="100" step="1">
           </label>
           <p class="hint">Quanti giri di strumenti può fare Mia prima di fermarsi (3-100). Più alto = lavori più lunghi, ma più richieste al modello e più crediti gratuiti consumati: oltre 40 conviene solo con un modello forte e per lavori semplici e ripetitivi.</p>
+<details class="set-sub" id="sub-mcp">
+<summary><b>Connettori (MCP)</b><small class="set-sum">servizi esterni</small></summary>
+<div class="set-body">
           <div class="mcp-box">
             <strong>Connettori (MCP)</strong>
             <p class="hint">Collega servizi esterni che offrono un server MCP «HTTP» (indirizzo https://…). Mia ne scopre gli strumenti e li usa; ogni azione che non è di sola lettura chiede conferma. Puoi anche collegare il tuo computer con «Mia Bridge» (vedi README). Nel browser il server deve accettare richieste CORS; nell'APK Android di solito non serve.</p>
             <div id="mcpList"></div>
             <button type="button" class="btn small ghost" id="mcpAdd">＋ Aggiungi connettore</button>
           </div>
+</div>
+</details>
           <p class="hint">Le azioni che modificano qualcosa (creare, scrivere, eliminare, commentare) chiedono sempre il tuo permesso. Le note sono salvate sul telefono.</p>
           <p class="hint">«Leggi pagina web» prova l'indirizzo direttamente; se il sito lo blocca passa dal servizio r.jina.ai, che vede l'indirizzo richiesto.</p>
         </div>
       </div>
 
+
+</div>
+</details>
+<details class="set-sec" id="sec-sync">
+<summary><span class="set-title">Sincronizzazione e dati</span><small class="set-sum" data-sum="sync"></small></summary>
+<div class="set-body">
       <div class="field">
         <span>Sincronizzazione tra dispositivi</span>
         <input type="text" id="syncRepo" placeholder="nome-utente/mia-dati" autocomplete="off" autocapitalize="off" spellcheck="false">
@@ -297,6 +351,10 @@
         <button type="button" class="btn danger-btn" id="clearAll">Elimina tutte le chat</button>
       </div>
       <p class="hint">Chiavi e conversazioni restano solo su questo dispositivo. Per portare le chat su un altro dispositivo: «Esporta chat» → salva il file su Drive → sull'altro dispositivo «Importa chat» e scegli il file da Drive. Le chiavi non vengono esportate. Chiudi per salvare.</p>
+      <p class="hint" id="appVersion"></p>
+
+</div>
+</details>
     </div>
   </div>
 </div>
@@ -316,6 +374,38 @@
 </div>
 
 <!-- Conferma azione dello strumento -->
+<div class="sheet" id="repoSheet" hidden role="dialog" aria-modal="true" aria-labelledby="repoTitle">
+  <div class="sheet-card">
+    <div class="sheet-head">
+      <strong id="repoTitle">Repository di questa chat</strong>
+      <button type="button" class="icon-btn" id="closeRepo" aria-label="Chiudi">✕</button>
+    </div>
+    <div class="sheet-body">
+      <ul class="conv-list pick-list" id="repoList"></ul>
+      <div class="row">
+        <input id="repoInput" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="nome-utente/repository">
+        <button type="button" class="btn small ghost" id="repoUse">Usa</button>
+      </div>
+      <button type="button" class="btn ghost" id="repoLoad">Carica i miei repository</button>
+      <p class="hint">Ogni chat ha il suo repository: una chat nuova parte senza. In modalità agente Mia lavora solo su quello (e sul suo branch di lavoro).</p>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="usageSheet" hidden role="dialog" aria-modal="true" aria-labelledby="usageTitle">
+  <div class="sheet-card">
+    <div class="sheet-head">
+      <strong id="usageTitle">Consumo di token</strong>
+      <button type="button" class="icon-btn" id="closeUsage" aria-label="Chiudi">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div id="usageBody"></div>
+      <button type="button" class="btn ghost" id="usageReset">Azzera il consumo del mese</button>
+      <p class="hint">I token sono quelli dichiarati dal servizio; dove non li dichiara sono una stima (≈, circa 3,6 caratteri per token; le immagini contano circa 800). Il costo si calcola solo per i modelli per cui scrivi i prezzi, in dollari per milione di token (guarda il listino del provider: non li conosco con certezza). L'IVA non è inclusa. I modelli gratuiti restano senza costo.</p>
+    </div>
+  </div>
+</div>
+
 <div class="sheet" id="confirm" hidden role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
   <div class="sheet-card">
     <div class="sheet-head">

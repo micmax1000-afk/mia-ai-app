@@ -41,7 +41,7 @@ const handler = async route => {
     await page.goto('http://localhost:8076/'); await page.waitForSelector('#input');
     return {ctx,page};
   };
-  const ui = async (page) => { if (await page.locator('#drawer.open').count()) await page.evaluate(()=>document.querySelector('#scrim').click()); await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]'); await page.click('#syncNow'); await page.waitForFunction(()=>{ const t=document.querySelector('#syncStatus').textContent; return t && !/in corso/.test(t); },null,{timeout:20000}); const t = await page.locator('#syncStatus').textContent(); await page.click('#closeSettings'); return t; };
+  const ui = async (page) => { if (await page.locator('#drawer.open').count()) await page.evaluate(()=>document.querySelector('#scrim').click()); await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.click('#syncNow'); await page.waitForFunction(()=>{ const t=document.querySelector('#syncStatus').textContent; return t && !/in corso/.test(t); },null,{timeout:20000}); const t = await page.locator('#syncStatus').textContent(); await page.click('#closeSettings'); return t; };
   const titles = async (page) => { if (await page.locator('#drawer.open').count()) await page.evaluate(()=>document.querySelector('#scrim').click()); await page.click('#menuBtn'); const t=(await page.locator('#convList .open-conv > span').allTextContents()).sort().join(' | '); await page.evaluate(()=>document.querySelector('#scrim').click()); return t; };
   const stored = (page) => page.evaluate(()=>JSON.parse(localStorage.getItem('miaai_v1_conversations')||'[]'));
 

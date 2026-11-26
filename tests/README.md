@@ -49,6 +49,9 @@ Serve Node 18 o più recente. Il runner prepara da solo la cartella `www/` (`scr
 | 22 | Mia Bridge: token, strumenti, percorsi fuori cartella, timeout, sola lettura |
 | 23 | PDF: testo estratto per i modelli senza lettura nativa, Gemini/OpenRouter, scansioni, 120 pagine, file rotto |
 | 24 | ricerca nelle chat e nelle note, Memoria (impostazioni e strumento) |
+| 40 | mappa del file (github_outline), modifica sulla struttura (github_edit_structure: togli/aggiungi elementi di array, proprietà, funzioni), controllo della sintassi con acorn (moduli, posizione dell'errore) |
+| 39 | repository di ogni chat (le chat nuove partono senza), riquadro per sceglierlo, contatore dei token e del costo con prezzi modificabili |
+| 38 | Impostazioni a sezioni (riassunti, stato ricordato), pausa dei modelli che hanno raggiunto il limite, elenco dei modelli provati, versione dell'app e passo del workflow, filtri di condivisione |
 | 37 | tempo e velocità di ogni risposta, misure per modello, streaming su Android con il fetch del browser (con ripiego sul nativo) |
 | 36 | «Stop» che funziona anche con richieste non interrompibili (come CapacitorHttp su Android), errori di Hugging Face spiegati |
 | 35 | «Secondo parere» e «Riepilogo» (condivisione con altre app), parere che torna a Mia come suggerimento, file di testo condivisi |

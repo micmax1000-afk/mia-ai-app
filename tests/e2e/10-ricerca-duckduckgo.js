@@ -48,7 +48,7 @@ const FIX = `<html><body><div id="links" class="results">
   await page.waitForSelector('.bubble:has-text("capitale è Roma")',{timeout:12000});
   console.log('chat: il modello ha ricevuto i risultati =', JSON.stringify(chat[chat.length-1]).includes('it.wikipedia.org/wiki/Roma'), '| nessuna conferma =', await page.locator('#confirm').isHidden());
   // impostazioni
-  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]'); await page.waitForSelector('#settings:not([hidden])');
+  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#settings:not([hidden])');
   const vis = async (v) => { await page.selectOption('#searchProvider', v); return await page.locator('#searchKeyField').isVisible(); };
   console.log('campo chiave visibile: ddg =', await vis('ddg'), '| gemini =', await vis('gemini'), '| exa =', await vis('exa'));
   await page.selectOption('#searchProvider','ddg'); await page.click('#closeSettings');

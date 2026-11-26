@@ -29,7 +29,7 @@ const sse = (parts) => 'data: ' + JSON.stringify({candidates:[{content:{parts}}]
   });
   await ctx.route('https://api.duckduckgo.com/**', r => r.fulfill({status:200, headers:{'access-control-allow-origin':'*','content-type':'application/json'}, body:JSON.stringify({AbstractText:'Il meteo di oggi è sereno',Heading:'Meteo'})}));
   await ctx.route('https://it.wikipedia.org/**', r => r.fulfill({status:200, headers:{'access-control-allow-origin':'*','content-type':'application/json'}, body:'["x",[],[],[]]'}));
-  const settings = (o) => ({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.6-flash'}},autoFallback:false,favorites:[],theme:'dark',githubRepo:'mario/app',...o});
+  const settings = (o) => ({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.6-flash'}},autoFallback:false,favorites:[],theme:'dark',githubNewChatRepo:true,githubRepo:'mario/app',...o});
   await page.addInitScript((s) => { if (!localStorage.getItem('miaai_v1_settings')) localStorage.setItem('miaai_v1_settings', JSON.stringify(s)); }, settings({githubToken:'tok'}));
   await page.goto('http://localhost:8088/');
   const send = async (t) => { await page.fill('#input', t); await page.click('#sendBtn'); };
@@ -79,7 +79,7 @@ const sse = (parts) => 'data: ' + JSON.stringify({candidates:[{content:{parts}}]
   console.log('   il messaggio mostrato NON contiene il contesto:', !(await page.locator('.msg.user .bubble').last().textContent()).includes('Il meteo'));
 
   // 7) schermate: chat con strumenti + impostazioni (scuro e chiaro)
-  await page.evaluate(() => { localStorage.setItem('miaai_v1_settings', JSON.stringify({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.6-flash'}},autoFallback:false,favorites:[],theme:'dark',githubToken:'tok',githubRepo:'mario/app',agentEnabled:true,mcpServers:[{id:'m1',name:'Notion',url:'https://x.example/mcp',token:'',enabled:true,disabled:[]}]})); localStorage.removeItem('miaai_v1_conversations'); localStorage.removeItem('miaai_v1_current'); });
+  await page.evaluate(() => { localStorage.setItem('miaai_v1_settings', JSON.stringify({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.6-flash'}},autoFallback:false,favorites:[],theme:'dark',githubToken:'tok',githubNewChatRepo:true,githubRepo:'mario/app',agentEnabled:true,mcpServers:[{id:'m1',name:'Notion',url:'https://x.example/mcp',token:'',enabled:true,disabled:[]}]})); localStorage.removeItem('miaai_v1_conversations'); localStorage.removeItem('miaai_v1_current'); });
   await page.route('https://x.example/**', r => r.abort());
   await page.reload();
   script = [[{functionCall:{name:'create_xlsx',args:{filename:'spese',sheets:[{name:'Mese',rows:[['Voce','Importo'],['Affitto','700']]}]}}}],[{text:'Ecco il foglio con le spese: **Affitto 700**.'}]];
@@ -89,7 +89,7 @@ const sse = (parts) => 'data: ' + JSON.stringify({candidates:[{content:{parts}}]
   await page.evaluate(()=>{ const s=JSON.parse(localStorage.getItem('miaai_v1_settings')); s.theme='light'; localStorage.setItem('miaai_v1_settings',JSON.stringify(s)); }); await page.reload();
   await page.screenshot({path: path.join(TMP,'ui-chat-light.png')});
   await page.evaluate(()=>{ const s=JSON.parse(localStorage.getItem('miaai_v1_settings')); s.theme='dark'; localStorage.setItem('miaai_v1_settings',JSON.stringify(s)); }); await page.reload();
-  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]'); await page.waitForSelector('#settings:not([hidden])');
+  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#settings:not([hidden])');
   await page.evaluate(()=>document.querySelector('.agent-box').scrollIntoView({block:'start'})); await page.waitForTimeout(300);
   await page.screenshot({path: path.join(TMP,'ui-settings-agent.png')});
   console.log('ERRORS:', errors);

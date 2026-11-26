@@ -21,7 +21,7 @@ const sse=(deltas)=>deltas.map(d=>'data: '+JSON.stringify({choices:[{delta:d}]})
   await page.addInitScript(() => { if (!localStorage.getItem('miaai_v1_settings')) localStorage.setItem('miaai_v1_settings', JSON.stringify({provider:'gemini',profiles:{},theme:'dark',favorites:[]})); });
   await page.goto('http://localhost:8084/');
   await page.waitForSelector('#settings:not([hidden])', {timeout:3000}).catch(()=>{});
-  if (await page.locator('#settings').isHidden()) { await page.click('#menuBtn').catch(()=>{}); await page.click('#drawer [data-open-settings]'); await page.waitForSelector('#settings:not([hidden])'); }
+  if (await page.locator('#settings').isHidden()) { await page.click('#menuBtn').catch(()=>{}); await page.click('#drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#settings:not([hidden])'); }
   console.log('provider nel menu:', await page.evaluate(()=>[...document.querySelectorAll('#provider option')].map(o=>o.textContent).join(' | ')));
   for (const id of ['nvidia','mistral','sambanova','huggingface']) {
     await page.selectOption('#provider', id);

@@ -23,7 +23,7 @@ const sse=(t)=>'data: '+JSON.stringify({choices:[{delta:{content:t}}]})+'\n\ndat
   const open = async (settings, convs, init) => { const page = await mk(); await page.addInitScript(([s,c,i])=>{ if(!sessionStorage.getItem('init')){ sessionStorage.setItem('init','1'); localStorage.clear(); localStorage.setItem('miaai_v1_settings',JSON.stringify(s)); if(c){ localStorage.setItem('miaai_v1_conversations',JSON.stringify(c)); localStorage.setItem('miaai_v1_current',JSON.stringify(c[0].id)); } } if(i) { try { eval(i); } catch(e) {} } }, [settings, convs||null, init||null]); await page.goto('http://localhost:8086/'); await page.waitForSelector('#input'); return page; };
   const reset = () => { Object.values(svc).forEach(s=>{ s.mode='ok'; s.calls=0; s.failFirst=0; s.delay=0; }); order.length=0; };
   const settingsOf = (page) => page.evaluate(()=>JSON.parse(localStorage.getItem('miaai_v1_settings')));
-  const openSet = async (page) => { await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]'); await page.waitForSelector('#fallbackList',{state:'attached'}); };
+  const openSet = async (page) => { await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#fallbackList',{state:'attached'}); };
   const closeSet = async (page) => { await page.click('#closeSettings'); await page.waitForTimeout(150); };
   const items = async (page) => (await page.locator('#fallbackList .fb-name').allTextContents()).map(t=>t.replace(/\s+/g,' ').trim());
   const ask = async (page, t, until) => { await page.fill('#input',t); await page.click('#sendBtn'); await page.waitForSelector(until||'.msg.assistant .bubble:has-text("Risposta di")',{timeout:25000}); };
@@ -51,8 +51,8 @@ const sse=(t)=>'data: '+JSON.stringify({choices:[{delta:{content:t}}]})+'\n\ndat
   page = await open(P({fallbacks:[{provider:'groq',model:'llama'},{provider:'mistral',model:'mistral-large'},{provider:'gemini',model:'gemini-3.5-flash'}]}));
   await ask(page,'ciao'); console.log('   ordine con più modelli occupati →', order.join(' → ')); await page.close();
   reset(); svc.nvidia.mode='busy';
-  page = await open(P({fallbacks:[{provider:'groq',model:'llama'},{provider:'groq',model:'a'},{provider:'groq',model:'b'},{provider:'groq',model:'c'},{provider:'gemini',model:'gemini-3.5-flash'}]}));
-  svc.groq.mode='busy'; await ask(page,'ciao','.msg.error'); console.log('   al massimo 4 ripiego: richieste totali =', order.length, '(1 + 4), il quinto (Gemini) non viene provato =', !order.includes('gemini')); await page.close();
+  page = await open(P({fallbacks:[...['llama','a','b','c','d','e','f','g'].map(m=>({provider:'groq',model:m})),{provider:'gemini',model:'gemini-3.5-flash'}]}));
+  svc.groq.mode='busy'; await ask(page,'ciao','.msg.error'); console.log('   al massimo 8 ripiego: richieste totali =', order.length, '(1 + 8), il nono (Gemini) non viene provato =', !order.includes('gemini')); await page.close();
   reset(); svc.nvidia.mode='busy';
   page = await open(P({autoFallback:false,fallbacks:[{provider:'gemini',model:'gemini-3.5-flash'}]})); await ask(page,'ciao','.msg.error'); console.log('   ripiego spento: nessun altro modello provato =', order.join(',')); await page.close();
   reset(); page = await open(P({favorites:[],fallbacks:[]})); await ask(page,'ciao'); const s2 = await settingsOf(page);

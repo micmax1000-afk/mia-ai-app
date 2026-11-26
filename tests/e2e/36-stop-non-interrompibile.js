@@ -29,7 +29,7 @@ const NATIVE = `
 (async () => {
   const b = await chromium.launch(); const ctx = await b.newContext({viewport:{width:390,height:844}}); const errs=[];
   const open = async (extra, init) => { const page = await ctx.newPage(); page.on('pageerror', e => errs.push(e.message));
-    await page.addInitScript(([s,n,i])=>{ if(!sessionStorage.getItem('init')){ sessionStorage.setItem('init','1'); localStorage.clear(); localStorage.setItem('miaai_v1_settings',JSON.stringify(s)); } eval(n); if(i) eval(i); }, [Object.assign({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.5-flash',baseUrl:'https://generativelanguage.googleapis.com/v1beta'}},theme:'dark',favorites:[],autoFallback:false,autoResume:false,keepAwake:false,agentEnabled:false,githubToken:'tok',githubRepo:'mario/flash',githubUseBranch:false,githubReadFirst:false,systemPrompt:'x',temperature:0.7},extra||{}), NATIVE, init||null]);
+    await page.addInitScript(([s,n,i])=>{ if(!sessionStorage.getItem('init')){ sessionStorage.setItem('init','1'); localStorage.clear(); localStorage.setItem('miaai_v1_settings',JSON.stringify(s)); } eval(n); if(i) eval(i); }, [Object.assign({provider:'gemini',profiles:{gemini:{apiKey:'k',model:'gemini-3.5-flash',baseUrl:'https://generativelanguage.googleapis.com/v1beta'}},theme:'dark',favorites:[],autoFallback:false,autoResume:false,keepAwake:false,agentEnabled:false,githubToken:'tok',githubNewChatRepo:true,githubRepo:'mario/flash',githubUseBranch:false,githubReadFirst:false,systemPrompt:'x',temperature:0.7},extra||{}), NATIVE, init||null]);
     await page.goto('http://localhost:8088/'); await page.waitForSelector('#input'); return page; };
   const idle = (page) => page.evaluate(()=>document.querySelector('#sendBtn').textContent.trim()==='↑');
   const stopAfter = async (page, text, waitMs) => { await page.fill('#input',text); await page.click('#sendBtn'); await page.waitForTimeout(waitMs); const busyBefore = !(await idle(page)); const t0=Date.now(); await page.click('#sendBtn');
@@ -73,7 +73,7 @@ const NATIVE = `
   console.log('   un errore di connessione resta quello di connessione =', /connessione è caduta/.test(await fe('Failed to fetch')));
   console.log('   gli altri provider non cambiano (OpenRouter 402) =', /crediti esauriti.*:free/.test(await fe('402 payment required','OpenRouter (x)')), '| (NVIDIA 401) =', /chiave API non valida o non autorizzata/.test(await fe('401 Unauthorized','NVIDIA (x)')));
   await page.evaluate(()=>{ const s=JSON.parse(localStorage.getItem('miaai_v1_settings')); s.provider='huggingface'; s.profiles.huggingface={apiKey:'token-sbagliato',model:'Qwen/x',baseUrl:'https://router.huggingface.co/v1'}; localStorage.setItem('miaai_v1_settings',JSON.stringify(s)); }); await page.reload(); await page.waitForSelector('#input');
-  await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]'); await page.waitForSelector('#closeSettings'); await page.click('#closeSettings'); await page.waitForTimeout(200);
+  await page.click('#menuBtn'); await page.click('.drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#closeSettings'); await page.click('#closeSettings'); await page.waitForTimeout(200);
   console.log('   token che non inizia con «hf_» → avviso =', /inizia con «hf_»/.test(await page.locator('#toast').textContent())); await page.close();
   console.log('ERRORS', errs);
   await b.close(); web.close();

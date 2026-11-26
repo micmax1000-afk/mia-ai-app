@@ -46,14 +46,14 @@ const sse = (parts) => 'data: ' + JSON.stringify({candidates:[{content:{parts}}]
   console.log('chat: il modello ha ricevuto le fonti =', JSON.stringify(chat[1]).includes('coindesk.com'));
   console.log('chat: nessuna conferma richiesta =', await page.locator('#confirm').isHidden());
   // impostazioni: la chiave compare solo per Brave/Tavily
-  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]'); await page.waitForSelector('#settings:not([hidden])');
+  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#settings:not([hidden])');
   const vis = async (v) => { await page.selectOption('#searchProvider', v); return await page.locator('#searchKeyField').isVisible(); };
   console.log('campo chiave visibile: gemini =', await vis('gemini'), '| serper =', await vis('serper'), '| tavily =', await vis('tavily'), '| disattivata =', await vis(''));
   await page.selectOption('#searchProvider','tavily'); await page.fill('#searchKey','tvly-1'); await page.click('#closeSettings');
   const saved = await page.evaluate(()=>{const s=JSON.parse(localStorage.getItem('miaai_v1_settings')); return [s.searchProvider,s.searchKey]});
   console.log('salvato:', JSON.stringify(saved));
   await page.evaluate(()=>{const s=JSON.parse(localStorage.getItem('miaai_v1_settings')); delete s.searchProvider; localStorage.setItem('miaai_v1_settings',JSON.stringify(s));}); await page.reload();
-  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]'); await page.waitForSelector('#settings:not([hidden])');
+  await page.click('#menuBtn'); await page.click('#drawer [data-open-settings]').then(()=>page.evaluate(()=>document.querySelectorAll('details.set-sec,details.set-sub').forEach(d=>d.open=true))); await page.waitForSelector('#settings:not([hidden])');
   console.log('impostazione assente → mostra:', await page.inputValue('#searchProvider'));
   console.log('ERRORS', errs);
   await b.close(); web.close();
