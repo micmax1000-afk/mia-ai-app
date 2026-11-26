@@ -350,7 +350,7 @@ module.exports = {
   ],
   '40-mappa-struttura-acorn.js': [
     /acorn caricato = true/, /modulo valido → null/, /errore con posizione → riga 4, colonna 6/, /modulo rotto → riga 2/, /await al primo livello \(script\) → null/, /file json → null \| json rotto = string/,
-    /intestazione = «data\.js» — 634 righe .* sola lettura \(scritture\) = 0/, /array DECKS = 3 elementi con id = true \| righe del mazzo tedesco = 414–619/,
+    /intestazione = «data\.js» — 634 righe.* sola lettura \(scritture\) = 0/, /array DECKS = 3 elementi con id = true \| righe del mazzo tedesco = 414–619/,
     /funzione e costante trovate = true \| classe con metodi = true \| oggetto con chiavi = true/, /non chiede conferma = false/, /con symbol: solo DECKS = true/,
     /array lungo \(100 carte\) → taglio con primi e ultimi = true/, /modulo con export = true/, /json = radice con 2 elementi/, /markdown = true/, /file rotto → Impossibile analizzare «rotto\.js»: .*riga 1, colonna 11/, /altro repository → Repository non consentito/,
     /anteprima: ANTEPRIMA \(non ho scritto nulla\).*tolti 1 elementi da «DECKS» \(3 → 2\).*righe 414–619 id=de \| scritture = 0 \| conferma richiesta = false/, /dopo l'anteprima il file è intatto = en:200 fr:200 de:200/,
