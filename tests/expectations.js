@@ -362,5 +362,20 @@ module.exports = {
     /window\.DECKS dentro \(function\(\)\{…\}\)\(\) = en$/m, /anteprima: branch creato = false \| scritture = 0 \| esito = ok/, /scrittura → ok \| principale intatto = true \| branch di lavoro = en:200 fr:200$/m, /altro repository → Repository non consentito/,
     /senza lettura → Non ho modificato nulla = true \| scritture = 0/, /anteprima senza lettura → ok = true/, /dopo la mappa\/lettura → scritto = true \| mazzi = en:200 fr:200/,
     /conferma: Modifica la struttura di «data\.js».* mostra l'operazione = true/, /il modello conosce gli strumenti = true \| dopo la mappa, la modifica non è stata rifiutata = true \| mazzi = en:200 fr:200/, /istruzioni: mappa invece di rileggere = true/, /errore ripetuto o esterno → cerca sul web \(web_search\), errore nel codice → rileggi = true/, /^ERRORS \[\]/m
+  ],
+  '41-revisore-annulla-mappa.js': [
+    /righe tolte\/aggiunte = 1\/2 \| con numeri e contesto = true/, /due zone lontane separate da «…» = true/, /file nuovo = 2 aggiunte, 0 tolte/,
+    /togliere un mazzo → true \| Prova del codice: si esegue senza errori; cambiano: DECKS: 3 elementi → 2 elementi\./, /rinominare una variabile ancora usata → false \| true/,
+    /file che usa la pagina \(non eseguibile da solo\) → true \| true/, /modulo \(solo conteggi\) → Prova del codice: cambiano: L: 1 elemento → 2 elementi\./, /json → Prova del codice: cambiano: \(radice\): 2 elementi → 3 elementi\./, /file di testo → nessuna prova = true/,
+    /elenco dei file = true \| contenuto dei file grandi = true/, /seconda volta dalla memoria \(nessuna richiesta\) = true/, /senza repository → vuota = true/,
+    /differenza calcolata = true \| branch non ancora creato → si guarda il principale = true \| scritture = 0/, /eliminazione → after null = true/, /strumento di sola lettura → nessuna anteprima = true/,
+    /intestazione = Differenze · «data\.js» · righe −8 \/ \+0/, /righe rosse = 8 \| verdi = 0 \| numeri di riga = true/, /prova = 🧪 Prova del codice: si esegue senza errori; cambiano: DECKS: 3 elementi → 2 elementi\./,
+    /revisore = ⚠️ llama: ATTENZIONE.* \| in rosso = true/, /il revisore riceve richiesta e differenze = true \| senza le istruzioni dell'agente = true/, /nessuna scrittura prima del sì = true/,
+    /scritto sul branch di lavoro = en:3 fr:3 \| principale intatto = en:3 fr:3 de:3/, /istruzioni con la mappa del progetto = true/, /commit registrato = true/,
+    /pulsante sulla risposta finale = 1/, /conferma: Annulla le modifiche di questa risposta \(1 file\) \| • data\.js \(branch mia-lavoro\): ripristina \| rossa = false/,
+    /file ripristinato = en:3 fr:3 de:3 \| identico all'originale = true \| etichetta = ↶ modifiche annullate \| pulsante sparito = true/, /il modello sa che sono state annullate = true/,
+    /revisore spento → nessuna richiesta = true \| riquadro del revisore nascosto = true/, /file nuovo → • nuovo\.txt \(branch mia-lavoro\): elimina \(era nuovo\)/, /eliminato = true/,
+    /cambiato dopo → avviso = true \| rossa = true/, /rifiutato → file intatto = true/,
+    /richieste a Gemini = 2 \| poi Groq = 1 \| risposta di Groq con ↪ = true/, /errori non di fila \(in mezzo una lettura riuscita\) → resta Gemini = true/, /^ERRORS \[\]/m
   ]
 };

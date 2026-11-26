@@ -460,6 +460,19 @@ html[data-offline='1'] .net-dot {
   background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
   font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere;
 }
+.undone-tag { font-size: 12px; color: var(--muted); padding: 4px 6px; }
+.confirm-extra { margin: 0 0 8px; }
+.confirm-extra .hint { margin: 4px 0; }
+.diff {
+  max-height: 34vh; overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--code-bg);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.diff div { white-space: pre-wrap; overflow-wrap: anywhere; padding: 0 8px; }
+.diff .d-add { background: rgba(46, 160, 67, 0.18); }
+.diff .d-del { background: rgba(248, 81, 73, 0.18); }
+.diff .d-gap { color: var(--muted); text-align: center; }
+.diff .d-no { display: inline-block; min-width: 3.2em; color: var(--muted); user-select: none; }
+.confirm-check.bad, .confirm-review.bad { color: var(--danger); font-weight: 600; }
 .confirm-actions { margin-top: 14px; }
 .confirm-actions .btn { flex: 1; }
 .confirm-actions .btn.danger-btn { background: var(--danger); color: #fff; }
