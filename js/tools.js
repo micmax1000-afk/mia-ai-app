@@ -292,6 +292,12 @@
   async function gh(ctx, path, opts) {
     if (!ctx.token) throw new Error('Manca il token GitHub: inseriscilo in Impostazioni → Modalità agente.');
     opts = opts || {};
+    const method = opts.method || 'GET';
+    // anteprima (preview): nessuna scrittura; la scrittura che lo strumento farebbe viene «catturata» per mostrare le differenze
+    if (ctx.preview && method !== 'GET') {
+      if (/\/contents\//.test(path) && (method === 'PUT' || method === 'DELETE')) throw Object.assign(new Error('anteprima'), { previewSignal: { method, body: opts.body || {} } });
+      throw new Error('Anteprima non disponibile per questa azione.');
+    }
     const res = await fetch('https://api.github.com' + path, {
       method: opts.method || 'GET',
       headers: Object.assign(
@@ -336,6 +342,22 @@
         if (data && data.documentation_url) msg += ' · guida: ' + data.documentation_url;
       }
       throw new Error(msg + ' [HTTP ' + res.status + ']');
+    }
+    // ogni commit fatto su un file viene comunicato all'app (serve ad «Annulla le modifiche»)
+    if (ctx.onCommit && (method === 'PUT' || method === 'DELETE') && /\/contents\//.test(path)) {
+      try {
+        const [b, rest] = path.split('/contents/');
+        const body = opts.body || {};
+        ctx.onCommit({
+          base: b,
+          path: rest.split('?')[0].split('/').map(decodeURIComponent).join('/'),
+          branch: str(body.branch),
+          oldSha: body.sha || null,
+          newSha: method === 'DELETE' ? null : (data && data.content && data.content.sha) || null,
+          commit: (data && data.commit && data.commit.sha) || '',
+          deleted: method === 'DELETE'
+        });
+      } catch (_) {}
     }
     return data;
   }
@@ -3274,6 +3296,259 @@
   }
 
   /** Esegue uno strumento. Restituisce { text, files: [{ name, mime, blob }] }. */
+  // ─── Anteprima delle modifiche, differenze, prova del codice ─
+  const PREVIEWABLE = ['github_write_file', 'github_edit_file', 'github_delete_lines', 'github_edit_structure', 'github_delete_file'];
+  /** Calcola cosa cambierebbe uno strumento di scrittura SENZA scrivere: { path, branch, before, after } (after null = file eliminato), { error } oppure null. */
+  async function preview(name, args, ctx) {
+    if (!PREVIEWABLE.includes(name) || !args || args.dry_run) return null;
+    const t = get(name);
+    const a = Object.assign({}, args);
+    const { base } = repoArgs(a);
+    const path = need(a, 'path');
+    let ref = str(a.branch).trim();
+    if (ref) {
+      const ex = await gh(ctx, base + '/git/ref/heads/' + encPath(ref), { allow404: true });
+      if (!ex) {
+        delete a.branch; // il branch di lavoro non esiste ancora: verrà creato dal principale
+        ref = '';
+      }
+    }
+    const cur = await gh(ctx, base + '/contents/' + encPath(path) + (ref ? '?ref=' + encodeURIComponent(ref) : ''), { allow404: true });
+    let before = null;
+    if (cur && !Array.isArray(cur) && cur.content) {
+      try {
+        before = base64ToUtf8(cur.content);
+      } catch (_) {}
+    }
+    const pctx = Object.assign({}, ctx, { preview: true, workBranch: '', onCommit: null, confirm: async () => true });
+    await warmAcorn();
+    try {
+      await t.run(a, pctx);
+      return null;
+    } catch (e) {
+      const sig = e && e.previewSignal;
+      if (!sig) return { path, error: str(e && e.message) };
+      return { path, branch: ref, before, after: sig.method === 'DELETE' ? null : base64ToUtf8(sig.body.content || '') };
+    }
+  }
+
+  /** Differenze riga per riga: { lines:[{t:'+'|'-'|' '|'…', a, b, text}], add, del, cut }. */
+  function lineDiff(beforeText, afterText, ctxN, maxShow) {
+    ctxN = ctxN == null ? 3 : ctxN;
+    maxShow = maxShow || 400;
+    const A = beforeText == null ? [] : str(beforeText).split('\n');
+    const B = afterText == null ? [] : str(afterText).split('\n');
+    let p = 0;
+    while (p < A.length && p < B.length && A[p] === B[p]) p++;
+    let s = 0;
+    while (s < A.length - p && s < B.length - p && A[A.length - 1 - s] === B[B.length - 1 - s]) s++;
+    const a1 = A.slice(p, A.length - s);
+    const b1 = B.slice(p, B.length - s);
+    let mid = [];
+    const n = a1.length;
+    const m = b1.length;
+    if (n && m && n * m <= 2000000) {
+      const w = m + 1;
+      const T = new Uint32Array((n + 1) * w);
+      for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) T[i * w + j] = a1[i] === b1[j] ? T[(i + 1) * w + j + 1] + 1 : Math.max(T[(i + 1) * w + j], T[i * w + j + 1]);
+      let i = 0;
+      let j = 0;
+      while (i < n && j < m) {
+        if (a1[i] === b1[j]) {
+          mid.push([' ', a1[i]]);
+          i++;
+          j++;
+        } else if (T[(i + 1) * w + j] >= T[i * w + j + 1]) mid.push(['-', a1[i++]]);
+        else mid.push(['+', b1[j++]]);
+      }
+      while (i < n) mid.push(['-', a1[i++]]);
+      while (j < m) mid.push(['+', b1[j++]]);
+    } else mid = a1.map((l) => ['-', l]).concat(b1.map((l) => ['+', l]));
+    const all = A.slice(0, p).map((l) => [' ', l]).concat(mid, A.slice(A.length - s).map((l) => [' ', l]));
+    // numeri di riga e righe da mostrare (le modifiche con ctxN righe intorno)
+    let ai = 0;
+    let bi = 0;
+    const num = all.map(([t, l]) => {
+      const o = { t, text: l, a: t === '+' ? null : ++ai, b: t === '-' ? null : ++bi };
+      if (t === '+') o.a = null;
+      return o;
+    });
+    const keep = new Uint8Array(num.length);
+    num.forEach((o, k) => {
+      if (o.t !== ' ') for (let x = Math.max(0, k - ctxN); x <= Math.min(num.length - 1, k + ctxN); x++) keep[x] = 1;
+    });
+    const lines = [];
+    let gap = false;
+    let cut = false;
+    for (let k = 0; k < num.length; k++) {
+      if (!keep[k]) {
+        gap = true;
+        continue;
+      }
+      if (gap && lines.length) lines.push({ t: '…', text: '' });
+      gap = false;
+      if (lines.length >= maxShow) {
+        cut = true;
+        break;
+      }
+      lines.push(num[k]);
+    }
+    const add = mid.filter((x) => x[0] === '+').length;
+    const del = mid.filter((x) => x[0] === '-').length;
+    return { lines, add, del, cut };
+  }
+  /** Le differenze come testo (per il revisore e per i test). */
+  function diffText(d, max) {
+    const out = d.lines.map((o) => (o.t === '…' ? '…' : o.t + ' ' + (o.t === '+' ? o.b : o.a) + ' | ' + o.text)).join('\n');
+    return clip(out, max || 6000) + (d.cut ? '\n[…altre differenze non mostrate…]' : '');
+  }
+
+  /** Conteggi delle variabili di primo livello (array → elementi, oggetti → chiavi), per confrontare prima e dopo. */
+  function topCounts(path, text) {
+    const out = {};
+    if (text == null || !global.acorn) return out;
+    let p;
+    try {
+      p = parseStruct(path, text);
+    } catch (_) {
+      return null;
+    }
+    const put = (name, v) => {
+      if (!v || !name) return;
+      if (v.type === 'ArrayExpression') out[name] = v.elements.length + (v.elements.length === 1 ? ' elemento' : ' elementi');
+      else if (v.type === 'ObjectExpression') out[name] = v.properties.length + (v.properties.length === 1 ? ' chiave' : ' chiavi');
+    };
+    if (p.kind === 'json') put('(radice)', p.root);
+    else
+      topStatements(p.body, 0).forEach((it) => {
+        const n = it.node;
+        if (n.type === 'VariableDeclaration') n.declarations.forEach((d) => d.id.type === 'Identifier' && put(d.id.name, d.init));
+        else if (n.type === 'FunctionDeclaration' && n.id) out[n.id.name + '()'] = 'funzione';
+        else if (it.stmt.type === 'ExpressionStatement' && it.stmt.expression.type === 'AssignmentExpression') {
+          const e = it.stmt.expression;
+          put(text.slice(e.left.start, e.left.end), e.right);
+        }
+      });
+    return out;
+  }
+  /** Prova del file modificato: si esegue (isolato, senza rete) prima e dopo, e si confrontano i conteggi. Restituisce { ok, text } o null. */
+  async function codeCheck(path, before, after, signal) {
+    const e = ((/\.([a-z0-9]+)$/i.exec(str(path)) || [])[1] || '').toLowerCase();
+    if (!/^(js|cjs|mjs|json)$/.test(e) || after == null) return null;
+    await warmAcorn();
+    const cb = topCounts(path, before);
+    const ca = topCounts(path, after);
+    const parts = [];
+    let ok = true;
+    if (ca === null) return { ok: false, text: 'Il file modificato non si riesce ad analizzare (sintassi non valida).' };
+    // esecuzione isolata: solo script (non moduli), file non troppo grandi
+    const isModule = /^\s*(import|export)\b/m.test(after);
+    if (/^(js|cjs)$/.test(e) && !isModule && after.length < 1500000) {
+      const runIt = async (t) => {
+        if (t == null) return null;
+        try {
+          const r = await runSandbox('var window = (typeof window !== "undefined") ? window : globalThis;\n' + t + '\n;return "ok";', 4000, signal);
+          return r.ok ? '' : str(r.error || 'errore');
+        } catch (err) {
+          if (err && err.name === 'AbortError') throw err;
+          return str(err && err.message);
+        }
+      };
+      const ea = await runIt(after);
+      const eb = before == null ? null : await runIt(before);
+      if (ea === '') parts.push('si esegue senza errori' + (eb ? ' (prima della modifica invece dava errore)' : ''));
+      else if (eb === '') {
+        ok = false;
+        parts.push('⚠️ PRIMA si eseguiva, DOPO la modifica dà errore: ' + clip(ea, 200));
+      } else parts.push('non si può eseguire da solo (' + clip(ea, 120) + (eb ? '; anche prima' : '') + '): controllati solo struttura e conteggi');
+    }
+    const names = [...new Set(Object.keys(cb || {}).concat(Object.keys(ca)))];
+    const changes = names
+      .filter((k) => (cb || {})[k] !== ca[k])
+      .map((k) => (cb && cb[k] && !ca[k] ? k + ': tolto (era ' + cb[k] + ')' : !(cb && cb[k]) ? k + ': nuovo (' + ca[k] + ')' : k + ': ' + cb[k] + ' → ' + ca[k]));
+    if (changes.length) parts.push('cambiano: ' + changes.slice(0, 12).join(', ') + (changes.length > 12 ? '…' : ''));
+    else if (names.length) parts.push('nessun conteggio cambiato (' + names.slice(0, 6).map((k) => k + ' ' + ca[k]).join(', ') + ')');
+    if (!parts.length) return null;
+    return { ok, text: 'Prova del codice: ' + parts.join('; ') + '.' };
+  }
+
+  // ─── Mappa del progetto (per non far esplorare il repository a ogni chat) ─
+  const mapCache = {};
+  async function projectMap(ctx, sel) {
+    if (!/^[\w.-]+\/[\w.-]+$/.test(str(sel)) || !ctx.token) return '';
+    const hit = mapCache[sel];
+    if (hit && Date.now() - hit.t < 600000) return hit.v;
+    let v = '';
+    try {
+      const base = '/repos/' + sel;
+      const repo = await gh(ctx, base);
+      const br = repo.default_branch;
+      const tree = await gh(ctx, base + '/git/trees/' + encodeURIComponent(br) + '?recursive=1');
+      const files = (tree && tree.tree ? tree.tree : []).filter((f) => f.type === 'blob' && !/(^|\/)(node_modules|\.git|dist|build|www)\//.test(f.path));
+      if (!files.length) return '';
+      const kb = (n) => (n >= 1024 ? Math.round(n / 1024) + ' KB' : (n || 0) + ' B');
+      let list = files.map((f) => f.path + ' (' + kb(f.size) + ')').join('\n');
+      if (list.length > 2500) list = files.slice(0, 120).map((f) => f.path).join('\n') + '\n[…altri ' + Math.max(0, files.length - 120) + ' file…]';
+      v = 'Mappa del progetto «' + sel + '» (branch ' + br + ', ' + files.length + ' file' + (tree.truncated ? ', elenco incompleto' : '') + '):\n' + list;
+      // i file di codice più grandi: solo le voci di primo livello (per sapere dove sono i dati senza leggerli)
+      await warmAcorn();
+      const big = files.filter((f) => /\.(js|json)$/i.test(f.path) && f.size > 200 && f.size < 400000).sort((x, y) => y.size - x.size).slice(0, 3);
+      for (const f of big) {
+        try {
+          const d = await gh(ctx, base + '/contents/' + encPath(f.path));
+          const c = topCounts(f.path, base64ToUtf8(d.content));
+          const items = Object.keys(c || {}).map((k) => k + (c[k] === 'funzione' ? '' : ' [' + c[k] + ']'));
+          if (items.length) v += '\n' + f.path + ' contiene: ' + clip(items.join(', '), 400);
+        } catch (_) {}
+      }
+    } catch (_) {
+      v = '';
+    }
+    mapCache[sel] = { t: Date.now(), v };
+    return v;
+  }
+
+  // ─── Annulla le modifiche (commit registrati con ctx.onCommit) ─
+  /** Per ogni file toccato: cosa fare per tornare a com'era prima e se è cambiato dopo. */
+  async function undoPlan(ctx, commits) {
+    const byPath = new Map();
+    (commits || []).forEach((c) => {
+      const k = c.base + '|' + c.branch + '|' + c.path;
+      if (!byPath.has(k)) byPath.set(k, { base: c.base, branch: c.branch, path: c.path, oldSha: c.oldSha, last: c });
+      else byPath.get(k).last = c;
+    });
+    const plan = [];
+    for (const it of byPath.values()) {
+      const cur = await gh(ctx, it.base + '/contents/' + encPath(it.path) + (it.branch ? '?ref=' + encodeURIComponent(it.branch) : ''), { allow404: true });
+      const curSha = cur && !Array.isArray(cur) ? cur.sha : null;
+      const changedAfter = it.last.deleted ? !!curSha : curSha !== it.last.newSha;
+      plan.push(Object.assign(it, { curSha, changedAfter, action: it.oldSha ? 'ripristina' : 'elimina (era nuovo)' }));
+    }
+    return plan;
+  }
+  async function undoApply(ctx, plan, message) {
+    const out = [];
+    for (const it of plan) {
+      const url = it.base + '/contents/' + encPath(it.path);
+      if (!it.oldSha) {
+        if (it.curSha) {
+          const body = { message, sha: it.curSha };
+          if (it.branch) body.branch = it.branch;
+          await gh(ctx, url, { method: 'DELETE', body });
+        }
+        out.push(it.path + ': eliminato (era stato creato)');
+        continue;
+      }
+      const blob = await gh(ctx, it.base + '/git/blobs/' + it.oldSha);
+      const body = { message, content: str(blob.content).replace(/\s+/g, '') };
+      if (it.curSha) body.sha = it.curSha;
+      if (it.branch) body.branch = it.branch;
+      await gh(ctx, url, { method: 'PUT', body });
+      out.push(it.path + ': ripristinato');
+    }
+    return out;
+  }
+
   async function run(name, args, ctx) {
     const t = get(name);
     if (!t) throw new Error('Strumento sconosciuto: ' + name);
@@ -3285,5 +3560,5 @@
     return { text: clip(out, max), files: [] };
   }
 
-  global.MiaTools = { projectRules, applyScope, applyBranch, syntaxError, ocrImages, definitions, connectorWeb, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
+  global.MiaTools = { projectRules, projectMap, preview, lineDiff, diffText, codeCheck, undoPlan, undoApply, applyScope, applyBranch, syntaxError, ocrImages, definitions, connectorWeb, get, needsConfirm, describe, run, whoami, needZip, setMcpTools, clearMcp, count: () => Object.keys(TOOLS).length };
 })(window);
