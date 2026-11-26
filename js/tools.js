@@ -53,7 +53,7 @@
   // ─── Limite al repository selezionato ─────────────────────
   // Con ctx.repoLock l'agente può usare GitHub SOLO sul repository scelto nelle Impostazioni (ctx.repoScope = «proprietario/nome»):
   // owner/repo omessi si completano, un altro repository viene rifiutato, la ricerca nel codice è sempre limitata a quel repository.
-  const REPO_SCOPED = ['github_read_file', 'github_write_file', 'github_delete_file', 'github_create_branch', 'github_list_branches_commits', 'github_issues', 'github_pull_requests', 'github_actions', 'github_edit_file', 'github_delete_lines', 'github_compare'];
+  const REPO_SCOPED = ['github_read_file', 'github_write_file', 'github_delete_file', 'github_create_branch', 'github_list_branches_commits', 'github_issues', 'github_pull_requests', 'github_actions', 'github_edit_file', 'github_delete_lines', 'github_compare', 'github_outline', 'github_edit_structure'];
   function applyScope(name, args, ctx) {
     if (!ctx || !ctx.repoLock || !/^github_/.test(name)) return args;
     const sel = str(ctx.repoScope).trim();
@@ -80,12 +80,12 @@
   // ─── Branch di lavoro ──────────────────────────────────────
   // Con ctx.workBranch le scritture dell'agente vanno SEMPRE su quel branch (mai sul principale) e le letture
   // partono da lì; il branch si crea da solo dal principale e, se non ha commit propri, viene riallineato al principale.
-  const BRANCH_WRITES = ['github_write_file', 'github_edit_file', 'github_delete_file', 'github_delete_lines'];
+  const BRANCH_WRITES = ['github_write_file', 'github_edit_file', 'github_delete_file', 'github_delete_lines', 'github_edit_structure'];
   function applyBranch(name, args, ctx) {
     const wb = ctx && str(ctx.workBranch).trim();
     if (!wb) return args;
     if (BRANCH_WRITES.includes(name)) return Object.assign({}, args, { branch: wb });
-    if (name === 'github_read_file' && !str(args.ref).trim()) return Object.assign({}, args, { ref: wb, _workRef: true });
+    if ((name === 'github_read_file' || name === 'github_outline') && !str(args.ref).trim()) return Object.assign({}, args, { ref: wb, _workRef: true });
     return args;
   }
   const branchReady = {};
@@ -182,7 +182,33 @@
   }
 
   // ─── Controllo della sintassi (js/json) prima di salvare ──
+  // Con acorn (caricato solo quando serve, vedi warmAcorn) si controllano anche i moduli (import/export) e si dà la posizione dell'errore;
+  // senza acorn (non ancora caricato o caricamento fallito) resta il vecchio controllo con new Function.
   // Restituisce null se il testo è valido, il messaggio d'errore se non lo è, oppure undefined se non si può controllare.
+  const JS_EXT = /^(js|cjs|mjs)$/;
+  function acornOpts(type) {
+    return { ecmaVersion: 'latest', sourceType: type, allowHashBang: true, allowAwaitOutsideFunction: true, allowReturnOutsideFunction: type === 'script' };
+  }
+  function acornMessage(err) {
+    const loc = err && err.loc;
+    const msg = str(err && err.message).replace(/\s*\(\d+:\d+\)\s*$/, '');
+    return msg + (loc ? ' (riga ' + loc.line + ', colonna ' + (loc.column + 1) + ')' : '');
+  }
+  /** Analizza un file js/mjs/cjs con acorn: restituisce { ast, type } oppure lancia l'errore di acorn (quello più probabile). */
+  function parseJs(text) {
+    const A = global.acorn;
+    const looksModule = /^\s*(import|export)\b/m.test(text);
+    const order = looksModule ? ['module', 'script'] : ['script', 'module'];
+    let first = null;
+    for (const type of order) {
+      try {
+        return { ast: A.parse(text, acornOpts(type)), type };
+      } catch (err) {
+        if (!first) first = err;
+      }
+    }
+    throw first;
+  }
   function syntaxError(path, text) {
     const ext = (/\.([a-z0-9]+)$/i.exec(str(path)) || [])[1];
     if (!ext) return undefined;
@@ -192,8 +218,17 @@
         JSON.parse(text);
         return null;
       }
-      if (e === 'js' || e === 'cjs') {
-        if (/^\s*(import|export)\b/m.test(text)) return undefined; // moduli: non controllabili così
+      if (JS_EXT.test(e)) {
+        if (global.acorn && global.acorn.parse) {
+          try {
+            parseJs(text);
+            return null;
+          } catch (err) {
+            if (err && err.loc) return acornMessage(err);
+            return undefined;
+          }
+        }
+        if (/^\s*(import|export)\b/m.test(text)) return undefined; // moduli: senza acorn non controllabili
         try {
           new Function(text); // solo analisi: il codice NON viene eseguito
         } catch (err) {
@@ -491,6 +526,7 @@
       }
       if (existing && existing.sha) needRead(ctx, Object.assign({}, args, { path }), true);
       checkMustCount(args.must_count, oldText || '', args.content, path);
+      await warmAcorn();
       const note = checkSyntaxOrThrow(path, oldText, args.content);
       // protezione: un file esistente che si riduce di molto di solito è una riscrittura parziale (il modello ha letto solo l'inizio):
       // si chiede all'utente una seconda conferma, con le dimensioni, e senza conferma non si scrive.
@@ -886,6 +922,13 @@
   async function needZip() {
     if (!global.JSZip) await loadScript('js/vendor/jszip.min.js');
     return global.JSZip;
+  }
+  /** Carica acorn (analizzatore di JavaScript) se serve; se non si riesce a caricare si continua senza (vecchio controllo). */
+  async function warmAcorn() {
+    try {
+      if (!global.acorn) await loadScript('js/vendor/acorn.js');
+    } catch (_) {}
+    return global.acorn || null;
   }
   async function needPdf() {
     if (!global.jspdf) await loadScript('js/vendor/jspdf.umd.min.js');
@@ -2257,6 +2300,7 @@
       if (dry) return 'Controllo riuscito: le righe ' + from + '–' + to + ' (' + n + ' righe) corrispondono a quanto atteso. Il file ha ' + lines.length + ' righe. Non ho scritto nulla.\n' + borders;
       const next = lines.slice(0, from - 1).concat(lines.slice(to)).join('\n');
       checkMustCount(args.must_count, original, next, path);
+      await warmAcorn();
       const note = checkSyntaxOrThrow(path, original, next);
       const body = { message, content: utf8ToBase64(next), sha: file.sha };
       if (args.branch) body.branch = args.branch;
@@ -2269,6 +2313,508 @@
         ' — commit ' + short(r.commit && r.commit.sha) + '.' + note + '\nCosì com\'è ora intorno al punto (righe ' + c0 + '–' + c1 + '):\n' +
         after.slice(c0 - 1, c1).map((l, k) => String(c0 + k).padStart(6) + ' | ' + clip(l, 160)).join('\n') + '\nI numeri di riga sono cambiati: rifai la ricerca prima di un\'altra cancellazione.'
       );
+    }
+  });
+
+  // ─── Mappa del file e modifiche sulla struttura (con acorn) ─
+  // github_outline: elenco di funzioni, classi, variabili, elementi di array e chiavi di oggetto con i numeri di riga, senza leggere il file intero.
+  // github_edit_structure: toglie/aggiunge un elemento di un array o una proprietà, o toglie una dichiarazione, trovandola dal sintassi (non dal testo).
+  const ID_KEYS = ['id', 'name', 'key', 'slug', 'code', 'title', 'label'];
+  function lineIndex(text) {
+    const a = [0];
+    for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) a.push(i + 1);
+    return a;
+  }
+  function lineAt(idx, off) {
+    let lo = 0;
+    let hi = idx.length - 1;
+    while (lo < hi) {
+      const m = (lo + hi + 1) >> 1;
+      if (idx[m] <= off) lo = m;
+      else hi = m - 1;
+    }
+    return lo + 1;
+  }
+  const propKey = (p) => (p.computed ? undefined : p.key.type === 'Identifier' ? p.key.name : p.key.value);
+  function litValue(n) {
+    if (!n) return undefined;
+    if (n.type === 'Literal') return n.value;
+    if (n.type === 'TemplateLiteral' && !n.expressions.length) return n.quasis[0].value.cooked;
+    if (n.type === 'UnaryExpression' && n.operator === '-' && n.argument.type === 'Literal' && typeof n.argument.value === 'number') return -n.argument.value;
+    return undefined;
+  }
+  /** Analizza js/mjs/cjs o json. Restituisce { kind, text, body?, root? }. */
+  function parseStruct(path, text) {
+    const A = global.acorn;
+    if (!A || !A.parse) throw new Error('Il controllo della struttura non è disponibile (libreria acorn non caricata).');
+    const e = ((/\.([a-z0-9]+)$/i.exec(str(path)) || [])[1] || '').toLowerCase();
+    try {
+      if (e === 'json') {
+        const root = A.parseExpressionAt(text, 0, { ecmaVersion: 'latest' });
+        if (text.slice(root.end).trim()) throw Object.assign(new SyntaxError('Testo dopo la fine del JSON'), { loc: null });
+        return { kind: 'json', text, root };
+      }
+      if (JS_EXT.test(e)) return { kind: 'js', text, body: parseJs(text).ast.body };
+    } catch (err) {
+      throw new Error('Impossibile analizzare «' + str(path) + '»: ' + (err && err.loc ? acornMessage(err) : str(err && err.message)) + '.');
+    }
+    throw new Error('Struttura disponibile solo per file .js, .mjs, .cjs e .json (questo è «' + str(path) + '»).');
+  }
+  function iifeFn(e) {
+    if (!e) return null;
+    if (e.type === 'UnaryExpression') return iifeFn(e.argument);
+    if (e.type === 'CallExpression') {
+      let c = e.callee;
+      if (c.type === 'MemberExpression' && c.property && /^(call|apply)$/.test(c.property.name)) c = c.object;
+      if (c.type === 'FunctionExpression' || c.type === 'ArrowFunctionExpression') return c;
+    }
+    return null;
+  }
+  /** Istruzioni di primo livello (anche dentro una funzione richiamata subito, come «(function(){…})()»). */
+  function topStatements(body, depth, out) {
+    out = out || [];
+    (body || []).forEach((st) => {
+      let node = st;
+      if ((st.type === 'ExportNamedDeclaration' || st.type === 'ExportDefaultDeclaration') && st.declaration) node = st.declaration;
+      out.push({ node, stmt: st, depth: depth || 0 });
+      if (st.type === 'ExpressionStatement') {
+        const f = iifeFn(st.expression);
+        if (f && f.body && f.body.type === 'BlockStatement') topStatements(f.body.body, (depth || 0) + 1, out);
+      }
+    });
+    return out;
+  }
+  function elemLabel(el, text) {
+    if (!el) return '(vuoto)';
+    if (el.type === 'ObjectExpression') {
+      const props = el.properties.filter((p) => p.type === 'Property');
+      for (const k of ID_KEYS) {
+        const p = props.find((x) => propKey(x) === k && litValue(x.value) !== undefined);
+        if (p) return k + '=' + oneLine(String(litValue(p.value)), 50);
+      }
+      const p = props.find((x) => litValue(x.value) !== undefined);
+      if (p) return str(propKey(p)) + '=' + oneLine(String(litValue(p.value)), 50);
+      return 'oggetto';
+    }
+    const v = litValue(el);
+    return v !== undefined ? oneLine(JSON.stringify(v), 60) : oneLine(text.slice(el.start, el.end), 60);
+  }
+  function fnHead(n, text, name) {
+    const ps = n.params || [];
+    const p = ps.length ? oneLine(text.slice(ps[0].start, ps[ps.length - 1].end), 60) : '';
+    return (n.async ? 'async ' : '') + (n.type === 'ArrowFunctionExpression' ? '(' + p + ') =>' : 'function ' + (name || '') + '(' + p + ')');
+  }
+  function outlineJs(body, text, idx, o) {
+    const out = [];
+    const L = (n) => {
+      const a = lineAt(idx, n.start);
+      const b = lineAt(idx, n.end);
+      return (a === b ? String(a) : a + '–' + b).padStart(11) + '  ';
+    };
+    const cap = o.maxItems;
+    const lists = (items, ind, label, make) => {
+      const n = items.length;
+      const show = n > cap ? items.slice(0, Math.ceil(cap / 2)).map((x, i) => [x, i]).concat([[null, -1]], items.slice(n - Math.floor(cap / 2)).map((x, i) => [x, n - Math.floor(cap / 2) + i])) : items.map((x, i) => [x, i]);
+      show.forEach(([x, i]) => {
+        if (!x) out.push(' '.repeat(11) + '  ' + ind + '  […' + (n - cap) + ' ' + label + ' non mostrati: cerca con find o usa max_items…]');
+        else out.push(L(x) + ind + '  ' + make(x, i));
+      });
+    };
+    const value = (name, v, ind) => {
+      if (!v) return name;
+      if (v.type === 'ArrayExpression') {
+        const els = v.elements.filter(Boolean);
+        return { head: name + ' = [' + els.length + ' elementi]', kids: () => lists(els, ind, 'elementi', (x, i) => '[' + i + '] ' + elemLabel(x, text)) };
+      }
+      if (v.type === 'ObjectExpression') {
+        const ps = v.properties.filter((p) => p.type === 'Property');
+        return {
+          head: name + ' = {' + ps.length + ' chiavi}',
+          kids: () =>
+            lists(ps, ind, 'chiavi', (p) => {
+              const k = propKey(p);
+              const pv = p.value;
+              const t = pv.type === 'FunctionExpression' || pv.type === 'ArrowFunctionExpression' ? fnHead(pv, text, '') : pv.type === 'ArrayExpression' ? '[' + pv.elements.length + ']' : pv.type === 'ObjectExpression' ? '{…}' : oneLine(text.slice(pv.start, pv.end), 40);
+              return str(k) + ': ' + t;
+            })
+        };
+      }
+      if (v.type === 'FunctionExpression' || v.type === 'ArrowFunctionExpression') return name + ' = ' + fnHead(v, text, '');
+      if (v.type === 'ClassExpression') return name + ' = class';
+      if (v.type === 'CallExpression') return name + ' = ' + oneLine(text.slice(v.callee.start, v.callee.end), 40) + '(…)';
+      return name + ' = ' + oneLine(text.slice(v.start, v.end), 40);
+    };
+    topStatements(body, 0).forEach((it) => {
+      const n = it.node;
+      const ind = '  '.repeat(it.depth);
+      const emit = (r, where) => {
+        const e = typeof r === 'string' ? { head: r } : r;
+        if (o.symbol && !e.head.toLowerCase().includes(o.symbol)) return;
+        out.push(L(where) + ind + e.head);
+        if (e.kids && (o.symbol || it.depth <= 1)) e.kids();
+      };
+      if (n.type === 'FunctionDeclaration') emit(fnHead(n, text, n.id && n.id.name), it.stmt);
+      else if (n.type === 'ClassDeclaration') {
+        emit('class ' + (n.id ? n.id.name : '(anonima)'), it.stmt);
+        if (!o.symbol || (n.id && n.id.name.toLowerCase().includes(o.symbol)))
+          n.body.body.forEach((m) => out.push(L(m) + ind + '  ' + (m.static ? 'static ' : '') + (m.kind && m.kind !== 'method' ? m.kind + ' ' : '') + str(m.key && (m.key.name || m.key.value)) + (m.value && m.value.params ? '(' + m.value.params.length + ' parametri)' : '')));
+      } else if (n.type === 'VariableDeclaration') n.declarations.forEach((d) => emit(value(n.kind + ' ' + (d.id.type === 'Identifier' ? d.id.name : '{destrutturazione}'), d.init, ind), n.declarations.length === 1 ? it.stmt : d));
+      else if (it.stmt.type === 'ExpressionStatement') {
+        const e = it.stmt.expression;
+        if (e.type === 'AssignmentExpression') emit(value(oneLine(text.slice(e.left.start, e.left.end), 50) || '(radice)', e.right, ind), it.stmt);
+        else if (e.type === 'CallExpression' && e.arguments[0] && litValue(e.arguments[0]) !== undefined && typeof litValue(e.arguments[0]) === 'string' && !iifeFn(e))
+          emit(oneLine(text.slice(e.callee.start, e.callee.end), 30) + '(' + JSON.stringify(litValue(e.arguments[0])) + ', …)', it.stmt);
+      }
+    });
+    return out;
+  }
+  function outlineMd(text) {
+    const out = [];
+    let fence = false;
+    text.split('\n').forEach((l, i) => {
+      if (/^\s*(```|~~~)/.test(l)) fence = !fence;
+      else if (!fence && /^#{1,6}\s/.test(l)) out.push(String(i + 1).padStart(11) + '  ' + l.trim());
+    });
+    return out;
+  }
+
+  /** Cerca nell'albero il valore indicato da «nome» o «nome.chiave.chiave» (variabile, assegnazione, «default» o la radice di un json). */
+  function findTarget(parsed, name) {
+    const text = parsed.text;
+    const parts = str(name).trim().split('.').filter(Boolean);
+    if (parsed.kind === 'json') {
+      let node = parsed.root;
+      parts.filter((p) => p !== '$' && p !== 'root').forEach((p) => (node = descend(node, p, name)));
+      return node;
+    }
+    if (!parts.length) throw new Error('Manca il nome (target).');
+    const items = topStatements(parsed.body, 0);
+    const names = [];
+    let node = null;
+    let used = 1;
+    for (const it of items) {
+      const n = it.node;
+      if (n.type === 'VariableDeclaration') {
+        n.declarations.forEach((d) => {
+          if (d.id.type === 'Identifier') {
+            names.push(d.id.name);
+            if (!node && d.id.name === parts[0] && d.init) node = d.init;
+          }
+        });
+      } else if (it.stmt.type === 'ExpressionStatement' && it.stmt.expression.type === 'AssignmentExpression') {
+        const e = it.stmt.expression;
+        const left = text.slice(e.left.start, e.left.end);
+        names.push(left);
+        // «window.DECKS = [...]» si indica con «window.DECKS» oppure solo «DECKS»
+        for (let k = parts.length; k >= 1 && !node; k--) {
+          const cand = parts.slice(0, k).join('.');
+          if (left === cand || left.endsWith('.' + cand)) {
+            node = e.right;
+            used = k;
+          }
+        }
+      } else if (it.stmt.type === 'ExportDefaultDeclaration' && parts[0] === 'default' && !node) node = n;
+    }
+    if (!node) throw new Error('Non trovo «' + parts[0] + '» tra le dichiarazioni di primo livello. Trovate: ' + (names.slice(0, 40).join(', ') || '(nessuna)') + '. Usa github_outline per vedere la mappa.');
+    parts.slice(used).forEach((p) => (node = descend(node, p, name)));
+    return node;
+  }
+  function descend(node, key, full) {
+    if (!node || node.type !== 'ObjectExpression') throw new Error('«' + str(full) + '»: prima di «' + key + '» non c\'è un oggetto.');
+    const p = node.properties.find((x) => x.type === 'Property' && propKey(x) === key);
+    if (!p) throw new Error('«' + str(full) + '»: la chiave «' + key + '» non esiste (chiavi: ' + node.properties.map((x) => str(propKey(x))).slice(0, 30).join(', ') + ').');
+    return p.value;
+  }
+  function matchEl(el, match, text) {
+    if (match !== null && typeof match === 'object') {
+      if (!el || el.type !== 'ObjectExpression') return false;
+      const keys = Object.keys(match);
+      if (!keys.length) return false;
+      return keys.every((k) => {
+        const p = el.properties.find((x) => x.type === 'Property' && propKey(x) === k);
+        const v = p && litValue(p.value);
+        return v !== undefined && String(v) === String(match[k]);
+      });
+    }
+    const v = litValue(el);
+    return v !== undefined && String(v) === String(match);
+  }
+  /** Tolta l'elemento i da una lista (array o proprietà di un oggetto): via anche la virgola, il resto non si tocca. */
+  function removeFromList(text, items, i) {
+    let a;
+    let b;
+    if (items.length === 1) {
+      a = items[0].start;
+      b = items[0].end;
+      const m = /^\s*,/.exec(text.slice(b));
+      if (m) b += m[0].length;
+    } else if (i < items.length - 1) {
+      a = items[i].start;
+      b = items[i + 1].start;
+    } else {
+      a = items[i - 1].end;
+      b = items[i].end;
+    }
+    return { a, b, text: text.slice(0, a) + text.slice(b) };
+  }
+  function indentOf(text, off) {
+    const ls = text.lastIndexOf('\n', off - 1) + 1;
+    const m = /^[ \t]*/.exec(text.slice(ls, off));
+    return m ? m[0] : '';
+  }
+  function insertInList(text, arr, items, afterIdx, element) {
+    // afterIdx: -1 = all'inizio, altrimenti dopo l'elemento con quell'indice
+    if (!items.length) return { at: arr.start + 1, text: text.slice(0, arr.start + 1) + element + text.slice(arr.end - 1) , replaced: arr.end - 1 };
+    const multi = /\n/.test(text.slice(arr.start, items[0].start));
+    const ind = indentOf(text, items[Math.max(0, afterIdx)].start);
+    if (afterIdx < 0) {
+      const at = items[0].start;
+      return { at, text: text.slice(0, at) + element + ',' + (multi ? '\n' + ind : ' ') + text.slice(at) };
+    }
+    const it = items[afterIdx];
+    const m = /^(\s*),/.exec(text.slice(it.end, arr.end));
+    if (afterIdx < items.length - 1 || m) {
+      const at = it.end + (m ? m[0].length : 0);
+      return { at, text: text.slice(0, at) + (multi ? '\n' + ind : ' ') + element + ',' + text.slice(at) };
+    }
+    return { at: it.end, text: text.slice(0, it.end) + ',' + (multi ? '\n' + ind : ' ') + element + text.slice(it.end) };
+  }
+
+  /** Applica una operazione e restituisce { text, report }. «path» serve a rianalizzare il testo dopo ogni passo. */
+  function applyStructOp(path, text, op, k) {
+    const idx = lineIndex(text);
+    const parsed = parseStruct(path, text);
+    const kind = str(op && op.op);
+    const lbl = 'Operazione ' + (k + 1) + ' (' + kind + '): ';
+    try {
+      if (kind === 'remove_element' || kind === 'remove_property') {
+        const arr = findTarget(parsed, op.target);
+        const isArr = arr.type === 'ArrayExpression';
+        if (kind === 'remove_element' && !isArr) throw new Error('«' + str(op.target) + '» non è un array.');
+        if (kind === 'remove_property' && arr.type !== 'ObjectExpression') throw new Error('«' + str(op.target) + '» non è un oggetto.');
+        const items = isArr ? arr.elements.filter(Boolean) : arr.properties.filter((p) => p.type === 'Property' || p.type === 'SpreadElement');
+        let hits;
+        if (isArr) {
+          if (op.match === undefined || op.match === null || op.match === '') throw new Error('Manca «match» (per esempio {"id":"de"}).');
+          hits = items.map((x, i) => i).filter((i) => matchEl(items[i], op.match, text));
+        } else {
+          if (!str(op.key)) throw new Error('Manca «key» (nome della proprietà da togliere).');
+          hits = items.map((x, i) => i).filter((i) => items[i].type === 'Property' && String(propKey(items[i])) === str(op.key));
+        }
+        const exp = op.expect_matches != null && op.expect_matches !== '' ? Number(op.expect_matches) : op.all ? null : 1;
+        if (!hits.length) throw new Error('Nessun elemento corrisponde a ' + JSON.stringify(isArr ? op.match : op.key) + '. Elementi presenti: ' + items.slice(0, 15).map((x) => elemLabel(x.type === 'Property' ? x.key && { type: 'Literal', value: propKey(x), start: x.start, end: x.end } : x, text)).join(', ') + (items.length > 15 ? ', … (' + items.length + ' in tutto)' : '') + '.');
+        if (exp !== null && hits.length !== exp) throw new Error('Corrispondono ' + hits.length + ' elementi, attesi ' + exp + ' (se vuoi toglierli tutti passa all=true o expect_matches). Righe: ' + hits.map((i) => lineAt(idx, items[i].start)).join(', ') + '.');
+        if (hits.length > 200) throw new Error('Troppi elementi (' + hits.length + '): massimo 200 per operazione.');
+        // si toglie dall'ultimo al primo: gli indici dei precedenti non cambiano
+        let cur = text;
+        const lines = hits.map((i) => lineAt(idx, items[i].start) + '–' + lineAt(idx, items[i].end) + ' ' + elemLabel(items[i], text));
+        for (let n = hits.length - 1; n >= 0; n--) {
+          const itemsNow = n === hits.length - 1 ? items : null;
+          if (itemsNow) cur = removeFromList(cur, items, hits[n]).text;
+          else {
+            const p2 = parseStruct(path, cur);
+            const t2 = findTarget(p2, op.target);
+            const l2 = isArr ? t2.elements.filter(Boolean) : t2.properties.filter((p) => p.type === 'Property' || p.type === 'SpreadElement');
+            cur = removeFromList(cur, l2, hits[n]).text;
+          }
+        }
+        return { text: cur, report: lbl + 'tolti ' + hits.length + ' elementi da «' + str(op.target) + '» (' + items.length + ' → ' + (items.length - hits.length) + '):\n   righe ' + lines.join('\n   righe ') };
+      }
+      if (kind === 'add_element') {
+        const arr = findTarget(parsed, op.target);
+        if (arr.type !== 'ArrayExpression') throw new Error('«' + str(op.target) + '» non è un array.');
+        const el = str(op.element).trim();
+        if (!el) throw new Error('Manca «element» (il testo del nuovo elemento).');
+        let elNode;
+        try {
+          elNode = global.acorn.parseExpressionAt('(' + el + ')', 0, { ecmaVersion: 'latest' });
+        } catch (err) {
+          throw new Error('Il nuovo elemento non è valido: ' + (err && err.loc ? acornMessage(err) : str(err && err.message)));
+        }
+        const items = arr.elements.filter(Boolean);
+        const inner = elNode.type === 'ParenthesizedExpression' ? elNode.expression : elNode;
+        if (inner.type === 'ObjectExpression') {
+          const dupKey = ID_KEYS.find((kk) => inner.properties.some((p) => p.type === 'Property' && propKey(p) === kk && litValue(p.value) !== undefined));
+          if (dupKey) {
+            const val = litValue(inner.properties.find((p) => propKey(p) === dupKey).value);
+            if (items.some((x) => matchEl(x, { [dupKey]: val }, text))) throw new Error('Esiste già un elemento con ' + dupKey + '=' + val + ': non aggiungo un doppione (toglilo prima, se vuoi sostituirlo).');
+          }
+        }
+        let afterIdx = items.length - 1;
+        const pos = op.position;
+        if (pos === 'start') afterIdx = -1;
+        else if (pos && typeof pos === 'object' && pos.after !== undefined) {
+          afterIdx = items.findIndex((x) => matchEl(x, pos.after, text));
+          if (afterIdx < 0) throw new Error('Non trovo l\'elemento dopo cui inserire (' + JSON.stringify(pos.after) + ').');
+        } else if (pos && pos !== 'end') throw new Error('«position» deve essere «start», «end» oppure {"after": {…}}.');
+        const r = insertInList(text, arr, items, afterIdx, el);
+        const at = lineAt(idx, r.at);
+        const nt = r.replaced !== undefined ? text.slice(0, arr.start + 1) + el + text.slice(arr.end - 1) : r.text;
+        return { text: nt, report: lbl + 'aggiunto un elemento a «' + str(op.target) + '» (' + items.length + ' → ' + (items.length + 1) + ') alla riga ' + at + ' circa.' };
+      }
+      if (kind === 'remove_declaration') {
+        const name = str(op.name).trim();
+        if (!name) throw new Error('Manca «name».');
+        const cands = topStatements(parsed.body, 0).filter((it) => {
+          const n = it.node;
+          if ((n.type === 'FunctionDeclaration' || n.type === 'ClassDeclaration') && n.id && n.id.name === name) return true;
+          return n.type === 'VariableDeclaration' && n.declarations.some((d) => d.id.type === 'Identifier' && d.id.name === name);
+        });
+        if (!cands.length) throw new Error('Non trovo una funzione, classe o variabile «' + name + '» di primo livello. Usa github_outline.');
+        if (cands.length > 1) throw new Error('«' + name + '» compare ' + cands.length + ' volte (righe ' + cands.map((c) => lineAt(idx, c.stmt.start)).join(', ') + '): non so quale togliere.');
+        const it = cands[0];
+        if (it.node.type === 'VariableDeclaration' && it.node.declarations.length > 1) throw new Error('«' + name + '» è dichiarata insieme ad altre variabili nella stessa istruzione: usa github_edit_file.');
+        let a = it.stmt.start;
+        let b = it.stmt.end;
+        const ls = text.lastIndexOf('\n', a - 1) + 1;
+        if (!text.slice(ls, a).trim()) a = ls;
+        const m = /^[ \t]*\r?\n/.exec(text.slice(b));
+        if (m) b += m[0].length;
+        return { text: text.slice(0, a) + text.slice(b), report: lbl + 'tolta «' + name + '» (righe ' + lineAt(idx, it.stmt.start) + '–' + lineAt(idx, it.stmt.end) + ').' };
+      }
+    } catch (err) {
+      throw new Error(lbl + str(err && err.message));
+    }
+    throw new Error(lbl + 'operazione sconosciuta. Valide: remove_element, remove_property, add_element, remove_declaration.');
+  }
+
+  const OP_DOC =
+    'Operazioni (applicate in ordine; il file viene rianalizzato dopo ognuna): ' +
+    '{"op":"remove_element","target":"DECKS","match":{"id":"de"}} toglie l\'elemento dell\'array «target» con quelle proprietà (deve corrisponderne uno solo, salvo all=true o expect_matches=N); ' +
+    '{"op":"add_element","target":"DECKS","element":"{id:\\"fr\\", …}","position":"end"|"start"|{"after":{"id":"de"}}} aggiunge un elemento (testo esatto); ' +
+    '{"op":"remove_property","target":"CONFIG","key":"vecchia"} toglie una proprietà da un oggetto; ' +
+    '{"op":"remove_declaration","name":"vecchiaFunzione"} toglie una funzione, classe o variabile di primo livello. ' +
+    '«target» può essere un percorso come «window.DECKS» o «DATA.mazzi». Per un file .json la radice è «$».';
+
+  def('github_outline', {
+    description:
+      'Mappa di un file di GitHub (sola lettura): funzioni, classi, variabili, elementi di array (con id/nome) e chiavi di oggetto con i numeri di riga — per i file .js/.mjs/.cjs/.json; titoli per i .md. ' +
+      'Usala PRIMA di leggere o modificare un file lungo: ti dice dov\'è ogni cosa senza doverlo rileggere tutto (poi leggi solo il pezzo che serve con github_read_file, start o find). ' +
+      'Con «symbol» mostra solo ciò che contiene quel nome, con tutti gli elementi.',
+    parameters: {
+      type: 'object',
+      properties: Object.assign({}, REPO_PROPS, {
+        path: { type: 'string', description: 'Percorso del file.' },
+        symbol: { type: 'string', description: 'Facoltativo: mostra solo le voci con questo nome (per esempio «DECKS»), con tutti i loro elementi.' },
+        max_items: { type: 'integer', description: 'Elementi mostrati per array/oggetto (da 5 a 500, predefinito 40; oltre, si vedono i primi e gli ultimi).' },
+        ref: { type: 'string', description: 'Branch o commit (facoltativo).' }
+      }),
+      required: ['owner', 'repo', 'path']
+    },
+    title: (a) => 'Mappa di «' + str(a.path) + '» in ' + str(a.owner) + '/' + str(a.repo),
+    maxResult: 30000,
+    async run(args, ctx) {
+      const { base } = repoArgs(args);
+      const path = need(args, 'path');
+      const q = args.ref ? '?ref=' + encodeURIComponent(args.ref) : '';
+      let d = await gh(ctx, base + '/contents/' + encPath(path) + q, { allow404: !!args._workRef });
+      if (!d && args._workRef) d = await gh(ctx, base + '/contents/' + encPath(path));
+      if (Array.isArray(d)) throw new Error('«' + path + '» è una cartella: elenca i file con github_read_file.');
+      if (d.type !== 'file' || !d.content) throw new Error('File troppo grande o non leggibile via API (' + d.size + ' byte).');
+      const text = base64ToUtf8(d.content);
+      const idx = lineIndex(text);
+      const e = ((/\.([a-z0-9]+)$/i.exec(path) || [])[1] || '').toLowerCase();
+      const head = '«' + path + '» — ' + idx.length + ' righe, ' + text.length + ' caratteri';
+      const opts = { symbol: str(args.symbol).trim().toLowerCase(), maxItems: args.symbol ? 500 : Math.min(Math.max(parseInt(args.max_items, 10) || 40, 5), 500) };
+      if (args.max_items && args.symbol) opts.maxItems = Math.min(Math.max(parseInt(args.max_items, 10) || 500, 5), 500);
+      let lines;
+      if (e === 'md' || e === 'markdown') lines = outlineMd(text);
+      else {
+        await warmAcorn();
+        const p = parseStruct(path, text);
+        if (p.kind === 'json') {
+          const dummy = [{ type: 'ExpressionStatement', start: p.root.start, end: p.root.end, expression: { type: 'AssignmentExpression', left: { start: p.root.start, end: p.root.start }, right: p.root } }];
+          lines = outlineJs(dummy, text, idx, opts).map((l) => l.replace(/ = /, ' = '));
+        } else lines = outlineJs(p.body, text, idx, opts);
+      }
+      if (!lines.length) return head + '\nNessuna voce trovata' + (opts.symbol ? ' con «' + args.symbol + '»' : '') + '.';
+      const cut = lines.length > 500;
+      return head + (d.sha ? '' : '') + '\n(riga di inizio–fine, voce; numeri come in github_read_file con «find»)\n' + lines.slice(0, 500).join('\n') + (cut ? '\n[…altre ' + (lines.length - 500) + ' voci: usa «symbol»…]' : '');
+    }
+  });
+
+  def('github_edit_structure', {
+    description:
+      'Modifica un file .js/.mjs/.cjs/.json sulla STRUTTURA (con l\'analisi del codice), senza riscrivere o ricopiare il testo: toglie o aggiunge un elemento di un array (per esempio un mazzo), toglie una proprietà o una funzione/variabile. ' +
+      'Più sicuro delle cancellazioni per righe: trova da solo dove inizia e finisce l\'elemento, toglie anche la virgola e controlla la sintassi. ' +
+      'Prima usa github_outline, poi chiama con dry_run=true (non scrive e non chiede conferma) per vedere cosa toglieresti, poi senza dry_run. ' + OP_DOC,
+    write: (a) => !a.dry_run,
+    danger: (a) => !a.dry_run && (Array.isArray(a.operations) ? a.operations : []).some((o) => o && (o.op === 'remove_declaration' || o.all)),
+    parameters: {
+      type: 'object',
+      properties: Object.assign({}, REPO_PROPS, {
+        path: { type: 'string', description: 'Percorso del file.' },
+        operations: {
+          type: 'array',
+          description: 'Elenco delle operazioni (vedi la descrizione dello strumento).',
+          items: {
+            type: 'object',
+            properties: {
+              op: { type: 'string', description: 'remove_element | add_element | remove_property | remove_declaration' },
+              target: { type: 'string', description: 'Array o oggetto su cui agire (nome o percorso con punti).' },
+              match: { type: 'object', description: 'Proprietà dell\'elemento da togliere, per esempio {"id":"de"}.' },
+              key: { type: 'string', description: 'Nome della proprietà da togliere (remove_property).' },
+              name: { type: 'string', description: 'Nome della dichiarazione da togliere (remove_declaration).' },
+              element: { type: 'string', description: 'Testo del nuovo elemento (add_element).' },
+              position: { type: 'string', description: 'add_element: «end» (predefinito) o «start»; per «dopo un elemento» usa after_match.' },
+              after_match: { type: 'object', description: 'add_element: inserisci dopo l\'elemento con queste proprietà.' },
+              all: { type: 'boolean', description: 'Togli tutti gli elementi che corrispondono (altrimenti ne deve corrispondere uno solo).' },
+              expect_matches: { type: 'integer', description: 'Numero esatto di elementi che devono corrispondere.' }
+            },
+            required: ['op']
+          }
+        },
+        dry_run: { type: 'boolean', description: 'Se true non scrive nulla: mostra cosa cambierebbe.' },
+        must_count: MUST_COUNT,
+        message: { type: 'string', description: 'Messaggio del commit (non serve con dry_run).' },
+        branch: { type: 'string', description: 'Branch (facoltativo).' }
+      }),
+      required: ['owner', 'repo', 'path', 'operations']
+    },
+    title: (a) => (a.dry_run ? 'Anteprima struttura di «' : 'Modifica la struttura di «') + str(a.path) + '» in ' + str(a.owner) + '/' + str(a.repo) + ' (' + (Array.isArray(a.operations) ? a.operations.length : 0) + ' operazioni)',
+    details: (a) =>
+      'Commit: ' + str(a.message) + (a.branch ? '\nBranch: ' + a.branch : '') + '\n\n' +
+      (Array.isArray(a.operations) ? a.operations : []).map((o, i) => (i + 1) + '. ' + clip(JSON.stringify(o), 300)).join('\n') + '\n\n(il file viene analizzato, la sintassi controllata prima di salvare)',
+    async run(args, ctx) {
+      const { base } = repoArgs(args);
+      const path = need(args, 'path');
+      const ops = Array.isArray(args.operations) ? args.operations : [];
+      if (!ops.length) throw new Error('Manca «operations» (almeno un\'operazione).');
+      if (ops.length > 20) throw new Error('Troppe operazioni in una volta (massimo 20).');
+      // alcuni modelli mettono «after» dentro «position»: si normalizza
+      const norm = ops.map((o) => {
+        const c = Object.assign({}, o);
+        if (c.after_match && !c.position) c.position = { after: c.after_match };
+        return c;
+      });
+      const dry = !!args.dry_run;
+      if (!dry) needRead(ctx, args, false, 'modificato');
+      const message = dry ? '' : need(args, 'message');
+      await warmAcorn();
+      if (!dry && ctx.workBranch && args.branch === ctx.workBranch) await ensureWorkBranch(ctx, base, args.branch);
+      let file = await gh(ctx, base + '/contents/' + encPath(path) + (args.branch ? '?ref=' + encodeURIComponent(args.branch) : ''), { allow404: dry && !!args.branch });
+      if (!file && dry) file = await gh(ctx, base + '/contents/' + encPath(path));
+      if (Array.isArray(file) || file.type !== 'file' || !file.content) throw new Error('«' + path + '» non è un file di testo leggibile.');
+      const original = base64ToUtf8(file.content);
+      if (original.includes('\u0000')) throw new Error('File binario: non modificabile.');
+      let cur = original;
+      const reports = [];
+      norm.forEach((op, k) => {
+        const r = applyStructOp(path, cur, op, k);
+        cur = r.text;
+        reports.push(r.report);
+      });
+      checkMustCount(args.must_count, original, cur, path);
+      const bad = syntaxError(path, cur);
+      if (bad) throw new Error('Modifica NON salvata: dopo l\'operazione «' + path + '» non risulterebbe valido (' + bad + '). Il file su GitHub non è cambiato.');
+      const b = original.split('\n').length;
+      const a = cur.split('\n').length;
+      const summary = reports.join('\n') + '\nRighe ' + b + ' → ' + a + ' (' + (a - b >= 0 ? '+' : '') + (a - b) + '), caratteri ' + original.length + ' → ' + cur.length + '. Il file risultante è sintatticamente valido.';
+      if (dry) return 'ANTEPRIMA (non ho scritto nulla):\n' + summary;
+      const body = { message, content: utf8ToBase64(cur), sha: file.sha };
+      if (args.branch) body.branch = args.branch;
+      const r = await gh(ctx, base + '/contents/' + encPath(path), { method: 'PUT', body });
+      return 'Fatto: ' + path + (args.branch ? ' (branch ' + args.branch + ')' : '') + ' — commit ' + short(r.commit && r.commit.sha) + '.\n' + summary + '\nI numeri di riga sono cambiati: rifai github_outline prima di un\'altra modifica.';
     }
   });
 
@@ -2359,6 +2905,7 @@
       });
       if (text === original) throw new Error('Le sostituzioni non cambiano il file.');
       checkMustCount(args.must_count, original, text, path);
+      await warmAcorn();
       const note = checkSyntaxOrThrow(path, original, text);
       const body = { message, content: utf8ToBase64(text), sha: file.sha };
       if (args.branch) body.branch = args.branch;

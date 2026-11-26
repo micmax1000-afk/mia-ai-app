@@ -131,7 +131,7 @@
       } else if (t.name === 'github_write_file') {
         st.read.add(k);
         st.full.add(k);
-      } else if (t.name === 'github_edit_file' || t.name === 'github_delete_lines') st.read.add(k);
+      } else if (t.name === 'github_edit_file' || t.name === 'github_delete_lines' || t.name === 'github_edit_structure' || t.name === 'github_outline') st.read.add(k);
     });
     return st;
   }
@@ -887,7 +887,8 @@
       '3. Un passo alla volta: una modifica, poi controlla l\'esito che ti mostra lo strumento. Se il risultato non è quello atteso FERMATI: dillo e correggi o chiedi, non andare avanti sperando.\n' +
       '4. Le azioni che modificano qualcosa chiedono già conferma all\'utente tramite l\'app: chiama direttamente lo strumento, non chiedere conferma a parole. Se l\'utente rifiuta un\'azione, non ripeterla: chiedi cosa preferisce.\n\n' +
       'FILE E CODICE (GitHub)\n' +
-      '- Prima di cambiare un file esistente cerca con find e leggi solo la parte che serve (github_read_file con start/length). Se la lettura dice FILE INCOMPLETO non hai visto tutto: non fare ipotesi su ciò che non hai letto.\n' +
+      '- Per orientarti in un file lungo usa PRIMA github_outline (mappa con funzioni, array, elementi con id e numeri di riga): non rileggere il file intero. Poi leggi solo la parte che serve (github_read_file con start/length oppure find). Se la lettura dice FILE INCOMPLETO non hai visto tutto: non fare ipotesi su ciò che non hai letto.\n' +
+      '- Per togliere o aggiungere un elemento di un array (un mazzo, una voce), una proprietà o una funzione in file .js/.json usa github_edit_structure: indichi l\'elemento per id (per esempio match {"id":"de"}), prima con dry_run e poi senza; è più sicuro delle righe e non devi ricopiare nulla. Dopo ogni modifica rifai github_outline invece di rileggere il file.\n' +
       '- Non riscrivere mai un file esistente: cambia dei frammenti con github_edit_file; per togliere blocchi lunghi usa github_delete_lines (prima find, poi dry_run, poi la cancellazione; dopo ogni cancellazione i numeri di riga cambiano: rifai find).\n' +
       '- Quando sposti, copi o dividi dati (liste, carte, tabelle) copiali ESATTAMENTE: non correggere, non tradurre di nuovo, non aggiungere, non togliere. Per i file di dati usa must_count (per esempio il numero di «front:») e alla fine confronta i conteggi con github_compare.\n' +
       '- Se cancelli, sposti o rinomini un file, cerca con github_search_code dove è usato (import, elenchi di file in cache, manifest) e aggiorna anche quei punti.\n' +
@@ -1710,7 +1711,7 @@
 
   // ─── Secondo parere e riepilogo (condivisione con altre app) ───
   // Niente chiavi e niente richieste: si prepara un testo completo e si apre il pannello «Condividi» di Android (o si copia / scarica nel browser).
-  const CHANGE_TOOLS = new Set(['github_write_file', 'github_edit_file', 'github_delete_lines', 'github_delete_file', 'github_create_branch', 'create_file', 'create_zip', 'create_pdf', 'create_xlsx', 'create_svg']);
+  const CHANGE_TOOLS = new Set(['github_write_file', 'github_edit_file', 'github_delete_lines', 'github_edit_structure', 'github_delete_file', 'github_create_branch', 'create_file', 'create_zip', 'create_pdf', 'create_xlsx', 'create_svg']);
   const clipTxt = (t, n) => {
     t = String(t || '').trim();
     return t.length > n ? t.slice(0, n) + '\n[…tagliato…]' : t;
