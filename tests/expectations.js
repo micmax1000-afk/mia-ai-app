@@ -394,5 +394,10 @@ module.exports = {
     /conferma aggiunta: Aggiungi 2 righe in fondo a «grande\.js»/, /prima parte scritta anche se non è ancora JS valido = true/,
     /parti successive senza chiedere = true \| ultima parte rotta rifiutata = true/, /valido = 1,2,3,4$/m, /esito dell'ultima = true/,
     /primo file → scritto = true \| secondo file senza piano → fermato = true/, /misurato = true/, /^ERRORS \[\]/m
+  ],
+  '44-controlli-pull-request.js': [
+    /rosso = true \| riga del test fallito con run_id = true \| invito a leggere l'errore = true/, /verde = true/, /in corso = true/, /stato classico fallito = true/, /nessun controllo = true/,
+    /rosso → rifiutata = true \| nessuna unione = true/, /in corso → rifiutata = true/, /conflitti → rifiutata = true/, /bozza → rifiutata = true/, /già unita = true/,
+    /verde → unita = true \| solo il commit controllato \(sha\) = true/, /senza controlli → unita con avviso = true/, /lo strumento dice che legge i controlli e blocca l'unione = true/, /^ERRORS \[\]/m
   ]
 };

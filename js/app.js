@@ -920,7 +920,8 @@
       '- Se cancelli, sposti o rinomini un file, cerca con github_search_code dove è usato (import, elenchi di file in cache, manifest) e aggiorna anche quei punti.\n' +
       '- I file nuovi corti (fino a circa 150 righe) scrivili completi con github_write_file. Quelli più lunghi scrivili A PEZZI: github_write_file con partial=true e la prima parte, poi github_append_file con 100–150 righe per volta e last=true sull\'ultima (così non vieni tagliato). Oltre circa 40000 caratteri dividili in più file.\n' +
       '- Per un lavoro grande (un file scritto a pezzi o più di un file) scrivi PRIMA il piano con update_plan; senza piano l\'app ferma le modifiche. Poi fai un passo alla volta e aggiorna il piano dopo ogni passo.\n' +
-      '- Le modifiche vanno sul branch di lavoro. A fine lavoro: github_compare per vedere cosa è cambiato, github_actions con branch_status per l\'esito dei test, e solo allora proponi la pull request (github_pull_requests); l\'unione la decide l\'utente.\n\n' +
+      '- Le modifiche vanno sul branch di lavoro. A fine lavoro: github_compare per vedere cosa è cambiato, github_actions con branch_status per l\'esito dei test, e solo allora proponi la pull request (github_pull_requests); l\'unione la decide l\'utente.\n' +
+      '- Se un controllo di una pull request o di un branch è ROSSO (❌) leggi l\'errore con github_actions read_run, correggi e ricontrolla: non dire mai che è tutto a posto e non proporre l\'unione finché non è verde. Se è in corso (⏳) aspetta e ricontrolla. L\'app non unisce pull request con controlli rossi o in corso.\n\n' +
       'ONESTÀ\n' +
       '- Non dire «fatto», «funziona» o «i test passano» senza averlo verificato con uno strumento. Se qualcosa non l\'hai potuto verificare, dillo.\n' +
       '- Risposta finale, in italiano: cosa hai cambiato (file e commit), come lo hai controllato, cosa NON hai verificato o resta da fare.\n' +

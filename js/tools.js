@@ -1772,9 +1772,40 @@
   });
 
   // 18 — pull request
+  // ─── Controlli (test, build) sul commit di testa di una pull request ───
+  /** { verdict: 'green'|'red'|'pending'|'none', text, failedRuns:[id] } da check-runs e stati classici del commit. */
+  async function checksOf(ctx, base, sha) {
+    const items = [];
+    try {
+      const d = await gh(ctx, base + '/commits/' + sha + '/check-runs?per_page=50');
+      (d.check_runs || []).forEach((c) => {
+        const m = /\/actions\/runs\/(\d+)/.exec(str(c.details_url) + ' ' + str(c.html_url));
+        items.push({ name: c.name, state: c.status !== 'completed' ? 'pending' : ['success', 'skipped', 'neutral'].includes(c.conclusion) ? 'ok' : 'bad', raw: c.status === 'completed' ? c.conclusion : c.status, run: m ? m[1] : '' });
+      });
+    } catch (_) {}
+    try {
+      const st = await gh(ctx, base + '/commits/' + sha + '/status');
+      (st.statuses || []).forEach((x) => items.push({ name: x.context, state: x.state === 'success' ? 'ok' : x.state === 'pending' ? 'pending' : 'bad', raw: x.state, run: '' }));
+    } catch (_) {}
+    if (!items.length) return { verdict: 'none', text: 'nessun controllo (test o build) trovato per il commit ' + short(sha) + '.', failedRuns: [] };
+    const bad = items.filter((x) => x.state === 'bad');
+    const pend = items.filter((x) => x.state === 'pending');
+    const icon = (x) => (x.state === 'ok' ? '✅' : x.state === 'bad' ? '❌' : '⏳');
+    const verdict = bad.length ? 'red' : pend.length ? 'pending' : 'green';
+    const head = verdict === 'red' ? '❌ FALLITI ' + bad.length + ' su ' + items.length : verdict === 'pending' ? '⏳ IN CORSO ' + pend.length + ' su ' + items.length : '✅ tutti passati (' + items.length + ')';
+    const failedRuns = [...new Set(bad.map((x) => x.run).filter(Boolean))];
+    return {
+      verdict,
+      failedRuns,
+      text:
+        head + ' sul commit ' + short(sha) + '\n' + items.map((x) => '  ' + icon(x) + ' ' + x.name + ' · ' + x.raw + (x.run ? ' · run_id ' + x.run : '')).join('\n') +
+        (verdict === 'red' ? '\nLeggi gli errori con github_actions action=read_run' + (failedRuns.length ? ' run_id=' + failedRuns[0] : '') + ', correggi e ricontrolla. Non dire che è tutto a posto.' : verdict === 'pending' ? '\nAspetta e ricontrolla prima di dire il risultato o di unire.' : '')
+    };
+  }
+
   def('github_pull_requests', {
     description:
-      'Gestisce le pull request: «list» (elenco), «read» (dettaglio con file modificati e diff), «create» (nuova PR da un branch), «comment» (commento), «merge» (unisce la PR).',
+      'Gestisce le pull request: «list» (elenco), «read» (dettaglio con file modificati, diff ed esito dei controlli: test e build), «create» (nuova PR da un branch), «comment» (commento), «merge» (unisce la PR; rifiutata se un controllo è fallito o in corso, se ci sono conflitti o se è una bozza).',
     parameters: {
       type: 'object',
       properties: Object.assign({}, REPO_PROPS, {
@@ -1829,8 +1860,17 @@
       }
       if (action === 'merge') {
         const method = ['merge', 'squash', 'rebase'].includes(args.method) ? args.method : 'squash';
-        const r = await gh(ctx, base + '/pulls/' + num + '/merge', { method: 'PUT', body: { merge_method: method } });
-        return (r && r.message) || 'Pull request #' + num + ' unita (' + method + ').';
+        // prima di unire: niente bozze, niente conflitti, nessun controllo rosso o in corso; si unisce solo il commit controllato
+        const p = await gh(ctx, base + '/pulls/' + num);
+        if (p.merged) return 'La pull request #' + num + ' è già stata unita.';
+        if (p.state !== 'open') throw new Error('Non unisco: la pull request #' + num + ' è chiusa.');
+        if (p.draft) throw new Error('Non unisco: la pull request #' + num + ' è una bozza.');
+        if (p.mergeable === false || p.mergeable_state === 'dirty') throw new Error('Non unisco: la pull request #' + num + ' ha conflitti con «' + p.base.ref + '». Vanno risolti prima.');
+        const ck = await checksOf(ctx, base, p.head.sha);
+        if (ck.verdict === 'red') throw new Error('Non unisco: ci sono controlli FALLITI sulla pull request #' + num + '.\n' + ck.text);
+        if (ck.verdict === 'pending') throw new Error('Non unisco: i controlli della pull request #' + num + ' sono ancora in corso.\n' + ck.text);
+        const r = await gh(ctx, base + '/pulls/' + num + '/merge', { method: 'PUT', body: { merge_method: method, sha: p.head.sha } });
+        return ((r && r.message) || 'Pull request #' + num + ' unita (' + method + ').') + '\nControlli: ' + ck.text;
       }
       if (action === 'read') {
         const p = await gh(ctx, base + '/pulls/' + num);
@@ -1840,6 +1880,7 @@
           '\n' + p.head.ref + ' → ' + p.base.ref + ' · autore ' + p.user.login +
           (p.merged ? '' : ' · unibile: ' + (p.mergeable_state || 'n/d')) +
           '\n' + p.changed_files + ' file, +' + p.additions + ' −' + p.deletions +
+          (p.merged ? '' : '\nControlli: ' + (await checksOf(ctx, base, p.head.sha)).text) +
           '\n\n' + clip(p.body || '(nessuna descrizione)', 2000) + '\n\nFile modificati:';
         files.forEach((f) => {
           out += '\n\n▸ ' + f.filename + ' (' + f.status + ', +' + f.additions + ' −' + f.deletions + ')' + (f.patch ? '\n' + clip(f.patch, 1800) : '');
