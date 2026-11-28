@@ -53,7 +53,7 @@
   // ─── Limite al repository selezionato ─────────────────────
   // Con ctx.repoLock l'agente può usare GitHub SOLO sul repository scelto nelle Impostazioni (ctx.repoScope = «proprietario/nome»):
   // owner/repo omessi si completano, un altro repository viene rifiutato, la ricerca nel codice è sempre limitata a quel repository.
-  const REPO_SCOPED = ['github_read_file', 'github_write_file', 'github_delete_file', 'github_create_branch', 'github_list_branches_commits', 'github_issues', 'github_pull_requests', 'github_actions', 'github_edit_file', 'github_delete_lines', 'github_compare', 'github_outline', 'github_edit_structure'];
+  const REPO_SCOPED = ['github_read_file', 'github_write_file', 'github_delete_file', 'github_create_branch', 'github_list_branches_commits', 'github_issues', 'github_pull_requests', 'github_actions', 'github_edit_file', 'github_delete_lines', 'github_compare', 'github_outline', 'github_edit_structure', 'github_append_file'];
   function applyScope(name, args, ctx) {
     if (!ctx || !ctx.repoLock || !/^github_/.test(name)) return args;
     const sel = str(ctx.repoScope).trim();
@@ -80,7 +80,7 @@
   // ─── Branch di lavoro ──────────────────────────────────────
   // Con ctx.workBranch le scritture dell'agente vanno SEMPRE su quel branch (mai sul principale) e le letture
   // partono da lì; il branch si crea da solo dal principale e, se non ha commit propri, viene riallineato al principale.
-  const BRANCH_WRITES = ['github_write_file', 'github_edit_file', 'github_delete_file', 'github_delete_lines', 'github_edit_structure'];
+  const BRANCH_WRITES = ['github_write_file', 'github_edit_file', 'github_delete_file', 'github_delete_lines', 'github_edit_structure', 'github_append_file'];
   function applyBranch(name, args, ctx) {
     const wb = ctx && str(ctx.workBranch).trim();
     if (!wb) return args;
@@ -521,14 +521,15 @@
       type: 'object',
       properties: Object.assign({}, REPO_PROPS, {
         path: { type: 'string', description: 'Percorso del file, es. «docs/guida.md».' },
-        content: { type: 'string', description: 'Contenuto COMPLETO del file.' },
+        content: { type: 'string', description: 'Contenuto COMPLETO del file (oppure, con partial=true, la PRIMA parte di un file nuovo lungo).' },
+        partial: { type: 'boolean', description: 'true = file nuovo scritto a pezzi: questa è la prima parte, le altre si aggiungono con github_append_file (la sintassi si controlla all\'ultimo pezzo).' },
         must_count: MUST_COUNT,
         message: { type: 'string', description: 'Messaggio del commit.' },
         branch: { type: 'string', description: 'Branch di destinazione (facoltativo, predefinito: branch principale).' }
       }),
       required: ['owner', 'repo', 'path', 'content', 'message']
     },
-    title: (a) => 'Scrivi «' + str(a.path) + '» in ' + str(a.owner) + '/' + str(a.repo) + (a.branch ? ' (branch ' + a.branch + ')' : ''),
+    title: (a) => (a.partial ? 'Inizia «' : 'Scrivi «') + str(a.path) + (a.partial ? '» (prima parte) in ' : '» in ') + str(a.owner) + '/' + str(a.repo) + (a.branch ? ' (branch ' + a.branch + ')' : ''),
     details: (a) => 'Commit: ' + str(a.message) + (a.branch ? '\nBranch: ' + a.branch : '') + '\nNuovo contenuto: ' + lineCount(a.content) + ' righe, ' + str(a.content).length + ' caratteri\n\n' + clip(str(a.content), 1200),
     async run(args, ctx) {
       const { base } = repoArgs(args);
@@ -549,7 +550,8 @@
       if (existing && existing.sha) needRead(ctx, Object.assign({}, args, { path }), true);
       checkMustCount(args.must_count, oldText || '', args.content, path);
       await warmAcorn();
-      const note = checkSyntaxOrThrow(path, oldText, args.content);
+      if (args.partial && existing && existing.sha) throw new Error('«' + path + '» esiste già: partial=true serve solo per iniziare un file NUOVO. Per aggiungere in fondo usa github_append_file.');
+      const note = args.partial ? ' File in costruzione: aggiungi le altre parti con github_append_file (last=true sull\'ultima, così si controlla la sintassi).' : checkSyntaxOrThrow(path, oldText, args.content);
       // protezione: un file esistente che si riduce di molto di solito è una riscrittura parziale (il modello ha letto solo l'inizio):
       // si chiede all'utente una seconda conferma, con le dimensioni, e senza conferma non si scrive.
       if (existing && existing.content) {
@@ -580,6 +582,59 @@
       return (
         (existing ? 'File aggiornato: ' : 'File creato: ') + path + (args.branch ? ' (branch ' + args.branch + ')' : '') + ' — commit ' + short(r.commit && r.commit.sha) +
         ' — righe: ' + (oldText != null ? lineCount(oldText) + ' → ' : '') + lineCount(args.content) + '.' + note + ' — ' + (r.content && r.content.html_url)
+      );
+    }
+  });
+
+  // 4b — aggiunge in fondo a un file (per scrivere file lunghi a pezzi, con modelli che hanno poco spazio per rispondere)
+  def('github_append_file', {
+    description:
+      'Aggiunge testo IN FONDO a un file di GitHub, senza riscrivere il resto. Serve a scrivere file lunghi a pezzi: crea il file con github_write_file (partial=true) e poi aggiungi una parte alla volta (100–150 righe) con questo strumento; ' +
+      'sull\'ultima parte metti last=true: si controlla la sintassi del file finito (js/json). Il testo va esattamente in coda (aggiungi tu un a capo iniziale se serve).',
+    write: true,
+    parameters: {
+      type: 'object',
+      properties: Object.assign({}, REPO_PROPS, {
+        path: { type: 'string', description: 'Percorso del file (deve esistere).' },
+        content: { type: 'string', description: 'Testo da aggiungere in fondo.' },
+        last: { type: 'boolean', description: 'true se è l\'ultima parte: si controlla che il file finito sia valido.' },
+        must_count: MUST_COUNT,
+        message: { type: 'string', description: 'Messaggio del commit.' },
+        branch: { type: 'string', description: 'Branch (facoltativo).' }
+      }),
+      required: ['owner', 'repo', 'path', 'content', 'message']
+    },
+    title: (a) => 'Aggiungi ' + lineCount(a.content) + ' righe in fondo a «' + str(a.path) + '»' + (a.last ? ' (ultima parte)' : '') + ' in ' + str(a.owner) + '/' + str(a.repo),
+    details: (a) => 'Commit: ' + str(a.message) + (a.branch ? '\nBranch: ' + a.branch : '') + '\nRighe: −0 / +' + lineCount(a.content) + '\n\n' + clip(str(a.content), 1200),
+    async run(args, ctx) {
+      const { base } = repoArgs(args);
+      const path = need(args, 'path');
+      const message = need(args, 'message');
+      if (typeof args.content !== 'string' || !args.content) throw new Error('Parametro mancante: «content».');
+      needRead(ctx, Object.assign({}, args, { path }), false, 'aggiunto');
+      if (ctx.workBranch && args.branch === ctx.workBranch) await ensureWorkBranch(ctx, base, args.branch);
+      const url = base + '/contents/' + encPath(path);
+      const file = await gh(ctx, url + (args.branch ? '?ref=' + encodeURIComponent(args.branch) : ''), { allow404: true });
+      if (!file) throw new Error('«' + path + '» non esiste: crealo prima con github_write_file (partial=true per la prima parte).');
+      if (Array.isArray(file) || !file.content) throw new Error('«' + path + '» non è un file di testo leggibile.');
+      const before = base64ToUtf8(file.content);
+      const after = before + args.content;
+      checkMustCount(args.must_count, before, after, path);
+      let note = '';
+      if (args.last) {
+        await warmAcorn();
+        const bad = syntaxError(path, after);
+        if (bad) throw new Error('Ultima parte NON aggiunta: il file finito non sarebbe valido (' + bad + '). Il file su GitHub non è cambiato. Controlla la fine del file (github_read_file con find) e correggi l\'ultima parte.');
+        if (bad === null) note = ' Il file finito è sintatticamente valido.';
+      }
+      const body = { message, content: utf8ToBase64(after), sha: file.sha };
+      if (args.branch) body.branch = args.branch;
+      const r = await gh(ctx, url, { method: 'PUT', body });
+      const lines = after.split('\n');
+      const tail = lines.slice(-3).map((l, k) => String(lines.length - 2 + k).padStart(6) + ' | ' + clip(l, 160)).join('\n');
+      return (
+        'Aggiunte ' + lineCount(args.content) + ' righe in fondo a ' + path + (args.branch ? ' (branch ' + args.branch + ')' : '') + ' — righe ' + lineCount(before) + ' → ' + lines.length +
+        ' — commit ' + short(r.commit && r.commit.sha) + '.' + note + (args.last ? '' : ' Continua con la parte successiva (last=true sull\'ultima).') + '\nFine del file adesso:\n' + tail
       );
     }
   });
@@ -1717,9 +1772,40 @@
   });
 
   // 18 — pull request
+  // ─── Controlli (test, build) sul commit di testa di una pull request ───
+  /** { verdict: 'green'|'red'|'pending'|'none', text, failedRuns:[id] } da check-runs e stati classici del commit. */
+  async function checksOf(ctx, base, sha) {
+    const items = [];
+    try {
+      const d = await gh(ctx, base + '/commits/' + sha + '/check-runs?per_page=50');
+      (d.check_runs || []).forEach((c) => {
+        const m = /\/actions\/runs\/(\d+)/.exec(str(c.details_url) + ' ' + str(c.html_url));
+        items.push({ name: c.name, state: c.status !== 'completed' ? 'pending' : ['success', 'skipped', 'neutral'].includes(c.conclusion) ? 'ok' : 'bad', raw: c.status === 'completed' ? c.conclusion : c.status, run: m ? m[1] : '' });
+      });
+    } catch (_) {}
+    try {
+      const st = await gh(ctx, base + '/commits/' + sha + '/status');
+      (st.statuses || []).forEach((x) => items.push({ name: x.context, state: x.state === 'success' ? 'ok' : x.state === 'pending' ? 'pending' : 'bad', raw: x.state, run: '' }));
+    } catch (_) {}
+    if (!items.length) return { verdict: 'none', text: 'nessun controllo (test o build) trovato per il commit ' + short(sha) + '.', failedRuns: [] };
+    const bad = items.filter((x) => x.state === 'bad');
+    const pend = items.filter((x) => x.state === 'pending');
+    const icon = (x) => (x.state === 'ok' ? '✅' : x.state === 'bad' ? '❌' : '⏳');
+    const verdict = bad.length ? 'red' : pend.length ? 'pending' : 'green';
+    const head = verdict === 'red' ? '❌ FALLITI ' + bad.length + ' su ' + items.length : verdict === 'pending' ? '⏳ IN CORSO ' + pend.length + ' su ' + items.length : '✅ tutti passati (' + items.length + ')';
+    const failedRuns = [...new Set(bad.map((x) => x.run).filter(Boolean))];
+    return {
+      verdict,
+      failedRuns,
+      text:
+        head + ' sul commit ' + short(sha) + '\n' + items.map((x) => '  ' + icon(x) + ' ' + x.name + ' · ' + x.raw + (x.run ? ' · run_id ' + x.run : '')).join('\n') +
+        (verdict === 'red' ? '\nLeggi gli errori con github_actions action=read_run' + (failedRuns.length ? ' run_id=' + failedRuns[0] : '') + ', correggi e ricontrolla. Non dire che è tutto a posto.' : verdict === 'pending' ? '\nAspetta e ricontrolla prima di dire il risultato o di unire.' : '')
+    };
+  }
+
   def('github_pull_requests', {
     description:
-      'Gestisce le pull request: «list» (elenco), «read» (dettaglio con file modificati e diff), «create» (nuova PR da un branch), «comment» (commento), «merge» (unisce la PR).',
+      'Gestisce le pull request: «list» (elenco), «read» (dettaglio con file modificati, diff ed esito dei controlli: test e build), «create» (nuova PR da un branch), «comment» (commento), «merge» (unisce la PR; rifiutata se un controllo è fallito o in corso, se ci sono conflitti o se è una bozza).',
     parameters: {
       type: 'object',
       properties: Object.assign({}, REPO_PROPS, {
@@ -1774,8 +1860,17 @@
       }
       if (action === 'merge') {
         const method = ['merge', 'squash', 'rebase'].includes(args.method) ? args.method : 'squash';
-        const r = await gh(ctx, base + '/pulls/' + num + '/merge', { method: 'PUT', body: { merge_method: method } });
-        return (r && r.message) || 'Pull request #' + num + ' unita (' + method + ').';
+        // prima di unire: niente bozze, niente conflitti, nessun controllo rosso o in corso; si unisce solo il commit controllato
+        const p = await gh(ctx, base + '/pulls/' + num);
+        if (p.merged) return 'La pull request #' + num + ' è già stata unita.';
+        if (p.state !== 'open') throw new Error('Non unisco: la pull request #' + num + ' è chiusa.');
+        if (p.draft) throw new Error('Non unisco: la pull request #' + num + ' è una bozza.');
+        if (p.mergeable === false || p.mergeable_state === 'dirty') throw new Error('Non unisco: la pull request #' + num + ' ha conflitti con «' + p.base.ref + '». Vanno risolti prima.');
+        const ck = await checksOf(ctx, base, p.head.sha);
+        if (ck.verdict === 'red') throw new Error('Non unisco: ci sono controlli FALLITI sulla pull request #' + num + '.\n' + ck.text);
+        if (ck.verdict === 'pending') throw new Error('Non unisco: i controlli della pull request #' + num + ' sono ancora in corso.\n' + ck.text);
+        const r = await gh(ctx, base + '/pulls/' + num + '/merge', { method: 'PUT', body: { merge_method: method, sha: p.head.sha } });
+        return ((r && r.message) || 'Pull request #' + num + ' unita (' + method + ').') + '\nControlli: ' + ck.text;
       }
       if (action === 'read') {
         const p = await gh(ctx, base + '/pulls/' + num);
@@ -1785,6 +1880,7 @@
           '\n' + p.head.ref + ' → ' + p.base.ref + ' · autore ' + p.user.login +
           (p.merged ? '' : ' · unibile: ' + (p.mergeable_state || 'n/d')) +
           '\n' + p.changed_files + ' file, +' + p.additions + ' −' + p.deletions +
+          (p.merged ? '' : '\nControlli: ' + (await checksOf(ctx, base, p.head.sha)).text) +
           '\n\n' + clip(p.body || '(nessuna descrizione)', 2000) + '\n\nFile modificati:';
         files.forEach((f) => {
           out += '\n\n▸ ' + f.filename + ' (' + f.status + ', +' + f.additions + ' −' + f.deletions + ')' + (f.patch ? '\n' + clip(f.patch, 1800) : '');
@@ -3297,7 +3393,7 @@
 
   /** Esegue uno strumento. Restituisce { text, files: [{ name, mime, blob }] }. */
   // ─── Anteprima delle modifiche, differenze, prova del codice ─
-  const PREVIEWABLE = ['github_write_file', 'github_edit_file', 'github_delete_lines', 'github_edit_structure', 'github_delete_file'];
+  const PREVIEWABLE = ['github_write_file', 'github_edit_file', 'github_delete_lines', 'github_edit_structure', 'github_delete_file', 'github_append_file'];
   /** Calcola cosa cambierebbe uno strumento di scrittura SENZA scrivere: { path, branch, before, after } (after null = file eliminato), { error } oppure null. */
   async function preview(name, args, ctx) {
     if (!PREVIEWABLE.includes(name) || !args || args.dry_run) return null;

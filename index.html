@@ -245,10 +245,6 @@
             <span>Mia deve aver letto un file prima di modificarlo (consigliato)</span>
           </label>
           <label class="field check-field">
-            <input type="checkbox" id="reviewWrites">
-            <span>Prima di ogni modifica, un altro modello dell'elenco di ripiego la controlla (consigliato con i modelli gratuiti)</span>
-          </label>
-          <label class="field check-field">
             <input type="checkbox" id="githubUseBranch">
             <span>Le modifiche dell'agente vanno su un branch di lavoro (consigliato)</span>
           </label>
@@ -422,13 +418,29 @@
         <p class="hint" id="confirmDiffHead"></p>
         <div class="diff" id="confirmDiff"></div>
         <p class="hint confirm-check" id="confirmCheck" hidden></p>
-        <p class="hint confirm-review" id="confirmReview" hidden></p>
       </div>
       <p class="hint" id="confirmWarn" hidden>⚠️ Azione difficile da annullare.</p>
+      <div class="confirm-ask" id="confirmAsk" hidden>
+        <div class="row ask-row">
+          <button type="button" class="btn ghost" id="askOtherApp">📤 Chiedi a un'altra app</button>
+          <button type="button" class="btn ghost" id="pasteOpinion">📋 Incolla il parere</button>
+        </div>
+        <p class="hint" id="askHint">Mando a un'altra app (ChatGPT, Gemini, Claude…) la richiesta, le differenze e la prova. Condividi la sua risposta verso Mia, oppure copiala e tocca «Incolla il parere».</p>
+        <div class="paste-box" id="pasteBox" hidden>
+          <textarea id="pasteText" rows="4" placeholder="Incolla qui il parere dell'altra app"></textarea>
+          <button type="button" class="btn" id="pasteUse">Aggiungi il parere</button>
+        </div>
+        <div class="confirm-opinion" id="confirmOpinion" hidden></div>
+      </div>
       <div class="row confirm-actions">
         <button type="button" class="btn ghost" id="confirmNo">Rifiuta</button>
         <button type="button" class="btn" id="confirmYes">Consenti</button>
       </div>
+      <label class="check-field confirm-allow" id="confirmAllowRow" hidden>
+        <input type="checkbox" id="confirmAllow">
+        <span>Consenti anche le prossime parti di questo file senza chiedere (solo per questo lavoro)</span>
+      </label>
+      <button type="button" class="btn ghost later-btn" id="confirmLater" hidden>⏸ Decido dopo: Mia si ferma e aspetta il parere</button>
     </div>
   </div>
 </div>

@@ -370,12 +370,34 @@ module.exports = {
     /elenco dei file = true \| contenuto dei file grandi = true/, /seconda volta dalla memoria \(nessuna richiesta\) = true/, /senza repository → vuota = true/,
     /differenza calcolata = true \| branch non ancora creato → si guarda il principale = true \| scritture = 0/, /eliminazione → after null = true/, /strumento di sola lettura → nessuna anteprima = true/,
     /intestazione = Differenze · «data\.js» · righe −8 \/ \+0/, /righe rosse = 8 \| verdi = 0 \| numeri di riga = true/, /prova = 🧪 Prova del codice: si esegue senza errori; cambiano: DECKS: 3 elementi → 2 elementi\./,
-    /revisore = ⚠️ llama: ATTENZIONE.* \| in rosso = true/, /il revisore riceve richiesta e differenze = true \| senza le istruzioni dell'agente = true/, /nessuna scrittura prima del sì = true/,
+    /nessun revisore interno \(nessuna richiesta all'altro modello\) = true \| riquadro del revisore assente = true/, /nessuna scrittura prima del sì = true/,
     /scritto sul branch di lavoro = en:3 fr:3 \| principale intatto = en:3 fr:3 de:3/, /istruzioni con la mappa del progetto = true/, /commit registrato = true/,
     /pulsante sulla risposta finale = 1/, /conferma: Annulla le modifiche di questa risposta \(1 file\) \| • data\.js \(branch mia-lavoro\): ripristina \| rossa = false/,
     /file ripristinato = en:3 fr:3 de:3 \| identico all'originale = true \| etichetta = ↶ modifiche annullate \| pulsante sparito = true/, /il modello sa che sono state annullate = true/,
-    /revisore spento → nessuna richiesta = true \| riquadro del revisore nascosto = true/, /file nuovo → • nuovo\.txt \(branch mia-lavoro\): elimina \(era nuovo\)/, /eliminato = true/,
+    /nessuna richiesta all'altro modello = true/, /file nuovo → • nuovo\.txt \(branch mia-lavoro\): elimina \(era nuovo\)/, /eliminato = true/,
     /cambiato dopo → avviso = true \| rossa = true/, /rifiutato → file intatto = true/,
     /richieste a Gemini = 2 \| poi Groq = 1 \| risposta di Groq con ↪ = true/, /errori non di fila \(in mezzo una lettura riuscita\) → resta Gemini = true/, /^ERRORS \[\]/m
+  ],
+  '42-parere-altra-app.js': [
+    /pulsanti = true true \| «Decido dopo» = true \| revisore interno assente = true/,
+    /testo condiviso: richiesta = true \| differenze con numeri = true \| prova del codice = true \| domanda OK\/ATTENZIONE = true/, /in attesa = true \| nessuna scrittura = true/,
+    /parere condiviso verso Mia → nel riquadro, in rosso = true \| la casella di scrittura resta vuota = true/, /rifiutato → il modello riceve il parere = true \| file intatto = en:3 fr:3 de:3/,
+    /nuova proposta: parere azzerato = true/, /parere incollato → verde = true \| casella nascosta = true/, /consentito → scritto = en:3 fr:3 \| l'esito dice che il parere era stato letto = true/,
+    /il parere viene chiesto da solo = true \| nessuna scrittura = true \| il lavoro si ferma senza chiamare il modello = true/, /messaggio = ⏸ Mi fermo: «Modifica la struttura di «data\.js»/, /Mia libera = true/,
+    /parere arrivato dopo \(conferma chiusa\) → nella casella come parere = true/, /«procedi»: il modello vede la proposta e il fermo = true/, /scritto dopo «procedi» = en:3 fr:3$/m, /^ERRORS \[\]/m
+  ],
+  '43-risposte-tagliate-file-a-pezzi.js': [
+    /testo unito = Prima parte, seconda parte, fine\. \| richieste = 3/, /la continuazione manda il testo già scritto e la richiesta di continuare = true/,
+    /un solo messaggio salvato = true \| continuazioni registrate = 2 \| etichetta con ↻ = true/, /richieste = 4 \| avviso = true/, /testo unito = Uno, due\. \| richieste = 2/,
+    /il modello riceve la spiegazione = true \| nessuna scrittura = true/, /richiesta di dividere = true \| nessun errore «Risposta vuota» = true/,
+    /senza piano → fermato = true \| nessuna scrittura = true/, /conferma prima parte: Inizia «grande\.js» \(prima parte\).* casella «prossime parti» nascosta = true/,
+    /conferma aggiunta: Aggiungi 2 righe in fondo a «grande\.js»/, /prima parte scritta anche se non è ancora JS valido = true/,
+    /parti successive senza chiedere = true \| ultima parte rotta rifiutata = true/, /valido = 1,2,3,4$/m, /esito dell'ultima = true/,
+    /primo file → scritto = true \| secondo file senza piano → fermato = true/, /misurato = true/, /^ERRORS \[\]/m
+  ],
+  '44-controlli-pull-request.js': [
+    /rosso = true \| riga del test fallito con run_id = true \| invito a leggere l'errore = true/, /verde = true/, /in corso = true/, /stato classico fallito = true/, /nessun controllo = true/,
+    /rosso → rifiutata = true \| nessuna unione = true/, /in corso → rifiutata = true/, /conflitti → rifiutata = true/, /bozza → rifiutata = true/, /già unita = true/,
+    /verde → unita = true \| solo il commit controllato \(sha\) = true/, /senza controlli → unita con avviso = true/, /lo strumento dice che legge i controlli e blocca l'unione = true/, /^ERRORS \[\]/m
   ]
 };
