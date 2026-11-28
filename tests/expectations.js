@@ -385,5 +385,14 @@ module.exports = {
     /nuova proposta: parere azzerato = true/, /parere incollato → verde = true \| casella nascosta = true/, /consentito → scritto = en:3 fr:3 \| l'esito dice che il parere era stato letto = true/,
     /il parere viene chiesto da solo = true \| nessuna scrittura = true \| il lavoro si ferma senza chiamare il modello = true/, /messaggio = ⏸ Mi fermo: «Modifica la struttura di «data\.js»/, /Mia libera = true/,
     /parere arrivato dopo \(conferma chiusa\) → nella casella come parere = true/, /«procedi»: il modello vede la proposta e il fermo = true/, /scritto dopo «procedi» = en:3 fr:3$/m, /^ERRORS \[\]/m
+  ],
+  '43-risposte-tagliate-file-a-pezzi.js': [
+    /testo unito = Prima parte, seconda parte, fine\. \| richieste = 3/, /la continuazione manda il testo già scritto e la richiesta di continuare = true/,
+    /un solo messaggio salvato = true \| continuazioni registrate = 2 \| etichetta con ↻ = true/, /richieste = 4 \| avviso = true/, /testo unito = Uno, due\. \| richieste = 2/,
+    /il modello riceve la spiegazione = true \| nessuna scrittura = true/, /richiesta di dividere = true \| nessun errore «Risposta vuota» = true/,
+    /senza piano → fermato = true \| nessuna scrittura = true/, /conferma prima parte: Inizia «grande\.js» \(prima parte\).* casella «prossime parti» nascosta = true/,
+    /conferma aggiunta: Aggiungi 2 righe in fondo a «grande\.js»/, /prima parte scritta anche se non è ancora JS valido = true/,
+    /parti successive senza chiedere = true \| ultima parte rotta rifiutata = true/, /valido = 1,2,3,4$/m, /esito dell'ultima = true/,
+    /primo file → scritto = true \| secondo file senza piano → fermato = true/, /misurato = true/, /^ERRORS \[\]/m
   ]
 };

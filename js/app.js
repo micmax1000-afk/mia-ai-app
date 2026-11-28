@@ -131,7 +131,7 @@
       } else if (t.name === 'github_write_file') {
         st.read.add(k);
         st.full.add(k);
-      } else if (t.name === 'github_edit_file' || t.name === 'github_delete_lines' || t.name === 'github_edit_structure' || t.name === 'github_outline') st.read.add(k);
+      } else if (t.name === 'github_edit_file' || t.name === 'github_delete_lines' || t.name === 'github_edit_structure' || t.name === 'github_outline' || t.name === 'github_append_file') st.read.add(k);
     });
     return st;
   }
@@ -855,6 +855,8 @@
       $('#confirmExtra').hidden = true;
       $('#confirmAsk').hidden = !d.ask;
       $('#confirmLater').hidden = !d.ask;
+      $('#confirmAllowRow').hidden = !d.allowSame;
+      $('#confirmAllow').checked = false;
       $('#pasteBox').hidden = true;
       $('#pasteText').value = '';
       $('#confirmOpinion').hidden = true;
@@ -916,7 +918,8 @@
       '- Non riscrivere mai un file esistente: cambia dei frammenti con github_edit_file; per togliere blocchi lunghi usa github_delete_lines (prima find, poi dry_run, poi la cancellazione; dopo ogni cancellazione i numeri di riga cambiano: rifai find).\n' +
       '- Quando sposti, copi o dividi dati (liste, carte, tabelle) copiali ESATTAMENTE: non correggere, non tradurre di nuovo, non aggiungere, non togliere. Per i file di dati usa must_count (per esempio il numero di «front:») e alla fine confronta i conteggi con github_compare.\n' +
       '- Se cancelli, sposti o rinomini un file, cerca con github_search_code dove è usato (import, elenchi di file in cache, manifest) e aggiorna anche quei punti.\n' +
-      '- I file nuovi vanno scritti completi e non oltre circa 40000 caratteri: se servono di più dividili in più file.\n' +
+      '- I file nuovi corti (fino a circa 150 righe) scrivili completi con github_write_file. Quelli più lunghi scrivili A PEZZI: github_write_file con partial=true e la prima parte, poi github_append_file con 100–150 righe per volta e last=true sull\'ultima (così non vieni tagliato). Oltre circa 40000 caratteri dividili in più file.\n' +
+      '- Per un lavoro grande (un file scritto a pezzi o più di un file) scrivi PRIMA il piano con update_plan; senza piano l\'app ferma le modifiche. Poi fai un passo alla volta e aggiorna il piano dopo ogni passo.\n' +
       '- Le modifiche vanno sul branch di lavoro. A fine lavoro: github_compare per vedere cosa è cambiato, github_actions con branch_status per l\'esito dei test, e solo allora proponi la pull request (github_pull_requests); l\'unione la decide l\'utente.\n\n' +
       'ONESTÀ\n' +
       '- Non dire «fatto», «funziona» o «i test passano» senza averlo verificato con uno strumento. Se qualcosa non l\'hai potuto verificare, dillo.\n' +
@@ -1001,10 +1004,44 @@
   }
 
   /** Esegue una chiamata a uno strumento (chiedendo conferma se modifica qualcosa). */
-  async function runOneTool(tc, ctl) {
+  // ─── Piano obbligatorio nei lavori grandi ───
+  // Un lavoro che crea un file a pezzi o tocca un secondo file senza un piano (update_plan) viene fermato: prima il piano, poi un passo alla volta.
+  const PLAN_WRITES = new Set(['github_write_file', 'github_append_file', 'github_edit_file', 'github_edit_structure', 'github_delete_lines', 'github_delete_file']);
+  function planCheck(c, tc) {
+    if (!c || !PLAN_WRITES.has(tc.name) || !tc.args) return '';
+    const from = Math.max(0, taskStart(c, c.messages.length));
+    const calls = new Map();
+    const files = new Set();
+    let planned = false;
+    c.messages.slice(from).forEach((m) => {
+      if (m.role === 'assistant') (m.toolCalls || []).forEach((t) => calls.set(t.id, t));
+      if (m.role !== 'tool' || !m.ok) return;
+      if (m.name === 'update_plan') planned = true;
+      const t = calls.get(m.toolCallId);
+      if (t && PLAN_WRITES.has(m.name) && t.args && t.args.path) files.add(String(t.args.path));
+    });
+    if (planned) return '';
+    const path = String(tc.args.path || '');
+    const big = tc.name === 'github_append_file' || tc.args.partial || (files.size >= 1 && !files.has(path));
+    if (!big) return '';
+    return (
+      'Non ho fatto nulla: questo è un lavoro grande (' + (tc.name === 'github_append_file' || tc.args.partial ? 'un file scritto a pezzi' : 'più di un file') + ') e non c\'è ancora un piano. ' +
+      'Prima scrivi il piano con update_plan (i file da creare o cambiare e i passi, uno per riga), poi fai un passo alla volta e aggiorna il piano dopo ogni passo. Poi rifai questa chiamata.'
+    );
+  }
+
+  async function runOneTool(tc, ctl, c) {
     const tool = Tools.get(tc.name);
     if (!tool) return { ok: false, content: 'Strumento sconosciuto: ' + tc.name };
-    if (tc.argsError) return { ok: false, content: 'Argomenti non validi (JSON malformato): riprova.' };
+    if (tc.argsError)
+      return {
+        ok: false,
+        content: tc.truncated
+          ? 'La chiamata è stata TAGLIATA perché la tua risposta era troppo lunga per questo modello: non ho fatto nulla. Scrivi i file lunghi a pezzi: github_write_file con partial=true e la prima parte, poi github_append_file con 100–150 righe per volta (last=true sull\'ultima).'
+          : 'Argomenti non validi (JSON malformato): riprova.'
+      };
+    const noPlan = planCheck(c, tc);
+    if (noPlan) return { ok: false, content: noPlan };
     const ctx = toolContext(ctl.signal);
     try {
       tc.args = Tools.applyBranch(tc.name, Tools.applyScope(tc.name, tc.args, ctx), ctx); // owner/repo, altri repository rifiutati, branch di lavoro
@@ -1013,14 +1050,18 @@
     }
     const d = Tools.describe(tc.name, tc.args);
     let opinion = '';
-    if (Tools.needsConfirm(tc.name, tc.args)) {
-      const asked = askConfirm(Object.assign({ ask: true }, d));
+    // aggiunte allo stesso file: si può consentire una volta per tutte le parti di questo lavoro
+    const sameKey = tc.name === 'github_append_file' ? String(tc.args.owner) + '/' + String(tc.args.repo) + '/' + String(tc.args.path) : '';
+    const preAllowed = sameKey && activeRun && activeRun.allowed && activeRun.allowed.has(sameKey);
+    if (Tools.needsConfirm(tc.name, tc.args) && !preAllowed) {
+      const asked = askConfirm(Object.assign({ ask: true, allowSame: !!sameKey }, d));
       const extra = { done: false, check: null, diff: null };
       reviewCtx = { tc, extra, asked: false };
       confirmExtras(tc, ctx, extra); // differenze e prova del codice arrivano mentre il riquadro è aperto
       const yes = await asked;
       extra.done = true;
       opinion = extra.opinion || '';
+      if (yes === true && sameKey && $('#confirmAllow').checked && activeRun) (activeRun.allowed = activeRun.allowed || new Set()).add(sameKey);
       if (yes === 'later')
         return {
           ok: false,
@@ -1158,7 +1199,7 @@
   /** Esegue tutte le chiamate e aggiunge un messaggio «tool» per ognuna (anche se interrotto, per tenere le coppie complete). */
   async function executeToolCalls(c, calls, ctl, onProgress) {
     for (const tc of calls) {
-      const res = ctl.signal.aborted ? { ok: false, content: 'Interrotto dall\'utente.' } : await runOneTool(tc, ctl);
+      const res = ctl.signal.aborted ? { ok: false, content: 'Interrotto dall\'utente.' } : await runOneTool(tc, ctl, c);
       const d = Tools.describe(tc.name, tc.args);
       let preview = '';
       try {
@@ -1283,6 +1324,17 @@
     const paused = list.filter(inPause).sort((x, y) => coolUntil[modelKey(x)] - coolUntil[modelKey(y)]);
     return ok.concat(paused);
   }
+  let streamPrefix = ''; // testo già ricevuto quando si chiede al modello di continuare
+  const MAX_CONTINUE = 3;
+  const CONTINUE_PROMPT = '[Messaggio automatico dell\'app] La tua risposta è stata tagliata perché troppo lunga. Continua ESATTAMENTE da dove ti sei interrotto, senza ripetere niente e senza introduzioni.';
+  const SPLIT_PROMPT =
+    '[Messaggio automatico dell\'app] La tua risposta è stata tagliata perché troppo lunga per questo modello (forse stavi scrivendo un file intero in una volta). ' +
+    'Scrivi i file lunghi a pezzi: prima github_write_file con partial=true e la prima parte, poi github_append_file con 100–150 righe per volta e last=true sull\'ultima.';
+  function sumUsage(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    return { in: (a.in || 0) + (b.in || 0), out: (a.out || 0) + (b.out || 0), think: (a.think || 0) + (b.think || 0), est: !!(a.est || b.est) };
+  }
   function whyFailed(err) {
     if (P.isBusyError(err)) return 'limite raggiunto o occupato';
     if (P.isConnectionError(err)) return 'connessione caduta';
@@ -1302,6 +1354,8 @@
     const agent = !!settings.agentEnabled;
     let tools = null;
     const ctl = (toolCtl = new AbortController());
+    const tRun = Date.now();
+    let prepMs = -1; // tempo di preparazione (connettori, istruzioni) prima della prima richiesta al modello
 
     // Modelli da provare: quello scelto, poi (se attivo) gli altri dell'elenco ▾ già configurati
     const attempts = [cfg];
@@ -1328,7 +1382,16 @@
     let frame = 0;
     try {
       if (agent) {
-        await P.raceAbort(refreshMcp(ctl.signal), ctl.signal);
+        // in parallelo: connettori, utente GitHub e regole del progetto (poi agentPrompt li trova già pronti)
+        const sel = String(chatRepo() || '');
+        await P.raceAbort(
+          Promise.all([
+            refreshMcp(ctl.signal),
+            settings.githubToken ? Tools.whoami(settings.githubToken, ctl.signal) : null,
+            settings.githubToken && settings.githubScope !== false && /^[\w.-]+\/[\w.-]+$/.test(sel) ? Tools.projectRules({ token: settings.githubToken, signal: ctl.signal }, sel).catch(() => null) : null
+          ]),
+          ctl.signal
+        );
         tools = Tools.definitions({ preferConnectors: settings.preferMcpWeb !== false });
         const extra = await P.raceAbort(agentPrompt(ctl.signal, tools), ctl.signal);
         if (ctl.signal.aborted) throw abortError();
@@ -1338,6 +1401,7 @@
       // connessione caduta (rete mobile, schermo spento…): fino a 2 nuovi tentativi con lo stesso modello prima di cambiare
       let timing = { t0: 0, first: 0, chunks: 0 };
       const chatWithRetry = async (...args) => {
+        if (prepMs < 0) prepMs = Date.now() - tRun;
         for (let retry = 0; ; retry++) {
           try {
             timing = { t0: Date.now(), first: 0, chunks: 0 }; // si misura l'ultimo tentativo
@@ -1361,8 +1425,11 @@
         const ordered = orderByPause(attempts);
         triedLog = [];
         if (ordered.length > 1 && ordered[0] !== attempts[0] && inPause(attempts[0])) toast(attempts[0].model + ' è in pausa (limite raggiunto): uso ' + ordered[0].model);
+        let usedA = null;
+        streamPrefix = '';
         for (let i = 0; i < ordered.length && result === null; i++) {
           const a = ordered[i];
+          usedA = a;
           tag = modelLabel(a.provider, a.model);
           lastModelKey = modelKey(a);
           run.modelKey = lastModelKey;
@@ -1371,7 +1438,7 @@
               a,
               history,
               (full) => {
-                partial = full;
+                partial = streamPrefix + full;
                 if (full && full.trim()) {
                   if (!timing.first) timing.first = Date.now() - timing.t0;
                   timing.chunks++;
@@ -1395,12 +1462,35 @@
             toast(a.model + (P.isConnectionError(err) ? ': connessione caduta, provo ' : ' è occupato: provo ') + next.model);
           }
         }
+        // risposta tagliata perché troppo lunga per il modello: si chiede di continuare (fino a MAX_CONTINUE volte) e si unisce il testo
+        let conts = 0;
+        while (result.truncated && !result.toolCalls.length && conts < MAX_CONTINUE && usedA) {
+          conts++;
+          const prefix = result.text || '';
+          streamPrefix = prefix;
+          toast(prefix ? 'Risposta lunga: continuo (' + conts + '/' + MAX_CONTINUE + ')…' : 'Risposta troppo lunga: chiedo di dividerla');
+          const more = await chatWithRetry(
+            usedA,
+            history.concat(prefix ? [{ role: 'assistant', content: prefix }, { role: 'user', content: CONTINUE_PROMPT }] : [{ role: 'user', content: SPLIT_PROMPT }]),
+            (full) => {
+              partial = streamPrefix + full;
+              bubble.innerHTML = partial ? MD.render(partial) : '<span class="typing"><i></i><i></i><i></i></span>';
+            },
+            { tools, full: true }
+          );
+          result = { text: prefix + (more.text || ''), toolCalls: more.toolCalls, truncated: more.truncated, usage: sumUsage(result.usage, more.usage) };
+        }
+        streamPrefix = '';
+        if (result.truncated) result.toolCalls.forEach((t) => (t.truncated = true));
+        if (result.truncated && !result.toolCalls.length) result.text += '\n\n_(risposta ancora tagliata dopo ' + conts + ' continuazioni: scrivi «continua» per il resto)_';
         const usedFallback = tag !== modelLabel(cfg.provider, cfg.model);
         const msg = { role: 'assistant', content: result.text, model: (usedFallback ? '↪ ' : '') + tag };
         if (result.toolCalls.length) msg.toolCalls = result.toolCalls;
         if (timing.t0) {
           const words = (result.text.match(/\S+/g) || []).length;
           msg.speed = { ms: Date.now() - timing.t0, first: timing.first || 0, chunks: timing.chunks, words };
+          if (step === 0 && prepMs >= 0) msg.speed.prep = prepMs;
+          if (conts) msg.speed.conts = conts;
           recordSpeed(tag, msg.speed);
         }
         if (result.usage) {
@@ -1506,6 +1596,10 @@
   }
   function speedText(sp) {
     if (!sp) return '';
+    const pre = (sp.prep >= 300 ? 'preparazione ' + fmtSec(sp.prep) + ' · ' : '') + (sp.conts ? '↻' + sp.conts + ' · ' : '');
+    return pre + speedCore(sp);
+  }
+  function speedCore(sp) {
     const w = wordsPerSec(sp);
     return fmtSec(sp.ms) + (wasStreamed(sp) ? ' · 1° testo ' + fmtSec(sp.first) : '') + (w ? ' · ~' + Math.round(w) + ' parole/s' : '');
   }
@@ -1912,7 +2006,7 @@
 
   // ─── Secondo parere e riepilogo (condivisione con altre app) ───
   // Niente chiavi e niente richieste: si prepara un testo completo e si apre il pannello «Condividi» di Android (o si copia / scarica nel browser).
-  const CHANGE_TOOLS = new Set(['github_write_file', 'github_edit_file', 'github_delete_lines', 'github_edit_structure', 'github_delete_file', 'github_create_branch', 'create_file', 'create_zip', 'create_pdf', 'create_xlsx', 'create_svg']);
+  const CHANGE_TOOLS = new Set(['github_write_file', 'github_append_file', 'github_edit_file', 'github_delete_lines', 'github_edit_structure', 'github_delete_file', 'github_create_branch', 'create_file', 'create_zip', 'create_pdf', 'create_xlsx', 'create_svg']);
   const clipTxt = (t, n) => {
     t = String(t || '').trim();
     return t.length > n ? t.slice(0, n) + '\n[…tagliato…]' : t;

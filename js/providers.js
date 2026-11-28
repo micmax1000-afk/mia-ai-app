@@ -328,10 +328,13 @@
     let full = '';
     const toolCalls = [];
     let meta = null;
+    let cut = false; // risposta tagliata perché troppo lunga (limite di uscita del modello)
     await readSSE(res, (payload) => {
       try {
         const json = JSON.parse(payload);
         if (json.error) throw new Error(json.error.message || 'Errore Gemini');
+        const fr = json.candidates && json.candidates[0] && json.candidates[0].finishReason;
+        if (fr) cut = fr === 'MAX_TOKENS';
         if (json.usageMetadata) meta = { in: json.usageMetadata.promptTokenCount, out: (json.usageMetadata.candidatesTokenCount || 0) + (json.usageMetadata.thoughtsTokenCount || 0), think: json.usageMetadata.thoughtsTokenCount || 0 };
         const parts = (json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts) || [];
         for (const p of parts) {
@@ -347,7 +350,7 @@
         throw e;
       }
     });
-    return { text: full, toolCalls, usage: finishUsage(meta, cfg, messages, tools, full, toolCalls) };
+    return { text: full, toolCalls, truncated: cut, usage: finishUsage(meta, cfg, messages, tools, full, toolCalls) };
   }
 
   async function listGeminiModels(cfg) {
@@ -458,11 +461,12 @@
       }));
       const fc = finishCalls(calls);
       const du = d.usage ? { in: d.usage.prompt_tokens, out: d.usage.completion_tokens } : null;
-      return { text, toolCalls: fc, usage: finishUsage(du, cfg, messages, tools, text, fc) };
+      return { text, toolCalls: fc, truncated: !!(d.choices && d.choices[0] && d.choices[0].finish_reason === 'length'), usage: finishUsage(du, cfg, messages, tools, text, fc) };
     }
 
     let full = '';
     let meta = null;
+    let cut = false;
     const acc = []; // chiamate a strumenti ricevute a pezzi
     await readSSE(res, (payload) => {
       try {
@@ -470,6 +474,8 @@
         if (json.error) throw new Error(json.error.message || 'Errore API');
         const uu = json.usage || (json.x_groq && json.x_groq.usage);
         if (uu && (uu.prompt_tokens || uu.completion_tokens)) meta = { in: uu.prompt_tokens, out: uu.completion_tokens };
+        const fr = json.choices && json.choices[0] && json.choices[0].finish_reason;
+        if (fr) cut = fr === 'length';
         const delta = json.choices && json.choices[0] && json.choices[0].delta;
         if (!delta) return;
         if (delta.content) {
@@ -491,7 +497,7 @@
       }
     });
     const fcalls = finishCalls(acc);
-    return { text: full, toolCalls: fcalls, usage: finishUsage(meta, cfg, messages, tools, full, fcalls) };
+    return { text: full, toolCalls: fcalls, truncated: cut, usage: finishUsage(meta, cfg, messages, tools, full, fcalls) };
   }
 
   async function listOpenAIModels(cfg) {
@@ -561,9 +567,9 @@
       const cb = onText || function () {};
       const out = await raceAbort(fn(cfg, messages, (full) => cb(cleanText(full)), signal, opts && opts.tools), signal);
       const text = cleanText(out.text);
-      if (!text.trim() && !out.toolCalls.length) throw new Error('Risposta vuota dal modello.');
+      if (!text.trim() && !out.toolCalls.length && !(opts && opts.full && out.truncated)) throw new Error('Risposta vuota dal modello.');
       // Senza opts.full restituisce solo il testo (come prima): così funzionano anche le chiamate che si aspettano una stringa.
-      return opts && opts.full ? { text, toolCalls: out.toolCalls, usage: out.usage } : text;
+      return opts && opts.full ? { text, toolCalls: out.toolCalls, usage: out.usage, truncated: !!out.truncated } : text;
     } finally {
       if (controller && controller.signal === signal) controller = null;
     }

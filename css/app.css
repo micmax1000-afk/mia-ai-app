@@ -483,6 +483,7 @@ html[data-offline='1'] .net-dot {
 .confirm-opinion.bad { background: rgba(248, 81, 73, 0.14); }
 .confirm-opinion.good { background: rgba(46, 160, 67, 0.14); }
 .later-btn { width: 100%; margin-top: 8px; }
+.confirm-allow { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; font-size: 13.5px; }
 .confirm-actions { margin-top: 14px; }
 .confirm-actions .btn { flex: 1; }
 .confirm-actions .btn.danger-btn { background: var(--danger); color: #fff; }
